@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 const DISCORD_INVITE_URL = "https://discord.gg/Xzb75CvcMH";
 
@@ -43,14 +44,22 @@ export default function Home() {
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
         <span className="text-lg font-bold tracking-tight">Seekers of Souls</span>
-        <a
-          href={DISCORD_INVITE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
-        >
-          Discord
-        </a>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/login"
+            className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
+          >
+            Member Login
+          </Link>
+          <a
+            href={DISCORD_INVITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
+          >
+            Discord
+          </a>
+        </div>
       </header>
 
       {/* Hero */}
