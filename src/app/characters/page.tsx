@@ -48,12 +48,20 @@ export default async function CharactersPage() {
                     Level {c.level} {charClassLabel(c.class)} — {charRaceName(c.race)}
                   </p>
                 </div>
-                <Link
-                  href={`/characters/${c.id}/edit`}
-                  className="text-sm font-medium text-emerald-400 hover:text-emerald-300"
-                >
-                  Edit
-                </Link>
+                <div className="flex items-center gap-4">
+                  <Link
+                    href={`/characters/${c.id}/import`}
+                    className="text-sm font-medium text-emerald-400 hover:text-emerald-300"
+                  >
+                    Import Seer Text
+                  </Link>
+                  <Link
+                    href={`/characters/${c.id}/edit`}
+                    className="text-sm font-medium text-emerald-400 hover:text-emerald-300"
+                  >
+                    Edit
+                  </Link>
+                </div>
               </li>
             ))}
           </ul>
