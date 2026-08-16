@@ -1,8 +1,34 @@
 import { betterAuth } from "better-auth";
 import { withCloudflare } from "better-auth-cloudflare";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "@/db";
+
+// Checks Discord server membership for the guild in SEEKERS_DISCORD_GUILD_ID
+// and stamps users.discordVerified. Wired as an account.create.after hook
+// (see below) so it runs exactly once, at first sign-in, rather than on
+// every request — Discord rate-limits this endpoint.
+async function verifyGuildMembership(
+  db: ReturnType<typeof drizzle>,
+  account: { userId: string; accessToken?: string | null },
+) {
+  const guildId = process.env.SEEKERS_DISCORD_GUILD_ID;
+  if (!guildId || !account.accessToken) return;
+
+  const res = await fetch("https://discord.com/api/users/@me/guilds", {
+    headers: { Authorization: `Bearer ${account.accessToken}` },
+  });
+  if (!res.ok) return;
+
+  const guilds = (await res.json()) as { id: string }[];
+  const isMember = guilds.some((g) => g.id === guildId);
+
+  await db
+    .update(schema.users)
+    .set({ discordVerified: isMember, lastLoginAt: new Date() })
+    .where(eq(schema.users.id, account.userId));
+}
 
 function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
   const db = env ? drizzle(env.DATABASE, { schema }) : undefined;
@@ -13,16 +39,23 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
       {
         d1: db ? { db, options: { usePlural: true } } : undefined,
         cf: cf || {},
+        // Defaults to true, which requires 8 extra columns on `sessions`
+        // (timezone/city/country/...) that this app has no use for.
+        geolocationTracking: false,
       },
       {
         socialProviders: {
           discord: {
             clientId: process.env.DISCORD_CLIENT_ID as string,
             clientSecret: process.env.DISCORD_CLIENT_SECRET as string,
-            // "identify" is default; "guilds" lets a later first-login check
-            // (Phase 1 task 5) confirm server membership. No "email" scope
-            // requested, so Discord may return email: null — fall back to a
+            // better-auth appends `scope` to the provider's own defaults
+            // (identify + email) unless told otherwise, so disable those and
+            // request exactly what we use: "identify" for the profile,
+            // "guilds" for the first-login membership check (Task 5). No
+            // "email" scope, so Discord may return email: null anyway on
+            // phone-only accounts — mapProfileToUser below falls back to a
             // placeholder that's never used to contact anyone.
+            disableDefaultScope: true,
             scope: ["identify", "guilds"],
             mapProfileToUser: (profile: { id: string; email?: string | null }) => ({
               discordId: profile.id,
@@ -65,6 +98,16 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
               type: "date",
               required: false,
               fieldName: "lastLoginAt",
+            },
+          },
+        },
+        databaseHooks: {
+          account: {
+            create: {
+              after: async (account) => {
+                if (account.providerId !== "discord" || !db) return;
+                await verifyGuildMembership(db, account);
+              },
             },
           },
         },
