@@ -26,3 +26,12 @@ export function canManageAnyCharacter(role: Role | null): boolean {
 export function canManageRoles(role: Role | null): boolean {
   return role === "leader";
 }
+
+// Whether the guild has anyone to promote/demote with yet — false only in
+// the window between the first Discord sign-in and Task 13's bootstrap
+// claim, when /admin's role management is otherwise unreachable.
+export async function hasAnyLeader(): Promise<boolean> {
+  const db = await getDb();
+  const [row] = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
+  return row !== undefined;
+}

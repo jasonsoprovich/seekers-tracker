@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { characterPopFlags, characters } from "@/db";
-import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
+import { canManageAnyCharacter, getUserRole, hasAnyLeader } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -14,6 +14,7 @@ export default async function CharactersPage() {
   if (!session) redirect("/login");
 
   const role = await getUserRole(session.user.id);
+  const showBootstrapBanner = !(await hasAnyLeader());
 
   const db = await getDb();
   const rows = await db
@@ -63,6 +64,20 @@ export default async function CharactersPage() {
             </Link>
           </div>
         </div>
+
+        {showBootstrapBanner && (
+          <div className="mt-6 flex items-center justify-between gap-4 rounded-lg border border-emerald-800 bg-emerald-950/40 px-4 py-3">
+            <p className="text-sm text-emerald-200">
+              Seekers of Souls doesn&apos;t have a leader yet — the first person here can claim it.
+            </p>
+            <Link
+              href="/bootstrap-leader"
+              className="shrink-0 rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black transition-colors hover:bg-emerald-400"
+            >
+              Claim Leader Role
+            </Link>
+          </div>
+        )}
 
         {rows.length === 0 ? (
           <p className="mt-8 text-neutral-400">You haven&apos;t added any characters yet.</p>
