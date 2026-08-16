@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { characterPopFlags, characters, importLog } from "@/db";
 import { getDb } from "@/lib/db";
-import { deriveCompletion, getFlagById, parseSeer } from "@/lib/pop-flags";
+import { deriveCompletion, getFlagById, parsePqExport, parseSeer } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 
 export type SeerImportState = {
@@ -78,6 +78,103 @@ export async function importSeerText(
         .map((id) => getFlagById(id))
         .filter((f) => f !== undefined)
         .map((f) => ({ id: f.id, label: f.label, zoneShort: f.zone_short })),
+    },
+  };
+}
+
+export type PqExportImportState = {
+  error?: string;
+  result?: {
+    total: number;
+    changed: { id: string; label: string; zoneShort: string; done: boolean }[];
+    skippedManual: number;
+    skippedUnknown: number;
+  };
+};
+
+// Task 14: the "preferred once available" import path from §6 — a
+// pq-companion "Export Guild Progress" JSON, not yet built on pq-companion's
+// side (see src/lib/pop-flags/pqc-export.ts). Unlike importSeerText above,
+// this is a full sync of pq-companion's resolved per-flag state (both
+// done=true and done=false are meaningful and applied), not an additive-only
+// signal — pq-companion has already done the resolution work.
+export async function importPqCompanionExport(
+  characterId: number,
+  _prevState: PqExportImportState,
+  formData: FormData,
+): Promise<PqExportImportState> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const raw = String(formData.get("json") ?? "").trim();
+  if (!raw) return { error: "Paste the exported JSON first." };
+
+  const db = await getDb();
+  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
+  if (!character || character.ownerId !== session.user.id) {
+    return { error: "You don't have permission to import for this character." };
+  }
+
+  const parsed = parsePqExport(raw);
+  if ("error" in parsed) return { error: parsed.error };
+  const { data } = parsed;
+
+  if (data.characterName.trim().toLowerCase() !== character.name.trim().toLowerCase()) {
+    return {
+      error: `This export is for "${data.characterName}", but you're importing to "${character.name}". Paste the right character's export.`,
+    };
+  }
+
+  const existingRows = await db
+    .select()
+    .from(characterPopFlags)
+    .where(eq(characterPopFlags.characterId, characterId));
+  const existingByFlag = new Map(existingRows.map((r) => [r.flagId, r]));
+
+  let skippedManual = 0;
+  let skippedUnknown = 0;
+  const changed: { id: string; label: string; zoneShort: string; done: boolean }[] = [];
+  const now = new Date();
+
+  for (const flag of data.flags) {
+    const dataset = getFlagById(flag.flagId);
+    if (!dataset) {
+      skippedUnknown++;
+      continue;
+    }
+    // A local manual override (set through the checklist) always wins over
+    // an imported reading, same precedence as importSeerText.
+    const existing = existingByFlag.get(flag.flagId);
+    if (existing?.source === "manual") {
+      skippedManual++;
+      continue;
+    }
+    if (existing && existing.done === flag.done) continue;
+
+    await db
+      .insert(characterPopFlags)
+      .values({ characterId, flagId: flag.flagId, done: flag.done, source: "import", updatedAt: now })
+      .onConflictDoUpdate({
+        target: [characterPopFlags.characterId, characterPopFlags.flagId],
+        set: { done: flag.done, source: "import", updatedAt: now },
+      });
+    changed.push({ id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short, done: flag.done });
+  }
+
+  const summary = `${data.flags.length} flags in export, ${changed.length} changed, ${skippedManual} kept manual, ${skippedUnknown} unknown`;
+  await db.insert(importLog).values({
+    characterId,
+    uploadedBy: session.user.id,
+    kind: "pqc_export",
+    summary,
+  });
+
+  return {
+    result: {
+      total: data.flags.length,
+      changed,
+      skippedManual,
+      skippedUnknown,
     },
   };
 }
