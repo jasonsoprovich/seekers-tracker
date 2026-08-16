@@ -57,3 +57,15 @@ export function isValidCharClass(id: number): boolean {
 export function isValidCharRace(id: number): boolean {
   return CHAR_RACES.some((r) => r.id === id);
 }
+
+// 10-wide brackets for the guild dashboard's level distribution, with the
+// level cap broken out on its own — "how many are already 60" is a more
+// useful read than folding it into "50-59".
+export const LEVEL_BRACKETS = ["1-9", "10-19", "20-29", "30-39", "40-49", "50-59", `${MAX_CHAR_LEVEL}`] as const;
+
+export function levelBracket(level: number): (typeof LEVEL_BRACKETS)[number] {
+  if (level >= MAX_CHAR_LEVEL) return `${MAX_CHAR_LEVEL}`;
+  if (level < 10) return "1-9";
+  const start = Math.floor(level / 10) * 10;
+  return `${start}-${start + 9}` as (typeof LEVEL_BRACKETS)[number];
+}

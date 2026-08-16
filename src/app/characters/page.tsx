@@ -41,6 +41,12 @@ export default async function CharactersPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Your Characters</h1>
           <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
+            >
+              Dashboard
+            </Link>
             {canManageAnyCharacter(role) && (
               <Link
                 href="/admin"
