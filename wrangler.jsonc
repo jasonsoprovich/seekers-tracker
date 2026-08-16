@@ -35,7 +35,8 @@
 		{
 			"binding": "DATABASE",
 			"database_name": "seekers-of-souls",
-			"database_id": "77583c9c-c654-4934-8782-ed4d1265771f"
+			"database_id": "77583c9c-c654-4934-8782-ed4d1265771f",
+			"migrations_dir": "drizzle/migrations"
 		}
 	],
 	"observability": {
