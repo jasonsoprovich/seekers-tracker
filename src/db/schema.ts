@@ -1,8 +1,16 @@
 import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 
+// Core fields (email, emailVerified, username/name, avatarUrl/image,
+// createdAt, updatedAt) are required by better-auth's user model — see
+// src/auth/index.ts for the field-name mapping (name -> username,
+// image -> avatarUrl) and the guild-specific additionalFields.
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("email_verified", { mode: "boolean" })
+    .notNull()
+    .default(false),
   discordId: text("discord_id").unique(),
   username: text("username"),
   avatarUrl: text("avatar_url"),
@@ -13,6 +21,9 @@ export const users = sqliteTable("users", {
     .notNull()
     .default(false),
   createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
   lastLoginAt: integer("last_login_at", { mode: "timestamp" }),
