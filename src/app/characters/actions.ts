@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characters } from "@/db";
+import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 import { getSession } from "@/lib/session";
@@ -83,8 +84,14 @@ export async function updateCharacter(
 
   const db = await getDb();
   const [existing] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!existing || existing.ownerId !== session.user.id) {
+  if (!existing) {
     return { error: "You don't have permission to edit this character." };
+  }
+  if (existing.ownerId !== session.user.id) {
+    const role = await getUserRole(session.user.id);
+    if (!canManageAnyCharacter(role)) {
+      return { error: "You don't have permission to edit this character." };
+    }
   }
 
   try {

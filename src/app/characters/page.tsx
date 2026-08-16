@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { characterPopFlags, characters } from "@/db";
+import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -11,6 +12,8 @@ import { getSession } from "@/lib/session";
 export default async function CharactersPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+
+  const role = await getUserRole(session.user.id);
 
   const db = await getDb();
   const rows = await db
@@ -37,12 +40,22 @@ export default async function CharactersPage() {
       <div className="mx-auto max-w-3xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Your Characters</h1>
-          <Link
-            href="/characters/new"
-            className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-emerald-400"
-          >
-            Add Character
-          </Link>
+          <div className="flex items-center gap-3">
+            {canManageAnyCharacter(role) && (
+              <Link
+                href="/admin"
+                className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
+              >
+                Admin
+              </Link>
+            )}
+            <Link
+              href="/characters/new"
+              className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-emerald-400"
+            >
+              Add Character
+            </Link>
+          </div>
         </div>
 
         {rows.length === 0 ? (

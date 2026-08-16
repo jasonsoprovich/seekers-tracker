@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { PopFlagChecklist } from "@/components/PopFlagChecklist";
 import { characterPopFlags, characters } from "@/db";
+import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -20,7 +21,10 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
   const db = await getDb();
   const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
   if (!character) notFound();
-  if (character.ownerId !== session.user.id) redirect("/characters");
+  if (character.ownerId !== session.user.id) {
+    const role = await getUserRole(session.user.id);
+    if (!canManageAnyCharacter(role)) redirect("/characters");
+  }
 
   const rows = await db
     .select()

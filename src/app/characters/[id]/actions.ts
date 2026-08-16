@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characterPopFlags, characters } from "@/db";
+import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getFlagById, resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
@@ -29,8 +30,14 @@ export async function setManualFlag(
 
   const db = await getDb();
   const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!character || character.ownerId !== session.user.id) {
+  if (!character) {
     return { error: "You don't have permission to edit this character's flags." };
+  }
+  if (character.ownerId !== session.user.id) {
+    const role = await getUserRole(session.user.id);
+    if (!canManageAnyCharacter(role)) {
+      return { error: "You don't have permission to edit this character's flags." };
+    }
   }
 
   const rows = await db

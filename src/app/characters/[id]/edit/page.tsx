@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { CharacterForm } from "@/components/CharacterForm";
 import { characters } from "@/db";
+import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -19,7 +20,10 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   const db = await getDb();
   const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
   if (!character) notFound();
-  if (character.ownerId !== session.user.id) redirect("/characters");
+  if (character.ownerId !== session.user.id) {
+    const role = await getUserRole(session.user.id);
+    if (!canManageAnyCharacter(role)) redirect("/characters");
+  }
 
   const boundUpdate = updateCharacter.bind(null, characterId);
 
