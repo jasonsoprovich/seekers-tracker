@@ -31,6 +31,13 @@
 			"service": "seekers-tracker"
 		}
 	],
+	"d1_databases": [
+		{
+			"binding": "DATABASE",
+			"database_name": "seekers-of-souls",
+			"database_id": "77583c9c-c654-4934-8782-ed4d1265771f"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},
