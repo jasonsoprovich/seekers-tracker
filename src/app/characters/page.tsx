@@ -125,7 +125,7 @@ export default async function CharactersPage() {
                       href={`/characters/${c.id}/import`}
                       className="text-sm font-medium text-emerald-400 hover:text-emerald-300"
                     >
-                      Import Seer Text
+                      Import
                     </Link>
                     <Link
                       href={`/characters/${c.id}/edit`}

@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 
 import type { PqExportImportState } from "@/app/characters/[id]/import/actions";
+import { FileOrTextArea } from "@/components/FileOrTextArea";
 
 export function ImportPqExportForm({
   action,
@@ -16,11 +17,13 @@ export function ImportPqExportForm({
       <form action={formAction} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
           pq-companion &quot;Export Guild Progress&quot; JSON
-          <textarea
+          <FileOrTextArea
             name="json"
             required
             rows={10}
             placeholder='{"schema_version": 1, "character": {...}, "pop_flags": [...]}'
+            accept=".json"
+            fileHint="a .json"
             className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 focus:border-emerald-500 focus:outline-none"
           />
         </label>
