@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ClassBarChart, type ClassCompositionRow } from "@/components/dashboard/ClassBarChart";
 import { ClassPopChart, type ClassPopRow } from "@/components/dashboard/ClassPopChart";
 import { GuildPopMeter } from "@/components/dashboard/GuildPopMeter";
-import { LevelDonutChart, type LevelBracketRow } from "@/components/dashboard/LevelDonutChart";
+import { LevelBarChart, type LevelBracketRow } from "@/components/dashboard/LevelBarChart";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -118,7 +118,7 @@ export default async function DashboardPage() {
           <h2 className="text-lg font-semibold">Roster by Level</h2>
           <p className="mt-1 text-sm text-neutral-400">Share of the guild in each level bracket.</p>
           <div className="mt-4">
-            <LevelDonutChart rows={bracketRows} />
+            <LevelBarChart rows={bracketRows} />
           </div>
         </Card>
 
