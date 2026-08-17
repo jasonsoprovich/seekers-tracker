@@ -4,12 +4,15 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { fieldClasses } from "@/components/ui/Field";
+import { roleRank, RoleBadge } from "@/components/ui/RoleBadge";
+import type { Role } from "@/lib/authz";
 import { CHAR_CLASSES, CHAR_RACES } from "@/lib/eq/enums";
 
 export type RosterRow = {
   id: number;
   name: string;
   ownerUsername: string;
+  ownerRole: Role;
   classId: number;
   className: string;
   raceId: number;
@@ -21,12 +24,23 @@ export type RosterRow = {
   priorityRating: number | null;
 };
 
-type SortKey = "name" | "ownerUsername" | "className" | "raceName" | "level" | "charType" | "ep" | "gp" | "priorityRating";
+type SortKey =
+  | "name"
+  | "ownerUsername"
+  | "ownerRole"
+  | "className"
+  | "raceName"
+  | "level"
+  | "charType"
+  | "ep"
+  | "gp"
+  | "priorityRating";
 type SortDir = "asc" | "desc";
 
 const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "name", label: "Name" },
   { key: "ownerUsername", label: "Owner" },
+  { key: "ownerRole", label: "Role" },
   { key: "charType", label: "Type" },
   { key: "className", label: "Class" },
   { key: "raceName", label: "Race" },
@@ -37,6 +51,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 ];
 
 function compare(a: RosterRow, b: RosterRow, key: SortKey): number {
+  if (key === "ownerRole") return roleRank(a.ownerRole) - roleRank(b.ownerRole);
   const av = a[key];
   const bv = b[key];
   if (av === null && bv === null) return 0;
@@ -189,6 +204,9 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-neutral-400">{r.ownerUsername}</td>
+                <td className="px-3 py-2">
+                  <RoleBadge role={r.ownerRole} />
+                </td>
                 <td className="px-3 py-2 text-neutral-400">{r.charType === "main" ? "Main" : "Alt"}</td>
                 <td className="px-3 py-2 text-neutral-400">{r.className}</td>
                 <td className="px-3 py-2 text-neutral-400">{r.raceName}</td>

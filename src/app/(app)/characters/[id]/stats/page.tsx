@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { StatSheet } from "@/components/StatSheet";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { characterGear, characters, characterStats } from "@/db";
+import { characterGear, characters, characterStats, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { computeDerivedStats } from "@/lib/eqstat";
@@ -19,8 +19,13 @@ export default async function CharacterStatsPage({ params }: { params: Promise<{
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!character) notFound();
+  const [row] = await db
+    .select({ character: characters, ownerUsername: users.username, ownerRole: users.role })
+    .from(characters)
+    .innerJoin(users, eq(characters.ownerId, users.id))
+    .where(eq(characters.id, characterId));
+  if (!row) notFound();
+  const { character, ownerUsername, ownerRole } = row;
   if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
 
   const [statsRow] = await db.select().from(characterStats).where(eq(characterStats.characterId, characterId));
@@ -53,7 +58,7 @@ export default async function CharacterStatsPage({ params }: { params: Promise<{
 
   return (
     <div className="mx-auto max-w-3xl">
-      <CharacterHeader character={character} active="stats" />
+      <CharacterHeader character={character} active="stats" ownerUsername={ownerUsername ?? undefined} ownerRole={ownerRole} />
 
       <div className="mt-6">
         {!base || !derived ? (

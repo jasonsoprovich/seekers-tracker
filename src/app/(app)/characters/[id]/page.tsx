@@ -5,7 +5,7 @@ import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { PopFlagChecklist } from "@/components/PopFlagChecklist";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Card } from "@/components/ui/Card";
-import { characterPopFlags, characters } from "@/db";
+import { characterPopFlags, characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -20,8 +20,13 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!character) notFound();
+  const [row] = await db
+    .select({ character: characters, ownerUsername: users.username, ownerRole: users.role })
+    .from(characters)
+    .innerJoin(users, eq(characters.ownerId, users.id))
+    .where(eq(characters.id, characterId));
+  if (!row) notFound();
+  const { character, ownerUsername, ownerRole } = row;
   if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
 
   const rows = await db
@@ -32,7 +37,7 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
 
   return (
     <div className="mx-auto max-w-3xl">
-      <CharacterHeader character={character} active="pop" />
+      <CharacterHeader character={character} active="pop" ownerUsername={ownerUsername ?? undefined} ownerRole={ownerRole} />
 
       <Card className="mt-4 px-4 py-3">
         <p className="mb-1 text-xs tracking-wider text-neutral-500 uppercase">PoP progress</p>

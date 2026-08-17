@@ -7,6 +7,7 @@ import { RoleSelect } from "@/components/RoleSelect";
 import { SyncEpgpButton } from "@/components/SyncEpgpButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { RoleBadge } from "@/components/ui/RoleBadge";
 import { characterPopFlags, characters, users } from "@/db";
 import { canManageAnyCharacter, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
@@ -34,6 +35,7 @@ export default async function AdminPage() {
       mainCharacterId: characters.mainCharacterId,
       ownerUsername: users.username,
       ownerId: characters.ownerId,
+      ownerRole: users.role,
     })
     .from(characters)
     .innerJoin(users, eq(characters.ownerId, users.id))
@@ -85,6 +87,7 @@ export default async function AdminPage() {
         <p className="mt-1 text-sm text-neutral-400">
           As {role}, you can view, edit, and delete any member&apos;s character. Edit a character to change its
           main/alt status or link an alt to its main.
+          {canEditRoles && " A main character's row also has a role picker, to promote/demote its owner."}
         </p>
         {roster.length === 0 ? (
           <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
@@ -101,16 +104,17 @@ export default async function AdminPage() {
               return (
                 <li key={c.id} className="flex items-center justify-between px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">
+                    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-medium">
                       <Link href={`/characters/${c.id}`} className="hover:text-emerald-400">
                         {c.name}
-                      </Link>{" "}
+                      </Link>
                       <span className="text-sm font-normal text-neutral-500">
                         {c.charType === "alt" ? "(Alt)" : "(Main)"} — {c.ownerUsername}
                         {c.charType === "alt" && c.mainCharacterId && (
                           <> → {nameById.get(c.mainCharacterId) ?? "(unknown)"}</>
                         )}
                       </span>
+                      <RoleBadge role={c.ownerRole} />
                     </p>
                     <p className="text-sm text-neutral-400">
                       Level {c.level} {charClassLabel(c.class)} — {charRaceName(c.race)}
@@ -119,11 +123,16 @@ export default async function AdminPage() {
                       <ProgressBar done={resolved.done} total={resolved.total} suffix=" PoP" />
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-4">
-                    <Link href={`/characters/${c.id}/edit`} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
-                      Edit
-                    </Link>
-                    <DeleteCharacterButton characterId={c.id} characterName={c.name} />
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <div className="flex items-center gap-4">
+                      <Link href={`/characters/${c.id}/edit`} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
+                        Edit
+                      </Link>
+                      <DeleteCharacterButton characterId={c.id} characterName={c.name} />
+                    </div>
+                    {canEditRoles && c.charType === "main" && (
+                      <RoleSelect userId={c.ownerId} role={c.ownerRole} isSelf={c.ownerId === session.user.id} />
+                    )}
                   </div>
                 </li>
               );

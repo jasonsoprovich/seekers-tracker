@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { GearList } from "@/components/GearList";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { characterGear, characters } from "@/db";
+import { characterGear, characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { formatItemStatLines, getItemStats } from "@/lib/eqstat";
 import { getDb } from "@/lib/db";
@@ -19,15 +19,20 @@ export default async function CharacterGearPage({ params }: { params: Promise<{ 
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!character) notFound();
+  const [row] = await db
+    .select({ character: characters, ownerUsername: users.username, ownerRole: users.role })
+    .from(characters)
+    .innerJoin(users, eq(characters.ownerId, users.id))
+    .where(eq(characters.id, characterId));
+  if (!row) notFound();
+  const { character, ownerUsername, ownerRole } = row;
   if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
 
   const rows = await db.select().from(characterGear).where(eq(characterGear.characterId, characterId));
 
   return (
     <div className="mx-auto max-w-3xl">
-      <CharacterHeader character={character} active="gear" />
+      <CharacterHeader character={character} active="gear" ownerUsername={ownerUsername ?? undefined} ownerRole={ownerRole} />
 
       <div className="mt-6">
         {rows.length === 0 ? (
