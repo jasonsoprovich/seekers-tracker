@@ -12,10 +12,6 @@ export default async function BootstrapLeaderPage() {
 
   const db = await getDb();
   const [existingLeader] = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
-  const [me] = await db
-    .select({ role: users.role, discordVerified: users.discordVerified })
-    .from(users)
-    .where(eq(users.id, session.user.id));
 
   if (existingLeader) {
     return (
@@ -36,15 +32,9 @@ export default async function BootstrapLeaderPage() {
           No one leads Seekers of Souls yet. As the first person here, you can claim the leader role to bootstrap
           role management — you&apos;ll be able to promote others from Admin afterward.
         </p>
-        {!me?.discordVerified ? (
-          <p className="mt-4 text-sm text-red-400">
-            You must be a verified Seekers of Souls Discord member first.
-          </p>
-        ) : (
-          <div className="mt-6">
-            <ClaimLeaderButton />
-          </div>
-        )}
+        <div className="mt-6">
+          <ClaimLeaderButton />
+        </div>
       </div>
     </div>
   );

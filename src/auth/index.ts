@@ -1,33 +1,22 @@
 import { betterAuth } from "better-auth";
 import { withCloudflare } from "better-auth-cloudflare";
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "@/db";
+import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 
 // Checks Discord server membership for the guild in SEEKERS_DISCORD_GUILD_ID
 // and stamps users.discordVerified. Wired as an account.create.after hook
 // (see below) so it runs exactly once, at first sign-in, rather than on
-// every request — Discord rate-limits this endpoint.
+// every request — Discord rate-limits this endpoint. A user who signs up
+// before SEEKERS_DISCORD_GUILD_ID is configured (or hits a transient
+// Discord API error here) gets re-checked on demand instead — see
+// src/app/bootstrap-leader/actions.ts.
 async function verifyGuildMembership(
   db: ReturnType<typeof drizzle>,
   account: { userId: string; accessToken?: string | null },
 ) {
-  const guildId = process.env.SEEKERS_DISCORD_GUILD_ID;
-  if (!guildId || !account.accessToken) return;
-
-  const res = await fetch("https://discord.com/api/users/@me/guilds", {
-    headers: { Authorization: `Bearer ${account.accessToken}` },
-  });
-  if (!res.ok) return;
-
-  const guilds = (await res.json()) as { id: string }[];
-  const isMember = guilds.some((g) => g.id === guildId);
-
-  await db
-    .update(schema.users)
-    .set({ discordVerified: isMember, lastLoginAt: new Date() })
-    .where(eq(schema.users.id, account.userId));
+  await checkAndStampGuildMembership(db, account.userId, account.accessToken);
 }
 
 function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {

@@ -1,11 +1,15 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { createAuth } from "@/auth";
 import { users } from "@/db";
+import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export type ClaimLeaderResult = { error?: string };
 
@@ -32,7 +36,23 @@ export async function claimLeaderRole(): Promise<ClaimLeaderResult> {
     .where(eq(users.id, session.user.id));
   if (!me) return { error: "User record not found." };
   if (me.role === "leader") redirect("/admin");
-  if (!me.discordVerified) {
+
+  let verified = me.discordVerified;
+  if (!verified) {
+    // The account.create.after hook (src/auth/index.ts) only runs once, at
+    // first sign-in — if SEEKERS_DISCORD_GUILD_ID wasn't configured yet, or
+    // Discord's API hiccuped that one time, discordVerified is stuck false
+    // forever with no way to retry. Re-check live here instead of trusting
+    // the stale flag.
+    const { env, cf } = await getCloudflareContext({ async: true });
+    const auth = createAuth(env, cf);
+    const { accessToken } = await auth.api.getAccessToken({
+      body: { providerId: "discord", userId: session.user.id },
+      headers: await headers(),
+    });
+    verified = await checkAndStampGuildMembership(db, session.user.id, accessToken);
+  }
+  if (!verified) {
     return { error: "You must be a verified Seekers of Souls Discord member first." };
   }
 
