@@ -3,9 +3,10 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characterGear, characterPopFlags, characters, importLog } from "@/db";
+import { characterGear, characterPopFlags, characters, characterStats, importLog } from "@/db";
+import { computeDerivedStats } from "@/lib/eqstat";
 import { getDb } from "@/lib/db";
-import { getItemIcon, gearSlotLabel, parseQuarmyGear } from "@/lib/gear";
+import { getItemIcon, gearSlotLabel, parseQuarmyGear, parseQuarmyStats } from "@/lib/gear";
 import { archiveImportPayload } from "@/lib/import-archive";
 import { deriveCompletion, getFlagById, parsePqExport, parseSeer } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
@@ -232,6 +233,50 @@ export async function importGear(
       icon: getItemIcon(entry.itemId) ?? null,
       updatedAt: now,
     });
+  }
+
+  // Task 18 (§8 Phase 3): the export's character-stats row carries base
+  // attributes, the one derived-stat input this app has no other source
+  // for. Older exports (pre-Zeal-1.4.3, or a hand-trimmed paste) may lack
+  // it — derived stats just stay unavailable until a fuller export is
+  // imported, same graceful-partial approach as the AA/tradeskill sections.
+  const baseAttrs = parseQuarmyStats(text);
+  if (baseAttrs) {
+    const computed = computeDerivedStats({
+      class: character.class,
+      level: character.level,
+      race: character.race,
+      base: baseAttrs,
+      itemIds: entries.map((e) => e.itemId),
+    });
+    await db
+      .insert(characterStats)
+      .values({
+        characterId,
+        baseStr: baseAttrs.str,
+        baseSta: baseAttrs.sta,
+        baseCha: baseAttrs.cha,
+        baseDex: baseAttrs.dex,
+        baseInt: baseAttrs.int,
+        baseAgi: baseAttrs.agi,
+        baseWis: baseAttrs.wis,
+        computedJson: JSON.stringify(computed),
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: characterStats.characterId,
+        set: {
+          baseStr: baseAttrs.str,
+          baseSta: baseAttrs.sta,
+          baseCha: baseAttrs.cha,
+          baseDex: baseAttrs.dex,
+          baseInt: baseAttrs.int,
+          baseAgi: baseAttrs.agi,
+          baseWis: baseAttrs.wis,
+          computedJson: JSON.stringify(computed),
+          updatedAt: now,
+        },
+      });
   }
 
   const r2Key = await archiveImportPayload("gear_export", characterId, text);

@@ -2,14 +2,15 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { GearList } from "@/components/GearList";
-import { characterGear, characters } from "@/db";
+import { StatSheet } from "@/components/StatSheet";
+import { characterGear, characters, characterStats } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
+import { computeDerivedStats } from "@/lib/eqstat";
 import { getSession } from "@/lib/session";
 
-export default async function CharacterGearPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CharacterStatsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const characterId = Number(id);
   if (!Number.isInteger(characterId)) notFound();
@@ -25,7 +26,33 @@ export default async function CharacterGearPage({ params }: { params: Promise<{ 
     if (!canManageAnyCharacter(role)) redirect("/characters");
   }
 
-  const rows = await db.select().from(characterGear).where(eq(characterGear.characterId, characterId));
+  const [statsRow] = await db.select().from(characterStats).where(eq(characterStats.characterId, characterId));
+  const gearRows = await db.select().from(characterGear).where(eq(characterGear.characterId, characterId));
+
+  // Always recomputed fresh from current base attributes + gear + the
+  // character's live class/level/race — never trusts characterStats'
+  // computed_json cache, which can go stale if the character is edited
+  // between gear imports (see schema.ts's comment on the column).
+  const base = statsRow
+    ? {
+        str: statsRow.baseStr,
+        sta: statsRow.baseSta,
+        agi: statsRow.baseAgi,
+        dex: statsRow.baseDex,
+        wis: statsRow.baseWis,
+        int: statsRow.baseInt,
+        cha: statsRow.baseCha,
+      }
+    : null;
+  const derived = base
+    ? computeDerivedStats({
+        class: character.class,
+        level: character.level,
+        race: character.race,
+        base,
+        itemIds: gearRows.map((r) => r.itemId),
+      })
+    : null;
 
   return (
     <div className="min-h-screen bg-neutral-950 px-6 py-10 text-neutral-100">
@@ -54,28 +81,28 @@ export default async function CharacterGearPage({ params }: { params: Promise<{ 
           >
             PoP Checklist
           </Link>
-          <Link href={`/characters/${character.id}/gear`} className="border-b-2 border-emerald-500 px-3 py-2 text-neutral-100">
-            Gear
-          </Link>
           <Link
-            href={`/characters/${character.id}/stats`}
+            href={`/characters/${character.id}/gear`}
             className="border-b-2 border-transparent px-3 py-2 text-neutral-400 hover:text-neutral-200"
           >
+            Gear
+          </Link>
+          <Link href={`/characters/${character.id}/stats`} className="border-b-2 border-emerald-500 px-3 py-2 text-neutral-100">
             Stats
           </Link>
         </div>
 
         <div className="mt-6">
-          {rows.length === 0 ? (
+          {!base || !derived ? (
             <p className="text-sm text-neutral-400">
-              No gear imported yet.{" "}
+              No base attributes on file yet.{" "}
               <Link href={`/characters/${character.id}/import`} className="text-emerald-400 hover:text-emerald-300">
                 Import a Quarmy export
               </Link>{" "}
-              to populate this list.
+              (the modern format, with the character-stats row) to compute stats.
             </p>
           ) : (
-            <GearList rows={rows.map((r) => ({ slot: r.slot, itemName: r.itemName }))} />
+            <StatSheet base={base} stats={derived} />
           )}
         </div>
       </div>

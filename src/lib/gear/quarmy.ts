@@ -38,6 +38,53 @@ function normalizeLocation(rawLocation: string, seen: Map<string, number>): Gear
   return null;
 }
 
+// Base (unbuffed, no-item) attributes from the Quarmy export's
+// character-stats header + data row (§8 Phase 3 / task 18) — the piece of
+// derived-stat input this app has no other source for. Class/level/race are
+// intentionally NOT read from here even though the row carries them: this
+// app treats the member-entered `characters` row as the source of truth for
+// identity fields, not a re-import of a text file.
+export interface QuarmyBaseAttributes {
+  str: number;
+  sta: number;
+  cha: number;
+  dex: number;
+  int: number;
+  agi: number;
+  wis: number;
+}
+
+// Data row layout: Character\tName\tLastName\tLevel\tClass\tRace\tGender\t
+// Deity\tGuild\tGuildRank\tBaseSTR\tBaseSTA\tBaseCHA\tBaseDEX\tBaseINT\t
+// BaseAGI\tBaseWIS (17 fields; indices 10-16 are the base attributes).
+export function parseQuarmyStats(text: string): QuarmyBaseAttributes | null {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (!line) continue;
+    if (line.split("\t")[0]!.trim().toLowerCase() !== "character") continue;
+
+    for (let j = i + 1; j < lines.length; j++) {
+      const dataLine = lines[j]!.trim();
+      if (!dataLine) continue;
+      const parts = dataLine.split("\t");
+      if (parts.length < 17) return null;
+      const num = (s: string) => Number.parseInt(s.trim(), 10) || 0;
+      return {
+        str: num(parts[10]!),
+        sta: num(parts[11]!),
+        cha: num(parts[12]!),
+        dex: num(parts[13]!),
+        int: num(parts[14]!),
+        agi: num(parts[15]!),
+        wis: num(parts[16]!),
+      };
+    }
+    return null;
+  }
+  return null;
+}
+
 export function parseQuarmyGear(text: string): QuarmyGearEntry[] {
   const entries: QuarmyGearEntry[] = [];
   const seen = new Map<string, number>();

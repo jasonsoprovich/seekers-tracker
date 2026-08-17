@@ -82,6 +82,31 @@ export const characterGear = sqliteTable(
   (table) => [primaryKey({ columns: [table.characterId, table.slot] })],
 );
 
+// Base (unbuffed, no-item) attributes, captured from the Quarmy export's
+// character-stats row (§8 Phase 3 / task 18) — the one piece of derived-stat
+// input the app has no other source for (class/level/race already live on
+// `characters`, gear already lives in `character_gear`). computed_json is a
+// best-effort cache of the last computed derived-stat sheet, written at gear
+// import time; the Stats page always recomputes fresh rather than trusting
+// it, since a character edit (level/class change) can go stale without a
+// re-import — see src/lib/eqstat/compute.ts.
+export const characterStats = sqliteTable("character_stats", {
+  characterId: integer("character_id")
+    .primaryKey()
+    .references(() => characters.id),
+  baseStr: integer("base_str").notNull(),
+  baseSta: integer("base_sta").notNull(),
+  baseCha: integer("base_cha").notNull(),
+  baseDex: integer("base_dex").notNull(),
+  baseInt: integer("base_int").notNull(),
+  baseAgi: integer("base_agi").notNull(),
+  baseWis: integer("base_wis").notNull(),
+  computedJson: text("computed_json"),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const importLog = sqliteTable("import_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   characterId: integer("character_id")
