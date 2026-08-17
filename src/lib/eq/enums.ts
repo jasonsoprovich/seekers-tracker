@@ -21,6 +21,33 @@ export const CHAR_CLASSES = [
   { id: 14, abbr: "BST", name: "Beastlord" },
 ] as const;
 
+// Per-class hues, ported verbatim from pq-companion's DEFAULT_DPS_CLASS_COLORS
+// (frontend/src/types/config.ts) — the WoW-style palette it uses everywhere
+// class identity shows up (DPS meter, player tracker). Keyed by the same
+// 0-indexed class id as CHAR_CLASSES so a class reads as the same color in
+// both apps.
+export const CLASS_COLORS: Record<number, string> = {
+  0: "#C79C6E", // Warrior
+  1: "#FFFFFF", // Cleric
+  2: "#F58CBA", // Paladin
+  3: "#ABD473", // Ranger
+  4: "#C41F3B", // Shadow Knight
+  5: "#FF7D0A", // Druid
+  6: "#00FF96", // Monk
+  7: "#8A47E8", // Bard
+  8: "#FFF569", // Rogue
+  9: "#0070DE", // Shaman
+  10: "#9482C9", // Necromancer
+  11: "#40ED57", // Wizard
+  12: "#69CCF0", // Magician
+  13: "#ED5CE5", // Enchanter
+  14: "#03B78A", // Beastlord
+};
+
+export function classColor(id: number): string {
+  return CLASS_COLORS[id] ?? "#B2B2B2";
+}
+
 export const CHAR_RACES = [
   { id: 1, name: "Human" },
   { id: 2, name: "Barbarian" },
