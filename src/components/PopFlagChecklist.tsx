@@ -3,26 +3,9 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { setManualFlag } from "@/app/characters/[id]/actions";
+import { setManualFlag } from "@/app/(app)/characters/[id]/actions";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { roleMeta, stepKindMeta, type FlagStatus, type Progress } from "@/lib/pop-flags";
-
-function ProgressBar({ done, total }: { done: number; total: number }) {
-  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-  const complete = done === total && total > 0;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-800">
-        <div
-          className={`h-full rounded-full transition-all ${complete ? "bg-emerald-500" : "bg-sky-500"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className={`shrink-0 text-[11px] tabular-nums ${complete ? "text-emerald-400" : "text-neutral-500"}`}>
-        {done} / {total}
-      </span>
-    </div>
-  );
-}
 
 function SourceChip({ source }: { source?: string }) {
   if (!source) return null;

@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { setUserRole } from "@/app/admin/actions";
+import { setUserRole } from "@/app/(app)/admin/actions";
+import { Button } from "@/components/ui/Button";
+import { fieldClasses } from "@/components/ui/Field";
 import type { Role } from "@/lib/authz";
 
 const ROLES: Role[] = ["member", "officer", "leader"];
@@ -41,7 +43,7 @@ export function RoleSelect({
         value={value}
         onChange={(e) => setValue(e.target.value as Role)}
         disabled={pending}
-        className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100 focus:border-emerald-500 focus:outline-none"
+        className={fieldClasses({ size: "sm" })}
       >
         {ROLES.map((r) => (
           <option key={r} value={r}>
@@ -51,14 +53,9 @@ export function RoleSelect({
         ))}
       </select>
       {value !== role && (
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending}
-          className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-black transition-colors hover:bg-emerald-400 disabled:opacity-60"
-        >
+        <Button type="button" onClick={save} disabled={pending} size="sm">
           {pending ? "Saving…" : "Save"}
-        </button>
+        </Button>
       )}
       {error && <span className="text-xs text-red-400">{error}</span>}
     </div>

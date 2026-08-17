@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+
 interface Tally {
   done: number;
   total: number;
@@ -26,26 +28,14 @@ export function ClassPopChart({ rows }: { rows: ClassPopRow[] }) {
   return (
     <div>
       <div className="mb-3 flex justify-end">
-        <div className="flex overflow-hidden rounded-full border border-neutral-700 text-xs">
-          <button
-            type="button"
-            onClick={() => setScope("mains")}
-            className={`px-3 py-1 font-medium transition-colors ${
-              scope === "mains" ? "bg-neutral-700 text-neutral-100" : "text-neutral-400 hover:text-neutral-200"
-            }`}
-          >
-            Mains only
-          </button>
-          <button
-            type="button"
-            onClick={() => setScope("all")}
-            className={`px-3 py-1 font-medium transition-colors ${
-              scope === "all" ? "bg-neutral-700 text-neutral-100" : "text-neutral-400 hover:text-neutral-200"
-            }`}
-          >
-            Include alts
-          </button>
-        </div>
+        <SegmentedToggle
+          value={scope}
+          onChange={(v) => setScope(v as "mains" | "all")}
+          options={[
+            { value: "mains", label: "Mains only" },
+            { value: "all", label: "Include alts" },
+          ]}
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         {rows.map((r) => {

@@ -2,14 +2,13 @@
 
 import { useActionState } from "react";
 
-import type { CharacterFormState } from "@/app/characters/actions";
+import type { CharacterFormState } from "@/app/(app)/characters/actions";
+import { Button } from "@/components/ui/Button";
+import { fieldClasses } from "@/components/ui/Field";
 import type { characters } from "@/db";
 import { CHAR_CLASSES, CHAR_RACES, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 
 type Character = Pick<typeof characters.$inferSelect, "name" | "class" | "race" | "level" | "charType">;
-
-const fieldClasses =
-  "rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-emerald-500 focus:outline-none";
 
 export function CharacterForm({
   action,
@@ -32,13 +31,13 @@ export function CharacterForm({
           required
           maxLength={64}
           autoComplete="off"
-          className={fieldClasses}
+          className={fieldClasses()}
         />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
         Class
-        <select name="class" defaultValue={character?.class ?? CHAR_CLASSES[0].id} className={fieldClasses}>
+        <select name="class" defaultValue={character?.class ?? CHAR_CLASSES[0].id} className={fieldClasses()}>
           {CHAR_CLASSES.map((c) => (
             <option key={c.id} value={c.id}>
               {c.abbr} — {c.name}
@@ -49,7 +48,7 @@ export function CharacterForm({
 
       <label className="flex flex-col gap-1 text-sm">
         Race
-        <select name="race" defaultValue={character?.race ?? CHAR_RACES[0].id} className={fieldClasses}>
+        <select name="race" defaultValue={character?.race ?? CHAR_RACES[0].id} className={fieldClasses()}>
           {CHAR_RACES.map((r) => (
             <option key={r.id} value={r.id}>
               {r.name}
@@ -67,7 +66,7 @@ export function CharacterForm({
           max={MAX_CHAR_LEVEL}
           defaultValue={character?.level ?? 1}
           required
-          className={fieldClasses}
+          className={fieldClasses()}
         />
       </label>
 
@@ -90,13 +89,9 @@ export function CharacterForm({
 
       {state.error && <p className="text-sm text-red-400">{state.error}</p>}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-3 font-semibold text-black transition-colors hover:bg-emerald-400 disabled:opacity-60"
-      >
+      <Button type="submit" disabled={pending}>
         {pending ? "Saving…" : submitLabel}
-      </button>
+      </Button>
     </form>
   );
 }

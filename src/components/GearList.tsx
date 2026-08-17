@@ -18,7 +18,7 @@ export function GearList({ rows }: { rows: GearListRow[] }) {
         return (
           <div
             key={s.key}
-            className="flex items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded-md border border-border bg-panel px-3 py-2"
           >
             <span className="shrink-0 text-xs font-medium text-neutral-500">{s.label}</span>
             <span className={`truncate text-sm ${itemName ? "text-neutral-100" : "text-neutral-600 italic"}`}>

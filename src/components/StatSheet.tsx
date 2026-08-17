@@ -1,4 +1,5 @@
 import { StatTile } from "@/components/dashboard/StatTile";
+import { Card } from "@/components/ui/Card";
 import type { Attributes, DerivedStats, Resists } from "@/lib/eqstat";
 
 const ATTR_LABELS: { key: keyof Attributes; label: string }[] = [
@@ -37,7 +38,7 @@ export function StatSheet({ base, stats }: { base: Attributes; stats: DerivedSta
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-300">Attributes</h3>
-        <div className="mt-2 overflow-hidden rounded-lg border border-neutral-800">
+        <div className="mt-2 overflow-hidden rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-neutral-900/60 text-left text-xs tracking-wider text-neutral-500 uppercase">
@@ -47,7 +48,7 @@ export function StatSheet({ base, stats }: { base: Attributes; stats: DerivedSta
                 <th className="px-3 py-2 text-right font-medium">Effective</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-800">
+            <tbody className="divide-y divide-border">
               {ATTR_LABELS.map((a) => (
                 <tr key={a.key}>
                   <td className="px-3 py-1.5 text-neutral-400">{a.label}</td>
@@ -69,17 +70,17 @@ export function StatSheet({ base, stats }: { base: Attributes; stats: DerivedSta
         <h3 className="text-sm font-semibold text-neutral-300">Resists</h3>
         <div className="mt-2 grid grid-cols-5 gap-2">
           {RESIST_LABELS.map((r) => (
-            <div key={r.key} className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-2 text-center">
+            <Card key={r.key} className="px-2 py-2 text-center">
               <p className="text-[10px] tracking-wider text-neutral-500 uppercase">{r.label}</p>
               <p className="mt-0.5 text-lg font-semibold text-neutral-100 tabular-nums">{stats.resists[r.key]}</p>
-            </div>
+            </Card>
           ))}
         </div>
       </section>
 
       <section>
         <h3 className="text-sm font-semibold text-neutral-300">AC Breakdown</h3>
-        <div className="mt-2 flex gap-4 rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-3 text-sm">
+        <Card className="mt-2 flex gap-4 px-4 py-3 text-sm">
           <div>
             <p className="text-xs text-neutral-500">Avoidance</p>
             <p className="font-medium text-neutral-100 tabular-nums">{stats.ac.avoidance}</p>
@@ -92,7 +93,7 @@ export function StatSheet({ base, stats }: { base: Attributes; stats: DerivedSta
             <p className="text-xs text-neutral-500">Displayed AC</p>
             <p className="font-medium text-neutral-100 tabular-nums">{stats.ac.displayedAC}</p>
           </div>
-        </div>
+        </Card>
       </section>
     </div>
   );

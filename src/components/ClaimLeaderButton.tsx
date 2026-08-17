@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-import { claimLeaderRole } from "@/app/bootstrap-leader/actions";
+import { claimLeaderRole } from "@/app/(app)/bootstrap-leader/actions";
+import { Button } from "@/components/ui/Button";
 
 export function ClaimLeaderButton() {
   const [pending, setPending] = useState(false);
@@ -18,14 +19,9 @@ export function ClaimLeaderButton() {
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <button
-        type="button"
-        onClick={claim}
-        disabled={pending}
-        className="rounded-full bg-emerald-500 px-6 py-3 font-semibold text-black transition-colors hover:bg-emerald-400 disabled:opacity-60"
-      >
+      <Button type="button" onClick={claim} disabled={pending}>
         {pending ? "Claiming…" : "Claim Leader Role"}
-      </button>
+      </Button>
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );

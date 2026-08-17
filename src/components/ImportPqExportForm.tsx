@@ -2,7 +2,10 @@
 
 import { useActionState } from "react";
 
-import type { PqExportImportState } from "@/app/characters/[id]/import/actions";
+import type { PqExportImportState } from "@/app/(app)/characters/[id]/import/actions";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { fieldClasses } from "@/components/ui/Field";
 import { FileOrTextArea } from "@/components/FileOrTextArea";
 
 export function ImportPqExportForm({
@@ -24,23 +27,19 @@ export function ImportPqExportForm({
             placeholder='{"schema_version": 1, "character": {...}, "pop_flags": [...]}'
             accept=".json"
             fileHint="a .json"
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 focus:border-emerald-500 focus:outline-none"
+            className={fieldClasses({ mono: true })}
           />
         </label>
 
         {state.error && <p className="text-sm text-red-400">{state.error}</p>}
 
-        <button
-          type="submit"
-          disabled={pending}
-          className="inline-flex items-center justify-center self-start rounded-full bg-emerald-500 px-6 py-3 font-semibold text-black transition-colors hover:bg-emerald-400 disabled:opacity-60"
-        >
+        <Button type="submit" disabled={pending} className="self-start">
           {pending ? "Importing…" : "Import"}
-        </button>
+        </Button>
       </form>
 
       {state.result && (
-        <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
+        <Card className="p-4">
           <p className="text-sm text-neutral-300">
             {state.result.total} flag{state.result.total === 1 ? "" : "s"} in export
             {" — "}
@@ -57,7 +56,7 @@ export function ImportPqExportForm({
               ))}
             </ul>
           )}
-        </div>
+        </Card>
       )}
     </div>
   );

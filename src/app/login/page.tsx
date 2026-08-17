@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
@@ -13,7 +14,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-center text-neutral-100">
+    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-center text-neutral-100">
+      <Link
+        href="/"
+        className="absolute top-6 left-6 text-sm font-medium text-neutral-500 hover:text-neutral-300"
+      >
+        ← Back to site
+      </Link>
       <div>
         <h1 className="text-2xl font-bold">Seekers of Souls</h1>
         <p className="mt-2 text-neutral-400">Sign in with your Discord account to manage your characters.</p>

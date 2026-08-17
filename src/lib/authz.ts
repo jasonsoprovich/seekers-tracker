@@ -27,6 +27,18 @@ export function canManageRoles(role: Role | null): boolean {
   return role === "leader";
 }
 
+// The ownership-or-officer check repeated across every character route
+// (view, edit, gear, stats, import): the owner can always manage their own
+// character; anyone else needs canManageAnyCharacter.
+export async function canManageCharacter(
+  character: { ownerId: string } | undefined,
+  userId: string,
+): Promise<boolean> {
+  if (!character) return false;
+  if (character.ownerId === userId) return true;
+  return canManageAnyCharacter(await getUserRole(userId));
+}
+
 // Whether the guild has anyone to promote/demote with yet — false only in
 // the window between the first Discord sign-in and Task 13's bootstrap
 // claim, when /admin's role management is otherwise unreachable.
