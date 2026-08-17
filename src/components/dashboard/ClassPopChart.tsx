@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+import { classColor } from "@/lib/eq/enums";
 
 interface Tally {
   done: number;
@@ -49,13 +50,13 @@ export function ClassPopChart({ rows }: { rows: ClassPopRow[] }) {
                 {tally.total > 0 && (
                   <div
                     title={`${r.abbr}: ${tally.done}/${tally.total} (${pct}%)`}
-                    className={`h-full rounded-r-sm transition-all ${complete ? "bg-emerald-500" : "bg-sky-500"}`}
-                    style={{ width: `${pct}%` }}
+                    className="h-full rounded-r-sm transition-all"
+                    style={{ width: `${pct}%`, backgroundColor: classColor(r.id) }}
                   />
                 )}
               </div>
-              <span className="w-10 shrink-0 text-right text-xs text-neutral-500 tabular-nums">
-                {tally.total === 0 ? "—" : `${pct}%`}
+              <span className="w-12 shrink-0 text-right text-xs text-neutral-500 tabular-nums">
+                {tally.total === 0 ? "—" : complete ? "✓ 100%" : `${pct}%`}
               </span>
             </div>
           );

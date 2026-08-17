@@ -105,15 +105,15 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          <h2 className="text-lg font-semibold">Roster by Class</h2>
-          <p className="mt-1 text-sm text-neutral-400">Every class shown, even at zero — that&apos;s the gap.</p>
-          <div className="mt-4">
-            <ClassBarChart rows={classRows} />
-          </div>
-        </Card>
+      <Card className="mt-4 p-4">
+        <h2 className="text-lg font-semibold">Roster by Class</h2>
+        <p className="mt-1 text-sm text-neutral-400">Every class shown, even at zero — that&apos;s the gap.</p>
+        <div className="mt-4">
+          <ClassBarChart rows={classRows} />
+        </div>
+      </Card>
 
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <h2 className="text-lg font-semibold">Roster by Level</h2>
           <p className="mt-1 text-sm text-neutral-400">Share of the guild in each level bracket.</p>
@@ -121,15 +121,15 @@ export default async function DashboardPage() {
             <LevelDonutChart rows={bracketRows} />
           </div>
         </Card>
-      </div>
 
-      <Card className="mt-4 p-4">
-        <h2 className="text-lg font-semibold">PoP Progress by Class</h2>
-        <p className="mt-1 text-sm text-neutral-400">Non-optional flags complete, per class.</p>
-        <div className="mt-4">
-          <ClassPopChart rows={classPopRows} />
-        </div>
-      </Card>
+        <Card className="p-4">
+          <h2 className="text-lg font-semibold">PoP Progress by Class</h2>
+          <p className="mt-1 text-sm text-neutral-400">Non-optional flags complete, per class.</p>
+          <div className="mt-4">
+            <ClassPopChart rows={classPopRows} />
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
