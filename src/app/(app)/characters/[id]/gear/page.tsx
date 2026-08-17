@@ -6,6 +6,7 @@ import { GearList } from "@/components/GearList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { characterGear, characters } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
+import { formatItemStatLines, getItemStats } from "@/lib/eqstat";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -37,7 +38,14 @@ export default async function CharacterGearPage({ params }: { params: Promise<{ 
             suffix=" to populate this list."
           />
         ) : (
-          <GearList rows={rows.map((r) => ({ slot: r.slot, itemName: r.itemName }))} />
+          <GearList
+            rows={rows.map((r) => ({
+              slot: r.slot,
+              itemName: r.itemName,
+              itemId: r.itemId,
+              stats: formatItemStatLines(getItemStats(r.itemId) ?? {}),
+            }))}
+          />
         )}
       </div>
     </div>
