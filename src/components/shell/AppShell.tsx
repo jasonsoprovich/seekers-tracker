@@ -18,6 +18,7 @@ export function AppShell({
   const links = [
     { href: "/characters", label: "Characters" },
     { href: "/roster", label: "Roster" },
+    { href: "/progression", label: "Pop Progression" },
     { href: "/dashboard", label: "Dashboard" },
     ...(canManageAnyCharacter(role) ? [{ href: "/admin", label: "Admin" }] : []),
   ];

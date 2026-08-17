@@ -43,6 +43,29 @@ export function tierLabel(t: number): string {
   return t === 5 ? "Plane of Time" : `Tier ${t}`;
 }
 
+export interface ZoneCatalogEntry {
+  zone: string;
+  tier: number;
+}
+
+// The canonical, character-independent list of milestone zones (tier +
+// zone, dataset order), for the Pop Progression milestone graph's column
+// headers — same optional/group exclusion as resolveFlags' zone tally, so
+// the header set always matches what a Resolved.zones array would contain
+// for any character.
+export function getZoneCatalog(): ZoneCatalogEntry[] {
+  const flags = getFlags();
+  const seen = new Set<string>();
+  const catalog: ZoneCatalogEntry[] = [];
+  for (const f of flags) {
+    if (f.optional || f.group) continue;
+    if (seen.has(f.zone)) continue;
+    seen.add(f.zone);
+    catalog.push({ zone: f.zone, tier: f.tier });
+  }
+  return catalog;
+}
+
 export function resolveFlags(states: FlagState[]): Resolved {
   const flags = getFlags();
 
@@ -120,4 +143,40 @@ export function resolveFlags(states: FlagState[]): Resolved {
 
   out.tiers.sort((a, b) => (a.tier ?? 0) - (b.tier ?? 0));
   return out;
+}
+
+export type ZoneState = "locked" | "available" | "in_progress" | "complete";
+
+export interface ZoneStatus {
+  zone: string;
+  tier: number;
+  done: number;
+  total: number;
+  state: ZoneState;
+}
+
+// Per-zone milestone state for a resolved character, for the Pop
+// Progression milestone graph. "locked" means every non-optional flag in
+// the zone is still gated on an unmet prereq; "available" means at least
+// one is reachable but none is done yet.
+export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
+  const byZone = new Map<string, { done: number; total: number; allLocked: boolean }>();
+  for (const f of resolved.flags) {
+    if (f.optional || f.group) continue;
+    const cur = byZone.get(f.zone) ?? { done: 0, total: 0, allLocked: true };
+    cur.total++;
+    if (f.done) cur.done++;
+    if (!f.locked) cur.allLocked = false;
+    byZone.set(f.zone, cur);
+  }
+
+  return getZoneCatalog().map(({ zone, tier }) => {
+    const agg = byZone.get(zone) ?? { done: 0, total: 0, allLocked: true };
+    let state: ZoneState;
+    if (agg.total > 0 && agg.done === agg.total) state = "complete";
+    else if (agg.done > 0) state = "in_progress";
+    else if (agg.total > 0 && agg.allLocked) state = "locked";
+    else state = "available";
+    return { zone, tier, done: agg.done, total: agg.total, state };
+  });
 }
