@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { RoleSelect } from "@/components/RoleSelect";
+import { SyncEpgpButton } from "@/components/SyncEpgpButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { characterPopFlags, characters, users } from "@/db";
@@ -73,9 +74,12 @@ export default async function AdminPage() {
       <PageHeader
         title="Admin"
         actions={
-          <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
-            Import Audit Trail
-          </Link>
+          <>
+            <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
+              Import Audit Trail
+            </Link>
+            <SyncEpgpButton />
+          </>
         }
       />
 

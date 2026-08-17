@@ -4,11 +4,37 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { users } from "@/db";
-import { canManageRoles, getUserRole, type Role } from "@/lib/authz";
+import { canManageAnyCharacter, canManageRoles, getUserRole, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { syncEpgpTotals, type EpgpSyncResult } from "@/lib/epgp/sync";
 import { getSession } from "@/lib/session";
 
 export type SetRoleResult = { error?: string };
+
+export type SyncEpgpResult = { result?: EpgpSyncResult; error?: string };
+
+// officer/leader-triggered pull of the guild's EPGP sheet (§9 task 20). No
+// Cloudflare Cron Trigger yet — a manual button is the safer first cut since
+// the sheet's shape has already drifted once (§10); an officer watching the
+// result each time surfaces that faster than a silent scheduled failure
+// would, until the admin sync-health view (§9 task 21) exists.
+export async function syncEpgp(): Promise<SyncEpgpResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const role = await getUserRole(session.user.id);
+  if (!canManageAnyCharacter(role)) {
+    return { error: "Only officers and leaders can sync EPGP." };
+  }
+
+  const db = await getDb();
+  try {
+    const result = await syncEpgpTotals(db);
+    return { result };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "EPGP sync failed." };
+  }
+}
 
 const ROLES: Role[] = ["member", "officer", "leader"];
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, primaryKey } from "drizzle-orm/sqlite-core";
 
 // Core fields (email, emailVerified, username/name, avatarUrl/image,
 // createdAt, updatedAt) are required by better-auth's user model — see
@@ -103,6 +103,24 @@ export const characterStats = sqliteTable("character_stats", {
   baseWis: integer("base_wis").notNull(),
   computedJson: text("computed_json"),
   updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// Phase 4 (§10/§9 task 20) — mirrored read-only from the guild's EPGP Google
+// Sheet's "Totals" tab, matched to `characters` by exact name. This site
+// never writes back to the sheet; officers keep editing it by hand.
+// priorityRating is copied verbatim (sheet already computes (EP+BaseEP)/
+// (GP+BaseGP)) rather than recomputed here, since Base EP/GP and decay are
+// guild-leadership-controlled values that drift over time — see §10.
+export const characterEpgp = sqliteTable("character_epgp", {
+  characterId: integer("character_id")
+    .primaryKey()
+    .references(() => characters.id),
+  ep: integer("ep").notNull(),
+  gp: integer("gp").notNull(),
+  priorityRating: real("priority_rating").notNull(),
+  lastSyncedAt: integer("last_synced_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
 });
