@@ -23,9 +23,12 @@ export type EpgpSyncResult = {
 // Header text varies slightly across sheet revisions (§10's "known
 // fragility" note), so match by normalized header text, not column
 // position, and fail loud if the required columns aren't found at all.
+// The sheet was observed live on 2026-08-17 to use "Effort Points"/"Gear
+// Points" rather than "EP"/"GP" — keep both so a future revert doesn't
+// re-break the sync.
 const NAME_HEADERS = ["character", "character name", "name", "toon"];
-const EP_HEADERS = ["ep"];
-const GP_HEADERS = ["gp"];
+const EP_HEADERS = ["ep", "effort points"];
+const GP_HEADERS = ["gp", "gear points"];
 const PRIORITY_HEADERS = ["loot priority", "priority rating", "priority"];
 
 // Read-only sync of the "Totals" tab into `character_epgp` (§9 task 20,
