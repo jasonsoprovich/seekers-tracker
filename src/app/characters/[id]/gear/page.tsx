@@ -2,15 +2,14 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { PopFlagChecklist } from "@/components/PopFlagChecklist";
-import { characterPopFlags, characters } from "@/db";
+import { GearList } from "@/components/GearList";
+import { characterGear, characters } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
-import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 
-export default async function CharacterFlagsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CharacterGearPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const characterId = Number(id);
   if (!Number.isInteger(characterId)) notFound();
@@ -26,11 +25,7 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
     if (!canManageAnyCharacter(role)) redirect("/characters");
   }
 
-  const rows = await db
-    .select()
-    .from(characterPopFlags)
-    .where(eq(characterPopFlags.characterId, characterId));
-  const resolved = resolveFlags(rows.map((r) => ({ flagId: r.flagId, done: r.done, source: r.source })));
+  const rows = await db.select().from(characterGear).where(eq(characterGear.characterId, characterId));
 
   return (
     <div className="min-h-screen bg-neutral-950 px-6 py-10 text-neutral-100">
@@ -46,9 +41,6 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
             <Link href={`/characters/${character.id}/import`} className="text-emerald-400 hover:text-emerald-300">
               Import
             </Link>
-            <Link href={`/characters/${character.id}/edit`} className="text-emerald-400 hover:text-emerald-300">
-              Edit
-            </Link>
             <Link href="/characters" className="text-neutral-400 hover:text-neutral-300">
               Back
             </Link>
@@ -56,34 +48,29 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
         </div>
 
         <div className="mt-6 flex gap-1 border-b border-neutral-800 text-sm font-medium">
-          <Link href={`/characters/${character.id}`} className="border-b-2 border-emerald-500 px-3 py-2 text-neutral-100">
-            PoP Checklist
-          </Link>
           <Link
-            href={`/characters/${character.id}/gear`}
+            href={`/characters/${character.id}`}
             className="border-b-2 border-transparent px-3 py-2 text-neutral-400 hover:text-neutral-200"
           >
+            PoP Checklist
+          </Link>
+          <Link href={`/characters/${character.id}/gear`} className="border-b-2 border-emerald-500 px-3 py-2 text-neutral-100">
             Gear
           </Link>
         </div>
 
-        <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-3">
-          <p className="mb-1 text-xs tracking-wider text-neutral-500 uppercase">PoP progress</p>
-          <div className="flex items-center gap-3">
-            <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-800">
-              <div
-                className={`h-full rounded-full ${resolved.done === resolved.total && resolved.total > 0 ? "bg-emerald-500" : "bg-sky-500"}`}
-                style={{ width: `${resolved.total === 0 ? 0 : Math.round((resolved.done / resolved.total) * 100)}%` }}
-              />
-            </div>
-            <span className="shrink-0 text-sm text-neutral-300 tabular-nums">
-              {resolved.done} / {resolved.total}
-            </span>
-          </div>
-        </div>
-
         <div className="mt-6">
-          <PopFlagChecklist characterId={character.id} flags={resolved.flags} tiers={resolved.tiers} />
+          {rows.length === 0 ? (
+            <p className="text-sm text-neutral-400">
+              No gear imported yet.{" "}
+              <Link href={`/characters/${character.id}/import`} className="text-emerald-400 hover:text-emerald-300">
+                Import a Quarmy export
+              </Link>{" "}
+              to populate this list.
+            </p>
+          ) : (
+            <GearList rows={rows.map((r) => ({ slot: r.slot, itemName: r.itemName }))} />
+          )}
         </div>
       </div>
     </div>

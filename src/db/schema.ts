@@ -65,6 +65,23 @@ export const characterPopFlags = sqliteTable(
   (table) => [primaryKey({ columns: [table.characterId, table.flagId] })],
 );
 
+export const characterGear = sqliteTable(
+  "character_gear",
+  {
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    slot: text("slot").notNull(),
+    itemId: integer("item_id").notNull(),
+    itemName: text("item_name").notNull(),
+    icon: integer("icon"),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [primaryKey({ columns: [table.characterId, table.slot] })],
+);
+
 export const importLog = sqliteTable("import_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   characterId: integer("character_id")

@@ -15,6 +15,13 @@
       "when": 1786913986190,
       "tag": "0001_icy_spencer_smythe",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786926607529,
+      "tag": "0002_messy_silver_sable",
+      "breakpoints": true
     }
   ]
 }

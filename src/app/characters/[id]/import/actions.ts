@@ -3,8 +3,9 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characterPopFlags, characters, importLog } from "@/db";
+import { characterGear, characterPopFlags, characters, importLog } from "@/db";
 import { getDb } from "@/lib/db";
+import { getItemIcon, gearSlotLabel, parseQuarmyGear } from "@/lib/gear";
 import { deriveCompletion, getFlagById, parsePqExport, parseSeer } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 
@@ -175,6 +176,70 @@ export async function importPqCompanionExport(
       changed,
       skippedManual,
       skippedUnknown,
+    },
+  };
+}
+
+export type GearImportState = {
+  error?: string;
+  result?: {
+    total: number;
+    items: { slot: string; slotLabel: string; itemName: string }[];
+  };
+};
+
+// Task 16 (§8 Phase 2): a Zeal `<CharName>-Quarmy.txt` export, pasted
+// whole. Unlike the PoP-flag imports above, gear has no manual-override
+// concept — a member's current loadout fully replaces the last import, so
+// unequipped items don't linger as stale rows.
+export async function importGear(
+  characterId: number,
+  _prevState: GearImportState,
+  formData: FormData,
+): Promise<GearImportState> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const text = String(formData.get("text") ?? "").trim();
+  if (!text) return { error: "Paste the Quarmy export text first." };
+
+  const db = await getDb();
+  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
+  if (!character || character.ownerId !== session.user.id) {
+    return { error: "You don't have permission to import for this character." };
+  }
+
+  const entries = parseQuarmyGear(text);
+  if (entries.length === 0) {
+    return {
+      error: "Didn't recognize any worn equipment in that text — paste the full Quarmy.txt export contents.",
+    };
+  }
+
+  const now = new Date();
+  await db.delete(characterGear).where(eq(characterGear.characterId, characterId));
+  for (const entry of entries) {
+    await db.insert(characterGear).values({
+      characterId,
+      slot: entry.slot,
+      itemId: entry.itemId,
+      itemName: entry.itemName,
+      icon: getItemIcon(entry.itemId) ?? null,
+      updatedAt: now,
+    });
+  }
+
+  await db.insert(importLog).values({
+    characterId,
+    uploadedBy: session.user.id,
+    kind: "gear_export",
+    summary: `${entries.length} worn items imported`,
+  });
+
+  return {
+    result: {
+      total: entries.length,
+      items: entries.map((e) => ({ slot: e.slot, slotLabel: gearSlotLabel(e.slot), itemName: e.itemName })),
     },
   };
 }

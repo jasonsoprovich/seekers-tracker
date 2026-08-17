@@ -4,10 +4,11 @@ import { notFound, redirect } from "next/navigation";
 import { characters } from "@/db";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { ImportGearForm } from "@/components/ImportGearForm";
 import { ImportPqExportForm } from "@/components/ImportPqExportForm";
 import { ImportSeerForm } from "@/components/ImportSeerForm";
 
-import { importPqCompanionExport, importSeerText } from "./actions";
+import { importGear, importPqCompanionExport, importSeerText } from "./actions";
 
 export default async function ImportSeerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -24,6 +25,7 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
 
   const boundImportSeer = importSeerText.bind(null, characterId);
   const boundImportPqExport = importPqCompanionExport.bind(null, characterId);
+  const boundImportGear = importGear.bind(null, characterId);
 
   return (
     <div className="min-h-screen bg-neutral-950 px-6 py-10 text-neutral-100">
@@ -52,6 +54,18 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
           </p>
           <div className="mt-4">
             <ImportSeerForm action={boundImportSeer} />
+          </div>
+        </section>
+
+        <section className="mt-10 border-t border-neutral-800 pt-8">
+          <h2 className="text-lg font-semibold">Gear Export</h2>
+          <p className="mt-2 max-w-xl text-sm text-neutral-400">
+            Zeal writes a <code>&lt;CharName&gt;-Quarmy.txt</code> file to your EverQuest folder on logout. Paste
+            its full contents below to populate the gear list — this replaces whatever was imported last time, so
+            it always reflects your current loadout.
+          </p>
+          <div className="mt-4">
+            <ImportGearForm action={boundImportGear} />
           </div>
         </section>
       </div>
