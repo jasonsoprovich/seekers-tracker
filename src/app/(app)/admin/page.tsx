@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -37,18 +37,11 @@ export default async function AdminPage() {
     .innerJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
 
-  const flagRows =
-    roster.length === 0
-      ? []
-      : await db
-          .select()
-          .from(characterPopFlags)
-          .where(
-            inArray(
-              characterPopFlags.characterId,
-              roster.map((c) => c.id),
-            ),
-          );
+  // Guild-wide table, not filtered by character ID list — see dashboard's
+  // identical comment: an inArray() of every character's ID hits D1's
+  // ~100-bound-parameter-per-statement limit once the roster grows past
+  // that.
+  const flagRows = await db.select().from(characterPopFlags);
   const flagsByCharacter = new Map<number, typeof flagRows>();
   for (const r of flagRows) {
     if (!flagsByCharacter.has(r.characterId)) flagsByCharacter.set(r.characterId, []);

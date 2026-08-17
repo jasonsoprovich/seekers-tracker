@@ -1,4 +1,3 @@
-import { inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { ClassCompositionChart, type ClassCompositionRow } from "@/components/dashboard/ClassCompositionChart";
@@ -21,18 +20,11 @@ export default async function DashboardPage() {
   const db = await getDb();
   const allCharacters = await db.select().from(characters);
 
-  const flagRows =
-    allCharacters.length === 0
-      ? []
-      : await db
-          .select()
-          .from(characterPopFlags)
-          .where(
-            inArray(
-              characterPopFlags.characterId,
-              allCharacters.map((c) => c.id),
-            ),
-          );
+  // Guild-wide table, not filtered by character ID list — an inArray() of
+  // every character's ID hits D1's ~100-bound-parameter-per-statement limit
+  // once the roster grows past that (surfaced by the roster seed, §9 task 20
+  // follow-up). Reading the whole (small, guild-scale) table sidesteps it.
+  const flagRows = await db.select().from(characterPopFlags);
   const flagsByCharacter = new Map<number, typeof flagRows>();
   for (const r of flagRows) {
     if (!flagsByCharacter.has(r.characterId)) flagsByCharacter.set(r.characterId, []);
