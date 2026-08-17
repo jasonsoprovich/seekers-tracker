@@ -1,9 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 
 import { CharacterForm } from "@/components/CharacterForm";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characters } from "@/db";
+import { characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -23,6 +23,13 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   if (!character) notFound();
   if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
 
+  const mainCandidates = await db
+    .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
+    .from(characters)
+    .innerJoin(users, eq(characters.ownerId, users.id))
+    .where(and(eq(characters.charType, "main"), ne(characters.id, characterId)))
+    .orderBy(characters.name);
+
   const boundUpdate = updateCharacter.bind(null, characterId);
 
   return (
@@ -35,7 +42,12 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
         ]}
         title={`Edit ${character.name}`}
       />
-      <CharacterForm action={boundUpdate} character={character} submitLabel="Save Changes" />
+      <CharacterForm
+        action={boundUpdate}
+        character={character}
+        mainCandidates={mainCandidates.map((m) => ({ ...m, ownerUsername: m.ownerUsername ?? "(no username)" }))}
+        submitLabel="Save Changes"
+      />
     </div>
   );
 }

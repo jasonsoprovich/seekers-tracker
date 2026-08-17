@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { DeleteCharacterButton } from "@/components/DeleteCharacterButton";
 import { RoleSelect } from "@/components/RoleSelect";
 import { SyncEpgpButton } from "@/components/SyncEpgpButton";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -30,12 +31,15 @@ export default async function AdminPage() {
       race: characters.race,
       level: characters.level,
       charType: characters.charType,
+      mainCharacterId: characters.mainCharacterId,
       ownerUsername: users.username,
       ownerId: characters.ownerId,
     })
     .from(characters)
     .innerJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
+
+  const nameById = new Map(roster.map((c) => [c.id, c.name]));
 
   // Guild-wide table, not filtered by character ID list — see dashboard's
   // identical comment: an inArray() of every character's ID hits D1's
@@ -79,7 +83,8 @@ export default async function AdminPage() {
       <section>
         <h2 className="text-lg font-semibold">All Characters</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          As {role}, you can view and edit any member&apos;s character.
+          As {role}, you can view, edit, and delete any member&apos;s character. Edit a character to change its
+          main/alt status or link an alt to its main.
         </p>
         {roster.length === 0 ? (
           <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
@@ -102,6 +107,9 @@ export default async function AdminPage() {
                       </Link>{" "}
                       <span className="text-sm font-normal text-neutral-500">
                         {c.charType === "alt" ? "(Alt)" : "(Main)"} — {c.ownerUsername}
+                        {c.charType === "alt" && c.mainCharacterId && (
+                          <> → {nameById.get(c.mainCharacterId) ?? "(unknown)"}</>
+                        )}
                       </span>
                     </p>
                     <p className="text-sm text-neutral-400">
@@ -111,12 +119,12 @@ export default async function AdminPage() {
                       <ProgressBar done={resolved.done} total={resolved.total} suffix=" PoP" />
                     </div>
                   </div>
-                  <Link
-                    href={`/characters/${c.id}/edit`}
-                    className="shrink-0 text-sm font-medium text-emerald-400 hover:text-emerald-300"
-                  >
-                    Edit
-                  </Link>
+                  <div className="flex shrink-0 items-center gap-4">
+                    <Link href={`/characters/${c.id}/edit`} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
+                      Edit
+                    </Link>
+                    <DeleteCharacterButton characterId={c.id} characterName={c.name} />
+                  </div>
                 </li>
               );
             })}

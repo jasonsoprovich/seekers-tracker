@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, primaryKey, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 // Core fields (email, emailVerified, username/name, avatarUrl/image,
 // createdAt, updatedAt) are required by better-auth's user model — see
@@ -41,6 +41,16 @@ export const characters = sqliteTable("characters", {
   charType: text("char_type", { enum: ["main", "alt"] })
     .notNull()
     .default("main"),
+  // Which main character this alt belongs to (admin/officer- or
+  // owner-assignable), so alts can be tracked back to a main even when the
+  // guild's EPGP sheet has no player/account column of its own — see §10.
+  // Not enforced same-owner: alts occasionally live on a friend's/alt
+  // Discord login, and officers need to link those too.
+  mainCharacterId: integer("main_character_id").references((): AnySQLiteColumn => characters.id),
+  // Optional link to this character's Quarmy profile (quarmy.com) for full
+  // gear/stat detail beyond what this app's own hover cards show — see
+  // GearList.tsx.
+  quarmyUrl: text("quarmy_url"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

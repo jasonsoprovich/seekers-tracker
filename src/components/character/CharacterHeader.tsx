@@ -6,7 +6,7 @@ import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 
 import { CharacterTabs, type CharacterTabKey } from "./CharacterTabs";
 
-type Character = Pick<typeof characters.$inferSelect, "id" | "name" | "class" | "race" | "level">;
+type Character = Pick<typeof characters.$inferSelect, "id" | "name" | "class" | "race" | "level" | "quarmyUrl">;
 
 // The identity header + sub-tab row shared by the three character detail
 // pages (PoP checklist, gear, stats). Import and Edit are always shown here
@@ -21,6 +21,16 @@ export function CharacterHeader({ character, active }: { character: Character; a
         subtitle={`Level ${character.level} ${charClassLabel(character.class)} — ${charRaceName(character.race)}`}
         actions={
           <>
+            {character.quarmyUrl && (
+              <a
+                href={character.quarmyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:text-emerald-300"
+              >
+                Quarmy profile ↗
+              </a>
+            )}
             <Link href={`/characters/${character.id}/import`} className="text-emerald-400 hover:text-emerald-300">
               Import
             </Link>

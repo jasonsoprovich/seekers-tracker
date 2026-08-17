@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import type { CharacterFormState } from "@/app/(app)/characters/actions";
 import { Button } from "@/components/ui/Button";
@@ -8,18 +8,30 @@ import { fieldClasses } from "@/components/ui/Field";
 import type { characters } from "@/db";
 import { CHAR_CLASSES, CHAR_RACES, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 
-type Character = Pick<typeof characters.$inferSelect, "name" | "class" | "race" | "level" | "charType">;
+type Character = Pick<
+  typeof characters.$inferSelect,
+  "name" | "class" | "race" | "level" | "charType" | "mainCharacterId" | "quarmyUrl"
+>;
+
+export interface MainCandidate {
+  id: number;
+  name: string;
+  ownerUsername: string;
+}
 
 export function CharacterForm({
   action,
   character,
+  mainCandidates = [],
   submitLabel,
 }: {
   action: (prevState: CharacterFormState, formData: FormData) => Promise<CharacterFormState>;
   character?: Character;
+  mainCandidates?: MainCandidate[];
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
+  const [charType, setCharType] = useState<"main" | "alt">(character?.charType ?? "main");
 
   return (
     <form action={formAction} className="flex max-w-md flex-col gap-5">
@@ -77,15 +89,54 @@ export function CharacterForm({
             type="radio"
             name="charType"
             value="main"
-            defaultChecked={(character?.charType ?? "main") === "main"}
+            checked={charType === "main"}
+            onChange={() => setCharType("main")}
           />
           Main
         </label>
         <label className="flex items-center gap-2">
-          <input type="radio" name="charType" value="alt" defaultChecked={character?.charType === "alt"} />
+          <input
+            type="radio"
+            name="charType"
+            value="alt"
+            checked={charType === "alt"}
+            onChange={() => setCharType("alt")}
+          />
           Alt
         </label>
       </fieldset>
+
+      {charType === "alt" && (
+        <label className="flex flex-col gap-1 text-sm">
+          Main character
+          <select
+            name="mainCharacterId"
+            defaultValue={character?.mainCharacterId ?? ""}
+            className={fieldClasses()}
+          >
+            <option value="">Not linked yet</option>
+            {mainCandidates.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} ({m.ownerUsername})
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-neutral-500">Which main this alt belongs to, for guild record-keeping.</span>
+        </label>
+      )}
+
+      <label className="flex flex-col gap-1 text-sm">
+        Quarmy profile URL
+        <input
+          name="quarmyUrl"
+          type="url"
+          placeholder="https://quarmy.com/b/…"
+          defaultValue={character?.quarmyUrl ?? ""}
+          maxLength={300}
+          className={fieldClasses()}
+        />
+        <span className="text-xs text-neutral-500">Optional — links out for full gear/stat detail.</span>
+      </label>
 
       {state.error && <p className="text-sm text-red-400">{state.error}</p>}
 
