@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ClassCompositionChart, type ClassCompositionRow } from "@/components/dashboard/ClassCompositionChart";
+import { ClassPopChart, type ClassPopRow } from "@/components/dashboard/ClassPopChart";
 import { GuildPopMeter } from "@/components/dashboard/GuildPopMeter";
 import { LevelBracketChart, type LevelBracketRow } from "@/components/dashboard/LevelBracketChart";
 import { StatTile } from "@/components/dashboard/StatTile";
@@ -45,6 +46,8 @@ export default async function DashboardPage() {
   let allTotal = 0;
   const byClass = new Map<number, { main: number; alt: number }>();
   const byBracket = new Map<string, number>();
+  const byClassPopMains = new Map<number, { done: number; total: number }>();
+  const byClassPopAll = new Map<number, { done: number; total: number }>();
 
   for (const c of allCharacters) {
     const rows = flagsByCharacter.get(c.id) ?? [];
@@ -65,6 +68,17 @@ export default async function DashboardPage() {
     else cls.alt++;
     byClass.set(c.class, cls);
 
+    const clsPopAll = byClassPopAll.get(c.class) ?? { done: 0, total: 0 };
+    clsPopAll.done += resolved.done;
+    clsPopAll.total += resolved.total;
+    byClassPopAll.set(c.class, clsPopAll);
+    if (c.charType === "main") {
+      const clsPopMains = byClassPopMains.get(c.class) ?? { done: 0, total: 0 };
+      clsPopMains.done += resolved.done;
+      clsPopMains.total += resolved.total;
+      byClassPopMains.set(c.class, clsPopMains);
+    }
+
     const bracket = levelBracket(c.level);
     byBracket.set(bracket, (byBracket.get(bracket) ?? 0) + 1);
   }
@@ -77,6 +91,12 @@ export default async function DashboardPage() {
   const bracketRows: LevelBracketRow[] = LEVEL_BRACKETS.map((label) => ({
     label,
     count: byBracket.get(label) ?? 0,
+  }));
+  const classPopRows: ClassPopRow[] = CHAR_CLASSES.map((cl) => ({
+    id: cl.id,
+    abbr: cl.abbr,
+    mainsOnly: byClassPopMains.get(cl.id) ?? { done: 0, total: 0 },
+    all: byClassPopAll.get(cl.id) ?? { done: 0, total: 0 },
   }));
 
   return (
@@ -104,6 +124,14 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-neutral-400">Every class shown, even at zero — that&apos;s the gap.</p>
           <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
             <ClassCompositionChart rows={classRows} />
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold">PoP Progress by Class</h2>
+          <p className="mt-1 text-sm text-neutral-400">Non-optional flags complete, per class.</p>
+          <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
+            <ClassPopChart rows={classPopRows} />
           </div>
         </section>
 
