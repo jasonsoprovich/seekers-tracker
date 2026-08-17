@@ -71,9 +71,14 @@ export default async function AdminPage() {
       <div className="mx-auto max-w-4xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Admin</h1>
-          <Link href="/characters" className="text-sm font-medium text-neutral-400 hover:text-neutral-300">
-            Back
-          </Link>
+          <div className="flex items-center gap-4 text-sm font-medium">
+            <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
+              Import Audit Trail
+            </Link>
+            <Link href="/characters" className="text-neutral-400 hover:text-neutral-300">
+              Back
+            </Link>
+          </div>
         </div>
 
         <section className="mt-8">

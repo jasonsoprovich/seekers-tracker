@@ -39,6 +39,14 @@
 			"migrations_dir": "drizzle/migrations"
 		}
 	],
+	"r2_buckets": [
+		{
+			// Raw import payloads (§6/§9 task 17), keyed from import_log.r2_key —
+			// lets an officer audit exactly what a member submitted.
+			"binding": "IMPORT_ARCHIVE",
+			"bucket_name": "seekers-of-souls-imports"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},

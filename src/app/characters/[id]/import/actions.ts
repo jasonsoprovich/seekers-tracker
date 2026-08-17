@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { characterGear, characterPopFlags, characters, importLog } from "@/db";
 import { getDb } from "@/lib/db";
 import { getItemIcon, gearSlotLabel, parseQuarmyGear } from "@/lib/gear";
+import { archiveImportPayload } from "@/lib/import-archive";
 import { deriveCompletion, getFlagById, parsePqExport, parseSeer } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 
@@ -65,10 +66,12 @@ export async function importSeerText(
   }
 
   const summary = `${detectedIds.length} flags detected, ${changedIds.length} changed`;
+  const r2Key = await archiveImportPayload("seer_text", characterId, text);
   await db.insert(importLog).values({
     characterId,
     uploadedBy: session.user.id,
     kind: "seer_text",
+    r2Key,
     summary,
   });
 
@@ -163,10 +166,12 @@ export async function importPqCompanionExport(
   }
 
   const summary = `${data.flags.length} flags in export, ${changed.length} changed, ${skippedManual} kept manual, ${skippedUnknown} unknown`;
+  const r2Key = await archiveImportPayload("pqc_export", characterId, raw);
   await db.insert(importLog).values({
     characterId,
     uploadedBy: session.user.id,
     kind: "pqc_export",
+    r2Key,
     summary,
   });
 
@@ -229,10 +234,12 @@ export async function importGear(
     });
   }
 
+  const r2Key = await archiveImportPayload("gear_export", characterId, text);
   await db.insert(importLog).values({
     characterId,
     uploadedBy: session.user.id,
     kind: "gear_export",
+    r2Key,
     summary: `${entries.length} worn items imported`,
   });
 
