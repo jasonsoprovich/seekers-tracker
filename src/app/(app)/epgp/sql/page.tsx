@@ -13,7 +13,7 @@ export default async function EpgpSqlPage() {
   if (!session) redirect("/login");
 
   const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) redirect("/epgp");
+  if (!canManageEpgp(role)) redirect("/roster");
 
   return (
     <div className="mx-auto max-w-4xl">

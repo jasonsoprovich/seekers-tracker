@@ -1,10 +1,13 @@
+import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 
+import { characterClaims } from "@/db";
+import { getDb } from "@/lib/db";
 import { canManageAnyCharacter, type Role } from "@/lib/authz";
 
 import { NavBar } from "./NavBar";
 
-export function AppShell({
+export async function AppShell({
   username,
   avatarUrl,
   role,
@@ -15,13 +18,20 @@ export function AppShell({
   role: Role | null;
   children: ReactNode;
 }) {
+  const isManager = canManageAnyCharacter(role);
+  let pendingClaimCount = 0;
+  if (isManager) {
+    const db = await getDb();
+    const rows = await db.select({ id: characterClaims.id }).from(characterClaims).where(eq(characterClaims.status, "pending"));
+    pendingClaimCount = rows.length;
+  }
+
   const links = [
     { href: "/characters", label: "Characters" },
     { href: "/roster", label: "Roster" },
-    { href: "/epgp", label: "EPGP" },
     { href: "/progression", label: "Pop Progression" },
     { href: "/dashboard", label: "Dashboard" },
-    ...(canManageAnyCharacter(role) ? [{ href: "/admin", label: "Admin" }] : []),
+    ...(isManager ? [{ href: "/admin", label: "Admin", badge: pendingClaimCount || undefined }] : []),
   ];
 
   return (

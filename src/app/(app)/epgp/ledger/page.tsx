@@ -87,7 +87,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="EPGP Ledger" subtitle="Raw EP and GP transaction history — every row that adds up to the standings on /epgp." />
+      <PageHeader title="EPGP Ledger" subtitle="Raw EP and GP transaction history — every row that adds up to the standings on /roster." />
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex gap-2">
