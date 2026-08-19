@@ -81,8 +81,7 @@ export const CHAR_RACES = [
 export const MAX_CHAR_LEVEL = 60;
 
 export function charClassLabel(id: number): string {
-  const entry = CHAR_CLASSES.find((c) => c.id === id);
-  return entry ? `${entry.abbr} — ${entry.name}` : "Unknown";
+  return CHAR_CLASSES.find((c) => c.id === id)?.name ?? "Unknown";
 }
 
 export function charRaceName(id: number): string {

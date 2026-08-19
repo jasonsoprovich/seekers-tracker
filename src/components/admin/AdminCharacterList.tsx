@@ -211,7 +211,7 @@ export function AdminCharacterList({
             disabled={groupsWithAlts.length === 0}
             className="rounded-md border border-field px-2.5 py-1 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60 disabled:opacity-40"
           >
-            Expand all
+            Show alts
           </button>
           <button
             type="button"
@@ -219,7 +219,7 @@ export function AdminCharacterList({
             disabled={expanded.size === 0}
             className="rounded-md border border-field px-2.5 py-1 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60 disabled:opacity-40"
           >
-            Collapse all
+            Hide alts
           </button>
         </div>
 
@@ -238,7 +238,7 @@ export function AdminCharacterList({
             return (
               <Fragment key={group.main.id}>
                 {renderCard(group.main, hasAlts ? { open: isOpen, onClick: () => toggleExpanded(group.main.id) } : undefined)}
-                {hasAlts && isOpen && group.alts.map((alt) => renderCard(alt, undefined, true))}
+                {hasAlts && isOpen && group.alts.map((alt) => renderCard(alt))}
               </Fragment>
             );
           })}
@@ -247,18 +247,18 @@ export function AdminCharacterList({
     </div>
   );
 
-  function renderCard(c: AdminCharacterRow, toggle?: { open: boolean; onClick: () => void }, indent?: boolean) {
+  function renderCard(c: AdminCharacterRow, toggle?: { open: boolean; onClick: () => void }) {
     return (
       <li key={c.id} className="flex items-center justify-between px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-medium">
-            <span className={`inline-flex items-center gap-1.5 ${indent ? "pl-8" : ""}`}>
+            <span className="inline-flex items-center gap-1.5">
               <span className="flex h-4 w-4 shrink-0 items-center justify-center">
                 {toggle && (
                   <button
                     type="button"
                     onClick={toggle.onClick}
-                    aria-label={toggle.open ? "Collapse alts" : "Expand alts"}
+                    aria-label={toggle.open ? "Hide alts" : "Show alts"}
                     className="flex h-4 w-4 items-center justify-center text-neutral-500 hover:text-neutral-200"
                   >
                     {toggle.open ? "▾" : "▸"}

@@ -33,18 +33,7 @@ export type RosterRow = {
   priorityRating: number | null;
 };
 
-type SortKey =
-  | "name"
-  | "ownerUsername"
-  | "ownerRole"
-  | "className"
-  | "level"
-  | "charType"
-  | "ep"
-  | "epDecay"
-  | "gp"
-  | "gpDecay"
-  | "priorityRating";
+type SortKey = "name" | "ownerUsername" | "ownerRole" | "className" | "level" | "charType" | "ep" | "gp" | "priorityRating";
 type SortDir = "asc" | "desc";
 
 const COLUMNS: { key: SortKey; label: string }[] = [
@@ -55,9 +44,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "className", label: "Class" },
   { key: "level", label: "Level" },
   { key: "ep", label: "EP" },
-  { key: "epDecay", label: "EP Decay" },
   { key: "gp", label: "GP" },
-  { key: "gpDecay", label: "GP Decay" },
   { key: "priorityRating", label: "Priority" },
 ];
 
@@ -171,17 +158,17 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     setExpanded(new Set());
   }
 
-  function renderRow(r: RosterRow, opts: { indent?: boolean; toggle?: { open: boolean; onClick: () => void } } = {}) {
+  function renderRow(r: RosterRow, opts: { toggle?: { open: boolean; onClick: () => void } } = {}) {
     return (
       <tr key={r.id} className="hover:bg-neutral-900/40">
         <td className="px-3 py-2 font-medium">
-          <span className={`inline-flex items-center gap-1.5 ${opts.indent ? "pl-8" : ""}`}>
+          <span className="inline-flex items-center gap-1.5">
             <span className="flex h-4 w-4 shrink-0 items-center justify-center">
               {opts.toggle && (
                 <button
                   type="button"
                   onClick={opts.toggle.onClick}
-                  aria-label={opts.toggle.open ? "Collapse alts" : "Expand alts"}
+                  aria-label={opts.toggle.open ? "Hide alts" : "Show alts"}
                   className="flex h-4 w-4 items-center justify-center text-neutral-500 hover:text-neutral-200"
                 >
                   {opts.toggle.open ? "▾" : "▸"}
@@ -201,11 +188,19 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <td className="px-3 py-2 text-neutral-400">{r.charType === "main" ? "Main" : "Alt"}</td>
         <td className="px-3 py-2 text-neutral-400">{r.className}</td>
         <td className="px-3 py-2 text-neutral-400">{r.level}</td>
-        <td className="px-3 py-2 text-neutral-400">{r.ep === null ? "—" : Math.round(r.ep)}</td>
-        <td className="px-3 py-2 text-neutral-500">{r.epDecay === null ? "—" : `-${Math.round(r.epDecay)}`}</td>
-        <td className="px-3 py-2 text-neutral-400">{r.gp === null ? "—" : Math.round(r.gp)}</td>
-        <td className="px-3 py-2 text-neutral-500">{r.gpDecay === null ? "—" : `-${Math.round(r.gpDecay)}`}</td>
-        <td className="px-3 py-2 font-medium text-emerald-400">{r.priorityRating?.toFixed(2) ?? "—"}</td>
+        {/* EP/GP are already net of decay — the ready-to-use number — with the
+            upcoming decay shown small underneath for context, not as its own
+            column competing for attention. Priority stays the one clearly
+            "important" number alongside these. */}
+        <td className="px-3 py-2">
+          <div className="font-medium text-neutral-200">{r.ep === null ? "—" : Math.round(r.ep)}</div>
+          {!!r.epDecay && <div className="text-xs text-neutral-600">-{Math.round(r.epDecay)} next decay</div>}
+        </td>
+        <td className="px-3 py-2">
+          <div className="font-medium text-neutral-200">{r.gp === null ? "—" : Math.round(r.gp)}</div>
+          {!!r.gpDecay && <div className="text-xs text-neutral-600">-{Math.round(r.gpDecay)} next decay</div>}
+        </td>
+        <td className="px-3 py-2 font-semibold text-emerald-400">{r.priorityRating?.toFixed(2) ?? "—"}</td>
         <td className="px-3 py-2 text-center">{r.isClaimed && <span className="text-emerald-400">✓</span>}</td>
       </tr>
     );
@@ -298,7 +293,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             disabled={groupsWithAlts.length === 0}
             className="rounded-md border border-field px-2.5 py-1 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60 disabled:opacity-40"
           >
-            Expand all
+            Show alts
           </button>
           <button
             type="button"
@@ -306,7 +301,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             disabled={expanded.size === 0}
             className="rounded-md border border-field px-2.5 py-1 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60 disabled:opacity-40"
           >
-            Collapse all
+            Hide alts
           </button>
         </div>
 
@@ -341,7 +336,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
               return (
                 <Fragment key={group.main.id}>
                   {renderRow(group.main, hasAlts ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
-                  {hasAlts && isOpen && group.alts.map((alt) => renderRow(alt, { indent: true }))}
+                  {hasAlts && isOpen && group.alts.map((alt) => renderRow(alt))}
                 </Fragment>
               );
             })}
