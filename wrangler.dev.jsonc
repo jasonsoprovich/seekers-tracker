@@ -1,0 +1,60 @@
+/**
+ * Local-dev-only copy of wrangler.jsonc, used by `npm run preview` (and
+ * nothing else — never for `deploy`/`upload`). The only difference is that
+ * `routes` is omitted.
+ *
+ * Why this file exists: with `routes` present, Wrangler's local Miniflare
+ * server simulates the configured custom-domain hostname
+ * (seekers.fetchinglogic.com) for the `Request` object the Worker sees —
+ * inconsistently, on some requests but not others — even though the
+ * browser is actually connecting to http://localhost:8787. better-auth's
+ * origin-validation reads that (wrong) simulated host and intermittently
+ * rejects the Discord sign-in POST with `Invalid origin:
+ * http://seekers.fetchinglogic.com` (403), even though everything is
+ * correctly configured for local dev otherwise. `routes` only matters for
+ * Cloudflare's edge routing in production, so dropping it here has no
+ * effect other than fixing this.
+ *
+ * If you change anything else in wrangler.jsonc (bindings, D1/R2 names,
+ * etc.), mirror the change here too.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "seekers-tracker",
+	"main": ".open-next/worker.js",
+	"compatibility_date": "2026-08-16",
+	"compatibility_flags": [
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".open-next/assets"
+	},
+	"images": {
+		"binding": "IMAGES"
+	},
+	"services": [
+		{
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "seekers-tracker"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DATABASE",
+			"database_name": "seekers-of-souls",
+			"database_id": "77583c9c-c654-4934-8782-ed4d1265771f",
+			"migrations_dir": "drizzle/migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "IMPORT_ARCHIVE",
+			"bucket_name": "seekers-of-souls-imports"
+		}
+	],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true
+}
