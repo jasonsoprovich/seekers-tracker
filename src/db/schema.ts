@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, primaryKey, index, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, primaryKey, index, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 // Core fields (email, emailVerified, username/name, avatarUrl/image,
 // createdAt, updatedAt) are required by better-auth's user model — see
@@ -40,7 +40,14 @@ export const characters = sqliteTable("characters", {
   // account yet. Null means "unclaimed roster character" — see the EPGP
   // plan's "Character claiming" open question.
   ownerId: text("owner_id").references(() => users.id),
-  name: text("name").notNull().unique(),
+  // COLLATE NOCASE (not a plain .unique()) so "tuffums" and "Tuffums" collide
+  // at the DB level instead of silently becoming two characters with two
+  // separate EP/GP ledgers — the exact class of bug the EPGP importer had to
+  // work around for the guild's sheet itself (its SUMIF totals are also
+  // case-insensitive). Leading/trailing whitespace is trimmed before this
+  // column is ever written (see characters/actions.ts and
+  // scripts/import-epgp.ts's cellText()), so this only needs to guard case.
+  name: text("name").notNull(),
   class: integer("class").notNull(),
   race: integer("race").notNull(),
   level: integer("level").notNull(),
@@ -71,7 +78,7 @@ export const characters = sqliteTable("characters", {
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});
+}, (table) => [uniqueIndex("characters_name_unique").on(sql`${table.name} collate nocase`)]);
 
 export const characterPopFlags = sqliteTable(
   "character_pop_flags",

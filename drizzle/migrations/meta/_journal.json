@@ -71,6 +71,13 @@
       "when": 1787105996152,
       "tag": "0009_add_character_status",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787110728664,
+      "tag": "0010_characters_name_nocase",
+      "breakpoints": true
     }
   ]
 }
