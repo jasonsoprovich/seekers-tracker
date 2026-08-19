@@ -71,6 +71,7 @@ export default async function AdminPage() {
       level: c.level,
       charType: c.charType,
       status: c.status,
+      mainCharacterId: c.mainCharacterId,
       mainName: c.charType === "alt" && c.mainCharacterId ? (nameById.get(c.mainCharacterId) ?? "(unknown)") : null,
       ownerUsername: c.ownerUsername,
       ownerId: c.ownerId,
