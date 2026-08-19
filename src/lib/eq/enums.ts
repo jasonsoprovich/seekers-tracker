@@ -3,6 +3,11 @@
 // PC race id, not the compact 1-14 RaceIndex — see schema.ts comments and
 // docs/guild-website-feasibility.md §4/§5).
 
+// id 99 is a sentinel for "unknown" — not a real Quarm class id. Used by
+// scripts/import-epgp.ts for characters that only ever appear in the sheet's
+// GP Log (no Totals row to read a real class from).
+export const UNKNOWN_CLASS_ID = 99;
+
 export const CHAR_CLASSES = [
   { id: 0, abbr: "WAR", name: "Warrior" },
   { id: 1, abbr: "CLR", name: "Cleric" },
@@ -19,6 +24,7 @@ export const CHAR_CLASSES = [
   { id: 12, abbr: "MAG", name: "Magician" },
   { id: 13, abbr: "ENC", name: "Enchanter" },
   { id: 14, abbr: "BST", name: "Beastlord" },
+  { id: UNKNOWN_CLASS_ID, abbr: "UNK", name: "Unknown" },
 ] as const;
 
 // Per-class hues, ported verbatim from pq-companion's DEFAULT_DPS_CLASS_COLORS
@@ -48,7 +54,13 @@ export function classColor(id: number): string {
   return CLASS_COLORS[id] ?? "#B2B2B2";
 }
 
+// id 0 is a sentinel for "unknown" — not a real EQ race id (those start at
+// 1). The sheet's EPGP tabs never recorded race, so scripts/import-epgp.ts
+// has no source data to fill this column with for imported characters.
+export const UNKNOWN_RACE_ID = 0;
+
 export const CHAR_RACES = [
+  { id: UNKNOWN_RACE_ID, name: "Unknown" },
   { id: 1, name: "Human" },
   { id: 2, name: "Barbarian" },
   { id: 3, name: "Erudite" },

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { fieldClasses } from "@/components/ui/Field";
 import type { Role } from "@/lib/authz";
 
-const ROLES: Role[] = ["member", "officer", "leader"];
+const ROLES: Role[] = ["member", "officer", "leader", "admin"];
 
 export function RoleSelect({
   userId,

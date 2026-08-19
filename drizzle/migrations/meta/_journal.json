@@ -43,6 +43,20 @@
       "when": 1786982820642,
       "tag": "0005_add_character_main_link_and_quarmy_url",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787090147424,
+      "tag": "0006_epgp_prep_roles_and_char_owner",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787090163058,
+      "tag": "0007_epgp_ledgers_bids_config",
+      "breakpoints": true
     }
   ]
 }

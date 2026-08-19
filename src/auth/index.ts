@@ -67,7 +67,7 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
               fieldName: "discordId",
             },
             role: {
-              type: ["member", "officer", "leader"],
+              type: ["member", "officer", "leader", "admin"],
               required: false,
               defaultValue: "member",
               // Never settable by the user themselves — promotion happens

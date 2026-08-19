@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, primaryKey, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, primaryKey, index, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 // Core fields (email, emailVerified, username/name, avatarUrl/image,
 // createdAt, updatedAt) are required by better-auth's user model — see
@@ -14,7 +14,11 @@ export const users = sqliteTable("users", {
   discordId: text("discord_id").unique(),
   username: text("username"),
   avatarUrl: text("avatar_url"),
-  role: text("role", { enum: ["member", "officer", "leader"] })
+  // "admin" is site/dev administration (DB, config, roles) — distinct from
+  // guild loot/attendance authority (officer/leader). See
+  // docs/guild-website-feasibility.md and the EPGP plan for why the two are
+  // kept separate rather than folding admin into "leader".
+  role: text("role", { enum: ["member", "officer", "leader", "admin"] })
     .notNull()
     .default("member"),
   discordVerified: integer("discord_verified", { mode: "boolean" })
@@ -31,9 +35,11 @@ export const users = sqliteTable("users", {
 
 export const characters = sqliteTable("characters", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  ownerId: text("owner_id")
-    .notNull()
-    .references(() => users.id),
+  // Nullable: the EPGP import (scripts/import-epgp.ts) creates rows for
+  // every character name in the guild's ledger, most of which have no site
+  // account yet. Null means "unclaimed roster character" — see the EPGP
+  // plan's "Character claiming" open question.
+  ownerId: text("owner_id").references(() => users.id),
   name: text("name").notNull().unique(),
   class: integer("class").notNull(),
   race: integer("race").notNull(),
@@ -117,22 +123,136 @@ export const characterStats = sqliteTable("character_stats", {
     .default(sql`(unixepoch())`),
 });
 
-// Phase 4 (§10/§9 task 20) — mirrored read-only from the guild's EPGP Google
-// Sheet's "Totals" tab, matched to `characters` by exact name. This site
-// never writes back to the sheet; officers keep editing it by hand.
-// priorityRating is copied verbatim (sheet already computes (EP+BaseEP)/
-// (GP+BaseGP)) rather than recomputed here, since Base EP/GP and decay are
-// guild-leadership-controlled values that drift over time — see §10.
-export const characterEpgp = sqliteTable("character_epgp", {
-  characterId: integer("character_id")
-    .primaryKey()
-    .references(() => characters.id),
-  ep: integer("ep").notNull(),
-  gp: integer("gp").notNull(),
-  priorityRating: real("priority_rating").notNull(),
-  lastSyncedAt: integer("last_synced_at", { mode: "timestamp" })
+export const cycles = sqliteTable("cycles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cycleNumber: integer("cycle_number").notNull().unique(),
+  startDate: integer("start_date", { mode: "timestamp" }).notNull(),
+  endDate: integer("end_date", { mode: "timestamp" }).notNull(),
+});
+
+// Effort Points ledger. Decay is an explicit negative-point row here (as it
+// was in the sheet's EP Log), not separate bookkeeping — totals are a
+// straight SUM(). See scripts/import-epgp.ts and src/lib/epgp/totals.ts.
+export const epLedger = sqliteTable(
+  "ep_ledger",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    cycleId: integer("cycle_id").references(() => cycles.id),
+    occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+    activity: text("activity").notNull(),
+    points: real("points").notNull(),
+    note: text("note"),
+    enteredBy: text("entered_by").references(() => users.id),
+    source: text("source", { enum: ["import", "manual", "parse"] })
+      .notNull()
+      .default("manual"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index("ep_ledger_character_id_idx").on(table.characterId), index("ep_ledger_occurred_at_idx").on(table.occurredAt)],
+);
+
+// Gear Points ledger — one row per awarded/decayed/adjusted GP transaction.
+// `tier` is the bid tier ("High Bid", "Epic Drop (Main)", "Decay", …), kept
+// as free text to match the guild's own evolving tier list (epgp_point_values
+// below is the editable reference, not an enum constraint).
+export const gpLedger = sqliteTable(
+  "gp_ledger",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    cycleId: integer("cycle_id").references(() => cycles.id),
+    occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+    itemName: text("item_name"),
+    tier: text("tier").notNull(),
+    points: real("points").notNull(),
+    note: text("note"),
+    duplicateFlag: integer("duplicate_flag", { mode: "boolean" }).notNull().default(false),
+    enteredBy: text("entered_by").references(() => users.id),
+    source: text("source", { enum: ["import", "manual", "parse"] })
+      .notNull()
+      .default("manual"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index("gp_ledger_character_id_idx").on(table.characterId), index("gp_ledger_occurred_at_idx").on(table.occurredAt)],
+);
+
+// New capability the sheet never had (guild leadership asked for this
+// directly — see the EPGP plan): a loot event groups every bid placed on a
+// drop, not just the eventual winner, so retractions/last-second changes/
+// tell-to-the-wrong-person mistakes stay in the record instead of being
+// overwritten.
+export const lootEvents = sqliteTable("loot_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+  itemName: text("item_name").notNull(),
+  status: text("status", { enum: ["open", "awarded", "rot", "cancelled"] })
+    .notNull()
+    .default("open"),
+  openedBy: text("opened_by").references(() => users.id),
+  winningBidId: integer("winning_bid_id").references((): AnySQLiteColumn => bids.id),
+  createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
+});
+
+export const bids = sqliteTable(
+  "bids",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    lootEventId: integer("loot_event_id")
+      .notNull()
+      .references(() => lootEvents.id),
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    tier: text("tier").notNull(),
+    status: text("status", { enum: ["active", "retracted", "won", "lost"] })
+      .notNull()
+      .default("active"),
+    // Priority Rating at bid time, so a bid's context stays explainable even
+    // after later decay/GP changes move the character's live PR.
+    prioritySnapshot: real("priority_snapshot"),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index("bids_loot_event_id_idx").on(table.lootEventId), index("bids_character_id_idx").on(table.characterId)],
+);
+
+// Editable mirror of the sheet's "Point Values" tab (EP activity → points,
+// GP tier → points), so leadership can retune values without a deploy.
+// `retired` keeps old tiers selectable for historical reference without
+// offering them for new entries.
+export const epgpPointValues = sqliteTable("epgp_point_values", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind", { enum: ["ep", "gp"] }).notNull(),
+  activity: text("activity").notNull(),
+  points: real("points").notNull(),
+  retired: integer("retired", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+// Guild-tunable EPGP constants (base EP/GP, decay %, per-cycle EP cap) —
+// key/value rather than fixed columns so new settings don't need a schema
+// change. See src/lib/epgp/totals.ts for how these combine with the
+// ledgers into a character's live EP/GP/Priority Rating.
+export const epgpSettings = sqliteTable("epgp_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedBy: text("updated_by").references(() => users.id),
 });
 
 export const importLog = sqliteTable("import_log", {

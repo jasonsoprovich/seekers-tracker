@@ -4,7 +4,7 @@ import { users } from "@/db";
 
 import { getDb } from "./db";
 
-export type Role = "member" | "officer" | "leader";
+export type Role = "member" | "officer" | "leader" | "admin";
 
 // Always re-read from D1 rather than trusting session.user.role — a role
 // change (Task 11's own admin panel) must take effect on the next request,
@@ -15,23 +15,36 @@ export async function getUserRole(userId: string): Promise<Role | null> {
   return row?.role ?? null;
 }
 
-// officer/leader: "+ edit/view any member's characters" (docs/guild-website-
-// feasibility.md §3 role table).
+// officer/leader/admin: "+ edit/view any member's characters" (docs/guild-
+// website-feasibility.md §3 role table). admin (site/dev administration) is
+// a superset here even though it isn't a guild-loot role.
 export function canManageAnyCharacter(role: Role | null): boolean {
-  return role === "officer" || role === "leader";
+  return role === "officer" || role === "leader" || role === "admin";
 }
 
-// leader only: "+ promote/demote roles, remove members/characters, site
+// leader/admin: "+ promote/demote roles, remove members/characters, site
 // settings".
 export function canManageRoles(role: Role | null): boolean {
-  return role === "leader";
+  return role === "leader" || role === "admin";
+}
+
+// officer/leader/admin: run read-only SQL against the EPGP tables (query/
+// display page) and enter/edit EP/GP ledger rows and bids.
+export function canManageEpgp(role: Role | null): boolean {
+  return role === "officer" || role === "leader" || role === "admin";
+}
+
+// leader/admin: tune EPGP settings (base EP/GP, decay %, cycle cap, point
+// values) — a guild-leadership call, not an every-officer one.
+export function canManageEpgpConfig(role: Role | null): boolean {
+  return role === "leader" || role === "admin";
 }
 
 // The ownership-or-officer check repeated across every character route
 // (view, edit, gear, stats, import): the owner can always manage their own
 // character; anyone else needs canManageAnyCharacter.
 export async function canManageCharacter(
-  character: { ownerId: string } | undefined,
+  character: { ownerId: string | null } | undefined,
   userId: string,
 ): Promise<boolean> {
   if (!character) return false;

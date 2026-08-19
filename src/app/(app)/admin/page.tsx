@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 
 import { DeleteCharacterButton } from "@/components/DeleteCharacterButton";
 import { RoleSelect } from "@/components/RoleSelect";
-import { SyncEpgpButton } from "@/components/SyncEpgpButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { RoleBadge } from "@/components/ui/RoleBadge";
@@ -73,12 +72,9 @@ export default async function AdminPage() {
       <PageHeader
         title="Admin"
         actions={
-          <>
-            <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
-              Import Audit Trail
-            </Link>
-            <SyncEpgpButton />
-          </>
+          <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
+            Import Audit Trail
+          </Link>
         }
       />
 
@@ -130,7 +126,7 @@ export default async function AdminPage() {
                       </Link>
                       <DeleteCharacterButton characterId={c.id} characterName={c.name} />
                     </div>
-                    {canEditRoles && c.charType === "main" && (
+                    {canEditRoles && c.charType === "main" && c.ownerId && (
                       <RoleSelect userId={c.ownerId} role={c.ownerRole} isSelf={c.ownerId === session.user.id} />
                     )}
                   </div>
