@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { fieldClasses } from "@/components/ui/Field";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { characterStatusLabel, type CharacterStatus } from "@/lib/character-status";
 import { CHAR_CLASSES } from "@/lib/eq/enums";
 import type { ZoneCatalogEntry, ZoneState, ZoneStatus } from "@/lib/pop-flags";
 
@@ -16,6 +18,7 @@ export interface ProgressionRow {
   className: string;
   level: number;
   charType: "main" | "alt";
+  status: CharacterStatus;
   done: number;
   total: number;
   tiers: { tier: number; label: string; done: number; total: number }[];
@@ -185,6 +188,7 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -194,9 +198,10 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
       if (q && !r.name.toLowerCase().includes(q) && !r.ownerUsername.toLowerCase().includes(q)) return false;
       if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
       if (typeFilter !== "all" && r.charType !== typeFilter) return false;
+      if (statusFilter !== "all" && r.status !== statusFilter) return false;
       return true;
     });
-  }, [rows, search, classFilter, typeFilter]);
+  }, [rows, search, classFilter, typeFilter, statusFilter]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -257,6 +262,16 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
           </select>
         </label>
 
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Status</span>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
+            <option value="active">Active only</option>
+            <option value="all">All statuses</option>
+            <option value="retired">{characterStatusLabel("retired")}</option>
+            <option value="removed">{characterStatusLabel("removed")}</option>
+          </select>
+        </label>
+
         <span className="pb-1.5 text-sm text-neutral-500">
           {sorted.length} of {rows.length} character{rows.length === 1 ? "" : "s"}
         </span>
@@ -282,7 +297,8 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
                 <td className="px-3 py-2 font-medium">
                   <Link href={`/characters/${r.id}`} className="hover:text-emerald-400">
                     {r.name}
-                  </Link>
+                  </Link>{" "}
+                  <CharacterStatusBadge status={r.status} />
                 </td>
                 <td className="px-3 py-2 text-neutral-400">{r.ownerUsername}</td>
                 <td className="px-3 py-2 text-neutral-400">{r.charType === "main" ? "Main" : "Alt"}</td>

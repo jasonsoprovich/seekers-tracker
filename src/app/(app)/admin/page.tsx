@@ -5,12 +5,13 @@ import { redirect } from "next/navigation";
 import { DeleteCharacterButton } from "@/components/DeleteCharacterButton";
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { RoleBadge } from "@/components/ui/RoleBadge";
 import { characterPopFlags, characters, users } from "@/db";
 import { canManageAnyCharacter, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { charClassLabel, charRaceName } from "@/lib/eq/enums";
+import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 
@@ -31,16 +32,18 @@ export default async function AdminPage() {
       race: characters.race,
       level: characters.level,
       charType: characters.charType,
+      status: characters.status,
       mainCharacterId: characters.mainCharacterId,
       ownerUsername: users.username,
       ownerId: characters.ownerId,
       ownerRole: users.role,
     })
     .from(characters)
-    .innerJoin(users, eq(characters.ownerId, users.id))
+    .leftJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
 
   const nameById = new Map(roster.map((c) => [c.id, c.name]));
+  const unresolvedClassCount = roster.filter((c) => c.class === UNKNOWN_CLASS_ID).length;
 
   // Guild-wide table, not filtered by character ID list — see dashboard's
   // identical comment: an inArray() of every character's ID hits D1's
@@ -72,9 +75,14 @@ export default async function AdminPage() {
       <PageHeader
         title="Admin"
         actions={
-          <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
-            Import Audit Trail
-          </Link>
+          <>
+            <Link href="/admin/claims" className="text-emerald-400 hover:text-emerald-300">
+              Claim Requests
+            </Link>
+            <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
+              Import Audit Trail
+            </Link>
+          </>
         }
       />
 
@@ -85,6 +93,12 @@ export default async function AdminPage() {
           main/alt status or link an alt to its main.
           {canEditRoles && " A main character's row also has a role picker, to promote/demote its owner."}
         </p>
+        {unresolvedClassCount > 0 && (
+          <p className="mt-2 text-sm text-amber-400">
+            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} have an unresolved class — editable per-character
+            below.
+          </p>
+        )}
         {roster.length === 0 ? (
           <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
         ) : (
@@ -105,12 +119,13 @@ export default async function AdminPage() {
                         {c.name}
                       </Link>
                       <span className="text-sm font-normal text-neutral-500">
-                        {c.charType === "alt" ? "(Alt)" : "(Main)"} — {c.ownerUsername}
+                        {c.charType === "alt" ? "(Alt)" : "(Main)"} — {c.ownerUsername ?? "(unclaimed)"}
                         {c.charType === "alt" && c.mainCharacterId && (
                           <> → {nameById.get(c.mainCharacterId) ?? "(unknown)"}</>
                         )}
                       </span>
                       <RoleBadge role={c.ownerRole} />
+                      <CharacterStatusBadge status={c.status} />
                     </p>
                     <p className="text-sm text-neutral-400">
                       Level {c.level} {charClassLabel(c.class)} — {charRaceName(c.race)}
@@ -127,7 +142,9 @@ export default async function AdminPage() {
                       <DeleteCharacterButton characterId={c.id} characterName={c.name} />
                     </div>
                     {canEditRoles && c.charType === "main" && c.ownerId && (
-                      <RoleSelect userId={c.ownerId} role={c.ownerRole} isSelf={c.ownerId === session.user.id} />
+                      // ownerId is truthy here, so the leftJoin matched a users row —
+                      // ownerRole can't actually be null in this branch.
+                      <RoleSelect userId={c.ownerId} role={c.ownerRole!} isSelf={c.ownerId === session.user.id} />
                     )}
                   </div>
                 </li>

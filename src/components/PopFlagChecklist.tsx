@@ -21,12 +21,14 @@ function FlagRow({
   allFlags,
   requiredByDone,
   busy,
+  readOnly,
   onToggle,
 }: {
   flag: FlagStatus;
   allFlags: FlagStatus[];
   requiredByDone: Set<string>;
   busy: boolean;
+  readOnly: boolean;
   onToggle: (flag: FlagStatus) => void;
 }) {
   const missingLabels = (flag.missing ?? [])
@@ -37,16 +39,18 @@ function FlagRow({
   // An any-of anchor satisfied via a checked member: toggling it would be a
   // no-op, so steer the member toward the member row instead.
   const anchorViaMember = flag.done && allFlags.some((o) => o.group === flag.id && o.done);
-  const disabled = busy || lockedForCheck || lockedForUncheck || anchorViaMember;
-  const title = lockedForCheck
-    ? `Complete prerequisites first: ${missingLabels}`
-    : lockedForUncheck
-      ? "Required by a completed later step"
-      : anchorViaMember
-        ? "Completed via an option below — toggle that instead"
-        : flag.done
-          ? "Mark not done"
-          : "Mark done";
+  const disabled = readOnly || busy || lockedForCheck || lockedForUncheck || anchorViaMember;
+  const title = readOnly
+    ? "You don't have permission to edit this character"
+    : lockedForCheck
+      ? `Complete prerequisites first: ${missingLabels}`
+      : lockedForUncheck
+        ? "Required by a completed later step"
+        : anchorViaMember
+          ? "Completed via an option below — toggle that instead"
+          : flag.done
+            ? "Mark not done"
+            : "Mark done";
 
   const km = stepKindMeta(flag.step_kind);
   const rm = roleMeta(flag.role);
@@ -109,6 +113,7 @@ function TierSection({
   allFlags,
   requiredByDone,
   busyId,
+  readOnly,
   onToggle,
 }: {
   progress: Progress;
@@ -116,6 +121,7 @@ function TierSection({
   allFlags: FlagStatus[];
   requiredByDone: Set<string>;
   busyId: string | null;
+  readOnly: boolean;
   onToggle: (flag: FlagStatus) => void;
 }) {
   const complete = progress.done === progress.total && progress.total > 0;
@@ -159,6 +165,7 @@ function TierSection({
                 allFlags={allFlags}
                 requiredByDone={requiredByDone}
                 busy={busyId === f.id}
+                readOnly={readOnly}
                 onToggle={onToggle}
               />
             ))}
@@ -173,10 +180,12 @@ export function PopFlagChecklist({
   characterId,
   flags,
   tiers,
+  readOnly = false,
 }: {
   characterId: number;
   flags: FlagStatus[];
   tiers: Progress[];
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -200,6 +209,7 @@ export function PopFlagChecklist({
   }, [flags, tiers]);
 
   async function onToggle(flag: FlagStatus) {
+    if (readOnly) return;
     setBusyId(flag.id);
     setError(null);
     const result = await setManualFlag(characterId, flag.id, !flag.done);
@@ -222,6 +232,7 @@ export function PopFlagChecklist({
           allFlags={flags}
           requiredByDone={requiredByDone}
           busyId={busyId}
+          readOnly={readOnly}
           onToggle={onToggle}
         />
       ))}

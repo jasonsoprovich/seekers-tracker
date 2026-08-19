@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { characters } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
+import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
 import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 import { getSession } from "@/lib/session";
@@ -112,7 +113,7 @@ export async function createCharacter(
     await db.insert(characters).values({ ownerId: session.user.id, ...parsed.data });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      return { error: "A character with that name already exists." };
+      return { error: "A character with that name already exists. If it's yours, claim it from /characters/claim instead." };
     }
     throw err;
   }
@@ -140,14 +141,17 @@ export async function updateCharacter(
   const mainError = await validateMainCharacterId(db, parsed.data.mainCharacterId);
   if (mainError) return { error: mainError };
 
+  const status = String(formData.get("status") ?? "");
+  if (!isValidCharacterStatus(status)) return { error: "Invalid status." };
+
   try {
     await db
       .update(characters)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({ ...parsed.data, status, updatedAt: new Date() })
       .where(eq(characters.id, characterId));
   } catch (err) {
     if (isUniqueConstraintError(err)) {
-      return { error: "A character with that name already exists." };
+      return { error: "A character with that name already exists. If it's yours, claim it from /characters/claim instead." };
     }
     throw err;
   }

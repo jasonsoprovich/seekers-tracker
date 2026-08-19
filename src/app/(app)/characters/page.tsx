@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { LinkButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { characterPopFlags, characters } from "@/db";
+import { characterClaims, characterPopFlags, characters } from "@/db";
 import { canManageAnyCharacter, getUserRole, hasAnyLeader } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
@@ -21,11 +21,19 @@ export default async function CharactersPage() {
   const showBootstrapBanner = !(await hasAnyLeader());
 
   const db = await getDb();
-  const rows = await db
-    .select()
-    .from(characters)
-    .where(eq(characters.ownerId, session.user.id))
-    .orderBy(characters.name);
+  const [rows, pendingClaims] = await Promise.all([
+    db
+      .select()
+      .from(characters)
+      .where(eq(characters.ownerId, session.user.id))
+      .orderBy(characters.name),
+    db
+      .select({ characterName: characters.name, note: characterClaims.note, createdAt: characterClaims.createdAt })
+      .from(characterClaims)
+      .innerJoin(characters, eq(characterClaims.characterId, characters.id))
+      .where(and(eq(characterClaims.requesterId, session.user.id), eq(characterClaims.status, "pending")))
+      .orderBy(characterClaims.createdAt),
+  ]);
 
   const flagRows =
     rows.length === 0
@@ -51,12 +59,28 @@ export default async function CharactersPage() {
                 Admin
               </LinkButton>
             )}
+            <LinkButton href="/characters/claim" variant="outline">
+              Claim a Character
+            </LinkButton>
             <LinkButton href="/characters/new" variant="primary" size="md">
               Add Character
             </LinkButton>
           </>
         }
       />
+
+      {pendingClaims.length > 0 && (
+        <Card className="mb-6 border-neutral-700 bg-neutral-900/40 px-4 py-3">
+          <p className="text-sm font-medium text-neutral-200">
+            {pendingClaims.length === 1 ? "1 pending claim" : `${pendingClaims.length} pending claims`} awaiting officer review
+          </p>
+          <ul className="mt-1.5 text-sm text-neutral-400">
+            {pendingClaims.map((c) => (
+              <li key={c.characterName}>{c.characterName}</li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {showBootstrapBanner && (
         <Card className="mb-6 flex items-center justify-between gap-4 border-emerald-800 bg-emerald-950/40 px-4 py-3">

@@ -6,11 +6,12 @@ import type { CharacterFormState } from "@/app/(app)/characters/actions";
 import { Button } from "@/components/ui/Button";
 import { fieldClasses } from "@/components/ui/Field";
 import type { characters } from "@/db";
+import { CHARACTER_STATUSES, characterStatusLabel } from "@/lib/character-status";
 import { CHAR_CLASSES, CHAR_RACES, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 
 type Character = Pick<
   typeof characters.$inferSelect,
-  "name" | "class" | "race" | "level" | "charType" | "mainCharacterId" | "quarmyUrl"
+  "name" | "class" | "race" | "level" | "charType" | "mainCharacterId" | "quarmyUrl" | "status"
 >;
 
 export interface MainCandidate {
@@ -122,6 +123,22 @@ export function CharacterForm({
             ))}
           </select>
           <span className="text-xs text-neutral-500">Which main this alt belongs to, for guild record-keeping.</span>
+        </label>
+      )}
+
+      {character && (
+        <label className="flex flex-col gap-1 text-sm">
+          Status
+          <select name="status" defaultValue={character.status} className={fieldClasses()}>
+            {CHARACTER_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {characterStatusLabel(s)}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-neutral-500">
+            Retired/removed characters drop off the guild-wide roster views by default — nothing is deleted.
+          </span>
         </label>
       )}
 

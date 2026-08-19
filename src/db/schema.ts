@@ -47,6 +47,14 @@ export const characters = sqliteTable("characters", {
   charType: text("char_type", { enum: ["main", "alt"] })
     .notNull()
     .default("main"),
+  // Non-destructive roster housekeeping: "retired"/"removed" hide the
+  // character from the guild-wide read views (Roster/EPGP/Progression/
+  // Dashboard) by default without touching its EP/GP history or deleting
+  // it — see src/lib/character-status.ts. Settable by the owner or any
+  // officer/leader/admin, same gate as every other edit-form field.
+  status: text("status", { enum: ["active", "retired", "removed"] })
+    .notNull()
+    .default("active"),
   // Which main character this alt belongs to (admin/officer- or
   // owner-assignable), so alts can be tracked back to a main even when the
   // guild's EPGP sheet has no player/account column of its own — see §10.
@@ -270,3 +278,40 @@ export const importLog = sqliteTable("import_log", {
     .notNull()
     .default(sql`(unixepoch())`),
 });
+
+// A member's request to attach an unclaimed roster character (see
+// characters.ownerId's comment) to their own account. Left pending until an
+// officer approves/denies it — characters.ownerId is only ever set on
+// approval, never at request time, so a denied or still-pending claim
+// leaves the character untouched. A partial unique index (hand-added in the
+// migration — drizzle-kit doesn't generate WHERE-qualified indexes) blocks
+// the same requester from double-submitting a pending claim on the same
+// character; two different requesters may each have one pending, and an
+// officer arbitrates by approving one (which auto-denies the other — see
+// admin/claims/actions.ts).
+export const characterClaims = sqliteTable(
+  "character_claims",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    requesterId: text("requester_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", { enum: ["pending", "approved", "denied"] })
+      .notNull()
+      .default("pending"),
+    note: text("note"),
+    decisionNote: text("decision_note"),
+    reviewedBy: text("reviewed_by").references(() => users.id),
+    reviewedAt: integer("reviewed_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    index("character_claims_status_idx").on(table.status),
+    index("character_claims_character_id_idx").on(table.characterId),
+  ],
+);

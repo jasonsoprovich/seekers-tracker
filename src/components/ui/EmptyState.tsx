@@ -7,17 +7,22 @@ export function EmptyState({
   suffix = "",
 }: {
   message: string;
-  linkHref: string;
-  linkLabel: string;
+  linkHref?: string;
+  linkLabel?: string;
   suffix?: string;
 }) {
   return (
     <p className="text-sm text-neutral-400">
-      {message}{" "}
-      <Link href={linkHref} className="text-emerald-400 hover:text-emerald-300">
-        {linkLabel}
-      </Link>
-      {suffix}
+      {message}
+      {linkHref && linkLabel && (
+        <>
+          {" "}
+          <Link href={linkHref} className="text-emerald-400 hover:text-emerald-300">
+            {linkLabel}
+          </Link>
+          {suffix}
+        </>
+      )}
     </p>
   );
 }

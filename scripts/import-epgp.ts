@@ -114,16 +114,46 @@ function assertHeaders(sheet: Worksheet, headerRow: number, expected: Record<num
 
 const CLASS_BY_NAME = new Map(CHAR_CLASSES.map((c) => [c.name.toLowerCase(), c.id]));
 
-// The sheet's "Class" columns sometimes hold the base class name (matches
-// CHAR_CLASSES directly) and sometimes hold a level-title (e.g. "Virtuoso"
-// for a level-60 Bard, "Assassin" for a level-60 Rogue) — confirmed by
-// direct inspection of both the Totals and EP Log tabs. There is no
-// authoritative title->class table available to consult without risking a
-// wrong guess, so: only trust an exact base-class-name match; anything else
+// Classic EverQuest's automatic /who class title, awarded at 51/55/60 (this
+// server caps at level 60 per MAX_CHAR_LEVEL, so there's no 65+ tier to
+// worry about) — the sheet's "Class" column sometimes holds one of these
+// instead of the base class name (e.g. "Virtuoso" for a level-60 Bard,
+// "Assassin" for a level-60 Rogue), confirmed by direct inspection of both
+// the Totals and EP Log tabs. Verified against two independent title
+// references (bonzz.com/titles.htm, onlinegamecommands.com/everquest-class-
+// titles) agreeing exactly on all three tiers before trusting this table —
+// a wrong guess here is worse than leaving a character Unknown.
+const CLASS_TITLES: Record<string, string[]> = {
+  Warrior: ["Champion", "Myrmidon", "Warlord"],
+  Cleric: ["Vicar", "Templar", "High Priest"],
+  Paladin: ["Cavalier", "Knight", "Crusader"],
+  Ranger: ["Pathfinder", "Outrider", "Warder"],
+  "Shadow Knight": ["Reaver", "Revenant", "Grave Lord"],
+  Druid: ["Wanderer", "Preserver", "Hierophant"],
+  Monk: ["Disciple", "Master", "Grandmaster"],
+  Bard: ["Minstrel", "Troubadour", "Virtuoso"],
+  Rogue: ["Rake", "Blackguard", "Assassin"],
+  Shaman: ["Mystic", "Luminary", "Oracle"],
+  Necromancer: ["Heretic", "Defiler", "Warlock"],
+  Wizard: ["Channeler", "Evoker", "Sorcerer"],
+  Magician: ["Elementalist", "Conjurer", "Arch Mage"],
+  Enchanter: ["Illusionist", "Beguiler", "Phantasmist"],
+  Beastlord: ["Primalist", "Animist", "Savage Lord"],
+};
+const TITLE_TO_CLASS_NAME = new Map<string, string>();
+for (const [className, titles] of Object.entries(CLASS_TITLES)) {
+  for (const title of titles) TITLE_TO_CLASS_NAME.set(title.toLowerCase(), className);
+}
+
+// Only trust an exact base-class-name or known-title match; anything else
 // resolves to UNKNOWN_CLASS_ID and is reported for manual review rather
 // than silently mis-classified.
 function resolveClassId(rawClass: string): number {
-  return CLASS_BY_NAME.get(rawClass.toLowerCase()) ?? UNKNOWN_CLASS_ID;
+  const key = rawClass.toLowerCase();
+  if (CLASS_BY_NAME.has(key)) return CLASS_BY_NAME.get(key)!;
+  const titleClassName = TITLE_TO_CLASS_NAME.get(key);
+  if (titleClassName) return CLASS_BY_NAME.get(titleClassName.toLowerCase())!;
+  return UNKNOWN_CLASS_ID;
 }
 
 // ---------- static config (Point Values tab) ----------
@@ -425,6 +455,21 @@ async function main() {
   for (const c of characters.values()) {
     out.push(
       `INSERT OR IGNORE INTO characters (owner_id, name, class, race, level, char_type, created_at, updated_at) VALUES (NULL, ${sqlStr(c.name)}, ${c.classId}, ${UNKNOWN_RACE_ID}, ${c.level}, 'main', unixepoch(), unixepoch());`,
+    );
+  }
+
+  // Backfill class for characters imported by an earlier run that resolved
+  // to Unknown then but resolve to a real class now (e.g. after extending
+  // CLASS_TITLES) — INSERT OR IGNORE above is a no-op for rows that already
+  // exist, so without this a rerun could never fix them. Scoped to
+  // owner_id IS NULL (never touch a real site account's character) and
+  // class = UNKNOWN_CLASS_ID (never downgrade or overwrite an already-
+  // resolved/manually-set class).
+  out.push("\n-- backfill: Unknown -> resolved class for previously-imported, still-unclaimed characters");
+  for (const c of characters.values()) {
+    if (c.classId === UNKNOWN_CLASS_ID) continue;
+    out.push(
+      `UPDATE characters SET class = ${c.classId}, updated_at = unixepoch() WHERE name = ${sqlStr(c.name)} AND owner_id IS NULL AND class = ${UNKNOWN_CLASS_ID};`,
     );
   }
 

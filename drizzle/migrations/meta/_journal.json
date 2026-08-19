@@ -57,6 +57,20 @@
       "when": 1787090163058,
       "tag": "0007_epgp_ledgers_bids_config",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787104140994,
+      "tag": "0008_add_character_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787105996152,
+      "tag": "0009_add_character_status",
+      "breakpoints": true
     }
   ]
 }

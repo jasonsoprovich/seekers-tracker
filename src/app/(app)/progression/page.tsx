@@ -25,10 +25,11 @@ export default async function ProgressionPage() {
       classId: characters.class,
       level: characters.level,
       charType: characters.charType,
+      status: characters.status,
       ownerUsername: users.username,
     })
     .from(characters)
-    .innerJoin(users, eq(characters.ownerId, users.id))
+    .leftJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
 
   // Guild-wide table, not filtered by character ID list — same D1
@@ -52,6 +53,7 @@ export default async function ProgressionPage() {
       className: charClassLabel(c.classId),
       level: c.level,
       charType: c.charType,
+      status: c.status,
       done: resolved.done,
       total: resolved.total,
       tiers: resolved.tiers.map((t) => ({ tier: t.tier ?? 0, label: tierLabel(t.tier ?? 0), done: t.done, total: t.total })),

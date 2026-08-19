@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PageHeader } from "@/components/shell/PageHeader";
+import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { RoleBadge } from "@/components/ui/RoleBadge";
 import type { characters } from "@/db";
 import type { Role } from "@/lib/authz";
@@ -8,7 +9,7 @@ import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 
 import { CharacterTabs, type CharacterTabKey } from "./CharacterTabs";
 
-type Character = Pick<typeof characters.$inferSelect, "id" | "name" | "class" | "race" | "level" | "quarmyUrl">;
+type Character = Pick<typeof characters.$inferSelect, "id" | "name" | "class" | "race" | "level" | "quarmyUrl" | "status">;
 
 // The identity header + sub-tab row shared by the three character detail
 // pages (PoP checklist, gear, stats). Import and Edit are always shown here
@@ -21,11 +22,13 @@ export function CharacterHeader({
   active,
   ownerUsername,
   ownerRole,
+  canManage = true,
 }: {
   character: Character;
   active: CharacterTabKey;
   ownerUsername?: string;
-  ownerRole?: Role;
+  ownerRole?: Role | null;
+  canManage?: boolean;
 }) {
   return (
     <>
@@ -34,8 +37,9 @@ export function CharacterHeader({
         title={character.name}
         subtitle={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>
+            <span className="flex items-center gap-1.5">
               Level {character.level} {charClassLabel(character.class)} — {charRaceName(character.race)}
+              <CharacterStatusBadge status={character.status} />
             </span>
             {ownerUsername && (
               <span className="flex items-center gap-1.5 text-neutral-500">
@@ -57,12 +61,16 @@ export function CharacterHeader({
                 Quarmy profile ↗
               </a>
             )}
-            <Link href={`/characters/${character.id}/import`} className="text-emerald-400 hover:text-emerald-300">
-              Import
-            </Link>
-            <Link href={`/characters/${character.id}/edit`} className="text-emerald-400 hover:text-emerald-300">
-              Edit
-            </Link>
+            {canManage && (
+              <>
+                <Link href={`/characters/${character.id}/import`} className="text-emerald-400 hover:text-emerald-300">
+                  Import
+                </Link>
+                <Link href={`/characters/${character.id}/edit`} className="text-emerald-400 hover:text-emerald-300">
+                  Edit
+                </Link>
+              </>
+            )}
           </>
         }
       />

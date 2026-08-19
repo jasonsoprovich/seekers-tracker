@@ -26,7 +26,7 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   const mainCandidates = await db
     .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
     .from(characters)
-    .innerJoin(users, eq(characters.ownerId, users.id))
+    .leftJoin(users, eq(characters.ownerId, users.id))
     .where(and(eq(characters.charType, "main"), ne(characters.id, characterId)))
     .orderBy(characters.name);
 

@@ -22,24 +22,30 @@ export default async function CharacterGearPage({ params }: { params: Promise<{ 
   const [row] = await db
     .select({ character: characters, ownerUsername: users.username, ownerRole: users.role })
     .from(characters)
-    .innerJoin(users, eq(characters.ownerId, users.id))
+    .leftJoin(users, eq(characters.ownerId, users.id))
     .where(eq(characters.id, characterId));
   if (!row) notFound();
   const { character, ownerUsername, ownerRole } = row;
-  if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
+  const canManage = await canManageCharacter(character, session.user.id);
 
   const rows = await db.select().from(characterGear).where(eq(characterGear.characterId, characterId));
 
   return (
     <div className="mx-auto max-w-3xl">
-      <CharacterHeader character={character} active="gear" ownerUsername={ownerUsername ?? undefined} ownerRole={ownerRole} />
+      <CharacterHeader
+        character={character}
+        active="gear"
+        ownerUsername={ownerUsername ?? undefined}
+        ownerRole={ownerRole}
+        canManage={canManage}
+      />
 
       <div className="mt-6">
         {rows.length === 0 ? (
           <EmptyState
             message="No gear imported yet."
-            linkHref={`/characters/${character.id}/import`}
-            linkLabel="Import a Quarmy export"
+            linkHref={canManage ? `/characters/${character.id}/import` : undefined}
+            linkLabel={canManage ? "Import a Quarmy export" : undefined}
             suffix=" to populate this list."
           />
         ) : (

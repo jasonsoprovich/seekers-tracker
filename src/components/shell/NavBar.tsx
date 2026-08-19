@@ -9,6 +9,15 @@ import { SignOutButton } from "./SignOutButton";
 interface NavLink {
   href: string;
   label: string;
+  badge?: number;
+}
+
+function NavBadge({ count }: { count: number }) {
+  return (
+    <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
+      {count}
+    </span>
+  );
 }
 
 export function NavBar({
@@ -44,11 +53,12 @@ export function NavBar({
             <Link
               key={link.href}
               href={link.href}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`flex items-center rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
                 isActive(link.href) ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-200"
               }`}
             >
               {link.label}
+              {!!link.badge && <NavBadge count={link.badge} />}
             </Link>
           ))}
         </nav>
@@ -112,11 +122,12 @@ export function NavBar({
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
-                className={`rounded-md px-3 py-2 text-sm font-medium ${
+                className={`flex items-center rounded-md px-3 py-2 text-sm font-medium ${
                   isActive(link.href) ? "bg-neutral-800 text-neutral-100" : "text-neutral-400"
                 }`}
               >
                 {link.label}
+                {!!link.badge && <NavBadge count={link.badge} />}
               </Link>
             ))}
           </nav>

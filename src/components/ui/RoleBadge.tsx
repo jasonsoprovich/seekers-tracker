@@ -20,11 +20,20 @@ const LABELS: Record<Role, string> = {
 // administration, not guild-loot authority — see src/lib/authz.ts.
 const RANK: Record<Role, number> = { admin: 0, leader: 1, officer: 2, member: 3 };
 
-export function roleRank(role: Role): number {
-  return RANK[role];
+// A null role means "no site account" (unclaimed roster character) — sorts
+// last, after every real role.
+export function roleRank(role: Role | null): number {
+  return role === null ? 4 : RANK[role];
 }
 
-export function RoleBadge({ role, className = "" }: { role: Role; className?: string }) {
+export function RoleBadge({ role, className = "" }: { role: Role | null; className?: string }) {
+  if (role === null) {
+    return (
+      <span className={`rounded border border-neutral-800 bg-neutral-900/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-neutral-600 ${className}`}>
+        Unclaimed
+      </span>
+    );
+  }
   return (
     <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase ${STYLES[role]} ${className}`}>
       {LABELS[role]}

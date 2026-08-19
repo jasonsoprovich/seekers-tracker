@@ -17,7 +17,7 @@ export default async function NewCharacterPage() {
   const mainCandidates = await db
     .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
     .from(characters)
-    .innerJoin(users, eq(characters.ownerId, users.id))
+    .leftJoin(users, eq(characters.ownerId, users.id))
     .where(eq(characters.charType, "main"))
     .orderBy(characters.name);
 
