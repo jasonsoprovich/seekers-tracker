@@ -68,6 +68,8 @@ export default async function RosterPage() {
       mainCharacterId: r.mainCharacterId,
       ep: total?.ep ?? null,
       gp: total?.gp ?? null,
+      epDecay: total?.epDecay ?? null,
+      gpDecay: total?.gpDecay ?? null,
       priorityRating: total?.priorityRating ?? null,
     };
   });

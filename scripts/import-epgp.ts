@@ -64,6 +64,13 @@ function cellText(cell: Cell): string {
   const v = cellRaw(cell);
   return v === null || v === undefined ? "" : String(v).trim();
 }
+// Untrimmed — only used to detect the leading/trailing-whitespace name typos
+// handled below (e.g. "Osui " vs "Osui"); every other use of a name wants
+// cellText's trimmed version.
+function cellTextRaw(cell: Cell): string {
+  const v = cellRaw(cell);
+  return v === null || v === undefined ? "" : String(v);
+}
 function cellNumber(cell: Cell): number | null {
   const v = cellRaw(cell);
   if (typeof v === "number") return v;
@@ -300,6 +307,32 @@ async function main() {
     return created;
   }
 
+  // The sheet's own Totals!F/G ("Effort Points"/"Gear Points") are computed
+  // with SUMIF(Log!name, Totals!C, Log!points) — SUMIF is case-insensitive
+  // but NOT whitespace-insensitive, so a log row like "Osui " (trailing
+  // space) silently doesn't count toward Osui's total on the sheet, even
+  // though it's obviously the same character. Confirmed 2026-08-19: the
+  // guild's live sheet has 15 such rows across 11 characters. To match the
+  // sheet's own numbers (the whole point of this importer) a log row with
+  // leading/trailing whitespace that would otherwise match an *existing*
+  // canonical name is excluded the same way, rather than silently folded in
+  // — casing differences ("tuffums" vs "Tuffums") are still folded in, since
+  // SUMIF itself treats those as equal.
+  type SkippedNameRow = { sheet: string; row: number; raw: string; canonical: string; points: number | null };
+  const skippedNameRows: SkippedNameRow[] = [];
+  function resolveLogName(sheet: string, row: number, rawName: string, points: number | null): string | null {
+    const trimmed = rawName.trim();
+    if (!trimmed) return null;
+    if (rawName !== trimmed) {
+      const existing = characters.get(trimmed.toLowerCase());
+      if (existing) {
+        skippedNameRows.push({ sheet, row, raw: rawName, canonical: existing.name, points });
+        return null;
+      }
+    }
+    return ensureCharacter(trimmed).name;
+  }
+
   // --- EP Log (cols M-X only — B-K is the sheet's raw-paste staging area, per the Instructions tab) ---
   assertHeaders(epSheet, 1, {
     13: "Cycle",
@@ -313,10 +346,11 @@ async function main() {
   type EpRow = { name: string; cycleNumber: number | null; occurredAt: Date; activity: string; points: number; note: string | null };
   const epRows: EpRow[] = [];
   let epSkipped = 0;
+  let epNameSkipped = 0;
   epSheet.eachRow((row: Row, rowNumber: number) => {
     if (rowNumber < 2) return;
-    const name = cellText(row.getCell(15));
-    if (!name) return;
+    const rawName = cellTextRaw(row.getCell(15));
+    if (!rawName.trim()) return;
     const date = cellDate(row.getCell(14));
     const activity = cellText(row.getCell(18));
     const points = cellNumber(row.getCell(22)); // "Points Earned" — cap already applied, see plan §Findings 3
@@ -324,12 +358,18 @@ async function main() {
       epSkipped++;
       return;
     }
-    const canonical = ensureCharacter(name).name;
+    const canonical = resolveLogName("EP Log", rowNumber, rawName, points);
+    if (canonical === null) {
+      epNameSkipped++;
+      return;
+    }
     const cycleNumber = cellNumber(row.getCell(13));
     const note = cellText(row.getCell(23)) || null;
     epRows.push({ name: canonical, cycleNumber, occurredAt: date, activity, points, note });
   });
-  console.log(`EP Log: ${epRows.length} rows parsed, ${epSkipped} skipped (missing date/activity/points).`);
+  console.log(
+    `EP Log: ${epRows.length} rows parsed, ${epSkipped} skipped (missing date/activity/points), ${epNameSkipped} skipped (whitespace name typo, doesn't match the sheet's SUMIF).`,
+  );
 
   // --- GP Log ---
   assertHeaders(gpSheet, 1, { 2: "Key", 3: "Date", 4: "Character", 5: "Loot", 6: "Gear Level", 7: "Notes", 8: "Duplicate Loot Found" });
@@ -344,10 +384,11 @@ async function main() {
   const gpRows: GpRow[] = [];
   let gpSkipped = 0;
   let gpUnresolvedCycle = 0;
+  let gpNameSkipped = 0;
   gpSheet.eachRow((row: Row, rowNumber: number) => {
     if (rowNumber < 2) return;
-    const name = cellText(row.getCell(4));
-    if (!name) return;
+    const rawName = cellTextRaw(row.getCell(4));
+    if (!rawName.trim()) return;
     const date = cellDate(row.getCell(3));
     const tier = cellText(row.getCell(6));
     // "Notes" column holds the numeric GP value, not free text — confirmed
@@ -358,14 +399,27 @@ async function main() {
       gpSkipped++;
       return;
     }
-    const canonical = ensureCharacter(name).name;
+    const canonical = resolveLogName("GP Log", rowNumber, rawName, points);
+    if (canonical === null) {
+      gpNameSkipped++;
+      return;
+    }
     const itemName = cellText(row.getCell(5)) || null;
     const duplicateFlag = cellText(row.getCell(8)).toLowerCase() === "yes";
     if (cycleForDate(date) === null) gpUnresolvedCycle++;
     gpRows.push({ name: canonical, occurredAt: date, itemName, tier, points, duplicateFlag });
   });
-  console.log(`GP Log: ${gpRows.length} rows parsed, ${gpSkipped} skipped, ${gpUnresolvedCycle} with no matching cycle date range.`);
+  console.log(
+    `GP Log: ${gpRows.length} rows parsed, ${gpSkipped} skipped, ${gpUnresolvedCycle} with no matching cycle date range, ${gpNameSkipped} skipped (whitespace name typo, doesn't match the sheet's SUMIF).`,
+  );
   console.log(`Characters: ${characters.size} total (${characters.size - sheetTotals.size} GP/EP-only, not in Totals).`);
+  if (skippedNameRows.length > 0) {
+    const totalPoints = skippedNameRows.reduce((sum, r) => sum + (r.points ?? 0), 0);
+    console.log(
+      `\n${skippedNameRows.length} row(s) skipped for a whitespace name mismatch (${totalPoints} points not attributed to anyone — this matches the sheet's own SUMIF, but an officer trimming the name cell in the sheet would let a future re-import count it):`,
+    );
+    for (const r of skippedNameRows) console.log(`  ${r.sheet} row ${r.row}: "${r.raw}" (should be "${r.canonical}"), ${r.points ?? "?"} pts`);
+  }
 
   // --- reconciliation report (computed here in JS, same formula as src/lib/epgp/totals.ts) ---
   // The Cycles tab is pre-populated with future cycles (through mid-November
@@ -396,8 +450,14 @@ async function main() {
   let matched = 0;
   const mismatches: string[] = [];
   for (const [key, sheet] of sheetTotals) {
-    const ep = (preEp.get(key) ?? 0) * (1 - SETTINGS.ep_decay) + (curEp.get(key) ?? 0);
-    const gp = (preGp.get(key) ?? 0) * (1 - SETTINGS.gp_decay) + (curGp.get(key) ?? 0);
+    const preEpAmt = preEp.get(key) ?? 0;
+    const preGpAmt = preGp.get(key) ?? 0;
+    const rawEp = preEpAmt + (curEp.get(key) ?? 0);
+    const rawGp = preGpAmt + (curGp.get(key) ?? 0);
+    // Mirrors Totals!I/J's threshold guard: the sheet skips decay entirely
+    // for a character whose raw lifetime total hasn't reached base_ep/gp yet.
+    const ep = rawEp - (rawEp < SETTINGS.base_ep ? 0 : preEpAmt * SETTINGS.ep_decay);
+    const gp = rawGp - (rawGp < SETTINGS.base_gp ? 0 : preGpAmt * SETTINGS.gp_decay);
     if (Math.abs(ep - sheet.ep) <= 1 && Math.abs(gp - sheet.gp) <= 1) {
       matched++;
     } else {
@@ -406,7 +466,7 @@ async function main() {
   }
   console.log(`\nReconciliation: ${matched}/${sheetTotals.size} characters match the sheet's Totals tab within ±1.`);
   if (mismatches.length > 0) {
-    console.log(`${mismatches.length} did not match (known: ~28 characters have sheet-side decay of 0 for unclear reasons — see plan's "Open questions"):`);
+    console.log(`${mismatches.length} did not match:`);
     for (const m of mismatches.slice(0, 40)) console.log(`  ${m}`);
     if (mismatches.length > 40) console.log(`  ...and ${mismatches.length - 40} more.`);
   }

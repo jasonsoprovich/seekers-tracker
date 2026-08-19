@@ -23,13 +23,28 @@ export type RosterRow = {
   charType: "main" | "alt";
   status: CharacterStatus;
   mainCharacterId: number | null;
-  // Alts share their main's EP/GP/Priority — see roster/page.tsx.
+  // Alts share their main's EP/GP/Priority/decay — see roster/page.tsx.
   ep: number | null;
   gp: number | null;
+  // The decay that'll be subtracted from EP/GP at the next cycle's end —
+  // see src/lib/epgp/totals.ts.
+  epDecay: number | null;
+  gpDecay: number | null;
   priorityRating: number | null;
 };
 
-type SortKey = "name" | "ownerUsername" | "ownerRole" | "className" | "level" | "charType" | "ep" | "gp" | "priorityRating";
+type SortKey =
+  | "name"
+  | "ownerUsername"
+  | "ownerRole"
+  | "className"
+  | "level"
+  | "charType"
+  | "ep"
+  | "epDecay"
+  | "gp"
+  | "gpDecay"
+  | "priorityRating";
 type SortDir = "asc" | "desc";
 
 const COLUMNS: { key: SortKey; label: string }[] = [
@@ -40,7 +55,9 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "className", label: "Class" },
   { key: "level", label: "Level" },
   { key: "ep", label: "EP" },
+  { key: "epDecay", label: "EP Decay" },
   { key: "gp", label: "GP" },
+  { key: "gpDecay", label: "GP Decay" },
   { key: "priorityRating", label: "Priority" },
 ];
 
@@ -158,17 +175,19 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     return (
       <tr key={r.id} className="hover:bg-neutral-900/40">
         <td className="px-3 py-2 font-medium">
-          <span className={`inline-flex items-center gap-1.5 ${opts.indent ? "pl-5" : ""}`}>
-            {opts.toggle && (
-              <button
-                type="button"
-                onClick={opts.toggle.onClick}
-                aria-label={opts.toggle.open ? "Collapse alts" : "Expand alts"}
-                className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-500 hover:text-neutral-200"
-              >
-                {opts.toggle.open ? "▾" : "▸"}
-              </button>
-            )}
+          <span className={`inline-flex items-center gap-1.5 ${opts.indent ? "pl-8" : ""}`}>
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {opts.toggle && (
+                <button
+                  type="button"
+                  onClick={opts.toggle.onClick}
+                  aria-label={opts.toggle.open ? "Collapse alts" : "Expand alts"}
+                  className="flex h-4 w-4 items-center justify-center text-neutral-500 hover:text-neutral-200"
+                >
+                  {opts.toggle.open ? "▾" : "▸"}
+                </button>
+              )}
+            </span>
             <Link href={`/characters/${r.id}`} className="hover:text-emerald-400">
               {r.name}
             </Link>
@@ -183,7 +202,9 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <td className="px-3 py-2 text-neutral-400">{r.className}</td>
         <td className="px-3 py-2 text-neutral-400">{r.level}</td>
         <td className="px-3 py-2 text-neutral-400">{r.ep === null ? "—" : Math.round(r.ep)}</td>
+        <td className="px-3 py-2 text-neutral-500">{r.epDecay === null ? "—" : `-${Math.round(r.epDecay)}`}</td>
         <td className="px-3 py-2 text-neutral-400">{r.gp === null ? "—" : Math.round(r.gp)}</td>
+        <td className="px-3 py-2 text-neutral-500">{r.gpDecay === null ? "—" : `-${Math.round(r.gpDecay)}`}</td>
         <td className="px-3 py-2 font-medium text-emerald-400">{r.priorityRating?.toFixed(2) ?? "—"}</td>
         <td className="px-3 py-2 text-center">{r.isClaimed && <span className="text-emerald-400">✓</span>}</td>
       </tr>

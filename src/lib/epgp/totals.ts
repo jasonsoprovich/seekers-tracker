@@ -7,6 +7,8 @@ export type EpgpTotal = {
   characterId: number;
   ep: number;
   gp: number;
+  epDecay: number;
+  gpDecay: number;
   priorityRating: number;
 };
 
@@ -33,15 +35,21 @@ export async function getEpgpSettings(db: ReturnType<typeof drizzle>): Promise<R
 }
 
 // Computes live EP/GP/Priority Rating straight from the ledgers — this
-// replaces the old character_epgp mirror table. Confirmed against the
-// guild's sheet (docs/../EPGP plan "Findings" §2): the sheet pre-applies
-// the *upcoming* cycle's decay to everything earned before the current
-// cycle started, while decay already applied in past cycles lives as
-// explicit negative ep_ledger/gp_ledger rows (so those are just summed like
-// any other row, no special-casing needed here).
+// replaces the old character_epgp mirror table. Confirmed cell-for-cell
+// against the guild's live sheet's Totals tab (columns F/G/I/J — Effort
+// Points, Gear Points, EP Decay, GP Decay — verified 2026-08-19 against
+// Osui's row): the sheet pre-applies the *upcoming* cycle's decay to
+// everything earned before the current cycle started, while decay already
+// applied in past cycles lives as explicit negative ep_ledger/gp_ledger rows
+// (so those are just summed like any other row, no special-casing needed
+// here). The sheet also skips decay entirely for a character whose raw
+// lifetime total hasn't reached the base value yet (Totals!$L$26/$L$28) —
+// without that guard a brand-new member's tiny pre-cycle balance still gets
+// docked 20%, which the sheet doesn't do.
 //
-//   ep = (points before current cycle start) * (1 - ep_decay) + (points this cycle)
-//   gp = (points before current cycle start) * (1 - gp_decay) + (points this cycle)
+//   rawEp = sum of every EP ledger row, undecayed
+//   epDecay = rawEp < base_ep ? 0 : (points before current cycle start) * ep_decay
+//   ep = rawEp - epDecay        (same for gp/gpDecay)
 //   priority = (ep + base_ep) / (gp + base_gp)
 export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise<Map<number, EpgpTotal>> {
   const settings = await getEpgpSettings(db);
@@ -94,10 +102,19 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
 
   const totals = new Map<number, EpgpTotal>();
   for (const characterId of characterIds) {
-    const ep = (preEp.get(characterId) ?? 0) * (1 - settings.ep_decay) + (curEp.get(characterId) ?? 0);
-    const gp = (preGp.get(characterId) ?? 0) * (1 - settings.gp_decay) + (curGp.get(characterId) ?? 0);
+    const preEpAmt = preEp.get(characterId) ?? 0;
+    const curEpAmt = curEp.get(characterId) ?? 0;
+    const preGpAmt = preGp.get(characterId) ?? 0;
+    const curGpAmt = curGp.get(characterId) ?? 0;
+    const rawEp = preEpAmt + curEpAmt;
+    const rawGp = preGpAmt + curGpAmt;
+
+    const epDecay = rawEp < settings.base_ep ? 0 : preEpAmt * settings.ep_decay;
+    const gpDecay = rawGp < settings.base_gp ? 0 : preGpAmt * settings.gp_decay;
+    const ep = rawEp - epDecay;
+    const gp = rawGp - gpDecay;
     const priorityRating = (ep + settings.base_ep) / (gp + settings.base_gp);
-    totals.set(characterId, { characterId, ep, gp, priorityRating });
+    totals.set(characterId, { characterId, ep, gp, epDecay, gpDecay, priorityRating });
   }
 
   return totals;
