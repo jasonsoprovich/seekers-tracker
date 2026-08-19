@@ -269,7 +269,6 @@ async function main() {
   });
   type CharRecord = { name: string; classId: number; level: number };
   const characters = new Map<string, CharRecord>(); // key: lowercased trimmed name
-  const unresolvedClasses = new Set<string>();
   const sheetTotals = new Map<string, { ep: number; gp: number; priority: number }>();
 
   totalsSheet.eachRow((row: Row, rowNumber: number) => {
@@ -279,7 +278,6 @@ async function main() {
     const rawClass = cellText(row.getCell(4));
     const level = cellNumber(row.getCell(5)) ?? 1;
     const classId = resolveClassId(rawClass);
-    if (classId === UNKNOWN_CLASS_ID && rawClass) unresolvedClasses.add(`${name} (sheet says "${rawClass}")`);
     characters.set(name.toLowerCase(), { name, classId, level });
 
     const ep = cellNumber(row.getCell(6));
@@ -289,7 +287,7 @@ async function main() {
       sheetTotals.set(name.toLowerCase(), { ep, gp, priority });
     }
   });
-  console.log(`Totals: ${characters.size} characters, ${unresolvedClasses.size} with an unresolvable class title.`);
+  console.log(`Totals: ${characters.size} characters parsed.`);
 
   // Always returns the CANONICAL record for a name (first-seen casing) —
   // callers must use `.name` from the return value, not their own raw
@@ -338,6 +336,7 @@ async function main() {
     13: "Cycle",
     14: "Date",
     15: "Name",
+    16: "Class",
     17: "Level",
     18: "Point Type",
     20: "EP Points",
@@ -347,11 +346,34 @@ async function main() {
   const epRows: EpRow[] = [];
   let epSkipped = 0;
   let epNameSkipped = 0;
+  // Every EP Log row also carries the character's class at that point in
+  // time (col 16) — usually their real class, but "ANON" when that player
+  // had privacy mode on for that entry. Totals!D (what seeds `characters`
+  // above) is itself just that character's *most recent* EP Log row, so a
+  // currently-ANON'd character shows Unknown there even though older rows
+  // likely have their real class on file. Track the latest row per
+  // character where the class actually resolves, and backfill with it
+  // below — that way going ANON later doesn't erase a class we already
+  // knew, and a class *title* (e.g. "Templar" for a lvl 60 Cleric) resolves
+  // exactly like Totals' own class column does, via resolveClassId.
+  type ClassSighting = { date: Date; classId: number };
+  const classHistory = new Map<string, ClassSighting>(); // key: lowercased trimmed name
   epSheet.eachRow((row: Row, rowNumber: number) => {
     if (rowNumber < 2) return;
     const rawName = cellTextRaw(row.getCell(15));
-    if (!rawName.trim()) return;
+    const trimmedName = rawName.trim();
+    if (!trimmedName) return;
     const date = cellDate(row.getCell(14));
+
+    if (date) {
+      const classId = resolveClassId(cellText(row.getCell(16)));
+      if (classId !== UNKNOWN_CLASS_ID) {
+        const key = trimmedName.toLowerCase();
+        const existing = classHistory.get(key);
+        if (!existing || date > existing.date) classHistory.set(key, { date, classId });
+      }
+    }
+
     const activity = cellText(row.getCell(18));
     const points = cellNumber(row.getCell(22)); // "Points Earned" — cap already applied, see plan §Findings 3
     if (!date || !activity || points === null) {
@@ -367,6 +389,16 @@ async function main() {
     const note = cellText(row.getCell(23)) || null;
     epRows.push({ name: canonical, cycleNumber, occurredAt: date, activity, points, note });
   });
+  let classBackfilled = 0;
+  for (const [key, record] of characters) {
+    if (record.classId !== UNKNOWN_CLASS_ID) continue;
+    const sighting = classHistory.get(key);
+    if (sighting) {
+      record.classId = sighting.classId;
+      classBackfilled++;
+    }
+  }
+  console.log(`Class backfill: ${classBackfilled} character(s) resolved from an older EP Log row (Totals shows ANON/blank for them right now).`);
   console.log(
     `EP Log: ${epRows.length} rows parsed, ${epSkipped} skipped (missing date/activity/points), ${epNameSkipped} skipped (whitespace name typo, doesn't match the sheet's SUMIF).`,
   );
@@ -470,9 +502,12 @@ async function main() {
     for (const m of mismatches.slice(0, 40)) console.log(`  ${m}`);
     if (mismatches.length > 40) console.log(`  ...and ${mismatches.length - 40} more.`);
   }
-  if (unresolvedClasses.size > 0) {
-    console.log(`\n${unresolvedClasses.size} characters have a class title the importer won't guess (imported as Unknown, review in /admin):`);
-    for (const c of Array.from(unresolvedClasses).slice(0, 40)) console.log(`  ${c}`);
+  const stillUnresolvedClasses = [...characters.values()].filter((c) => c.classId === UNKNOWN_CLASS_ID);
+  if (stillUnresolvedClasses.length > 0) {
+    console.log(
+      `\n${stillUnresolvedClasses.length} characters have no resolvable class anywhere in the EP Log (imported as Unknown, review in /admin):`,
+    );
+    for (const c of stillUnresolvedClasses.slice(0, 40)) console.log(`  ${c.name}`);
   }
 
   // ---------- emit SQL ----------

@@ -7,7 +7,7 @@ import { LinkButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { characterClaims, characterPopFlags, characters } from "@/db";
-import { canManageAnyCharacter, getUserRole, hasAnyLeader } from "@/lib/authz";
+import { hasAnyLeader } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -17,7 +17,6 @@ export default async function CharactersPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
   const showBootstrapBanner = !(await hasAnyLeader());
 
   const db = await getDb();
@@ -54,11 +53,6 @@ export default async function CharactersPage() {
         title="Your Characters"
         actions={
           <>
-            {canManageAnyCharacter(role) && (
-              <LinkButton href="/admin" variant="outline">
-                Admin
-              </LinkButton>
-            )}
             <LinkButton href="/characters/claim" variant="outline">
               Claim a Character
             </LinkButton>

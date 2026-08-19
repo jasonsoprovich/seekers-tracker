@@ -2,12 +2,9 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { DeleteCharacterButton } from "@/components/DeleteCharacterButton";
+import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/AdminCharacterList";
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { RoleBadge } from "@/components/ui/RoleBadge";
 import { characterPopFlags, characters, users } from "@/db";
 import { canManageAnyCharacter, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
@@ -56,6 +53,33 @@ export default async function AdminPage() {
     flagsByCharacter.get(r.characterId)!.push(r);
   }
 
+  const rows: AdminCharacterRow[] = roster.map((c) => {
+    const resolved = resolveFlags(
+      (flagsByCharacter.get(c.id) ?? []).map((r) => ({
+        flagId: r.flagId,
+        done: r.done,
+        source: r.source,
+      })),
+    );
+    return {
+      id: c.id,
+      name: c.name,
+      classId: c.class,
+      className: charClassLabel(c.class),
+      raceId: c.race,
+      raceName: charRaceName(c.race),
+      level: c.level,
+      charType: c.charType,
+      status: c.status,
+      mainName: c.charType === "alt" && c.mainCharacterId ? (nameById.get(c.mainCharacterId) ?? "(unknown)") : null,
+      ownerUsername: c.ownerUsername,
+      ownerId: c.ownerId,
+      ownerRole: c.ownerRole,
+      popDone: resolved.done,
+      popTotal: resolved.total,
+    };
+  });
+
   const canEditRoles = canManageRoles(role);
   const members = canEditRoles
     ? await db
@@ -102,55 +126,9 @@ export default async function AdminPage() {
         {roster.length === 0 ? (
           <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
         ) : (
-          <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
-            {roster.map((c) => {
-              const resolved = resolveFlags(
-                (flagsByCharacter.get(c.id) ?? []).map((r) => ({
-                  flagId: r.flagId,
-                  done: r.done,
-                  source: r.source,
-                })),
-              );
-              return (
-                <li key={c.id} className="flex items-center justify-between px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-medium">
-                      <Link href={`/characters/${c.id}`} className="hover:text-emerald-400">
-                        {c.name}
-                      </Link>
-                      <span className="text-sm font-normal text-neutral-500">
-                        {c.charType === "alt" ? "(Alt)" : "(Main)"} — {c.ownerUsername ?? "(unclaimed)"}
-                        {c.charType === "alt" && c.mainCharacterId && (
-                          <> → {nameById.get(c.mainCharacterId) ?? "(unknown)"}</>
-                        )}
-                      </span>
-                      <RoleBadge role={c.ownerRole} />
-                      <CharacterStatusBadge status={c.status} />
-                    </p>
-                    <p className="text-sm text-neutral-400">
-                      Level {c.level} {charClassLabel(c.class)} — {charRaceName(c.race)}
-                    </p>
-                    <div className="mt-1.5 w-32">
-                      <ProgressBar done={resolved.done} total={resolved.total} suffix=" PoP" />
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <div className="flex items-center gap-4">
-                      <Link href={`/characters/${c.id}/edit`} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
-                        Edit
-                      </Link>
-                      <DeleteCharacterButton characterId={c.id} characterName={c.name} />
-                    </div>
-                    {canEditRoles && c.charType === "main" && c.ownerId && (
-                      // ownerId is truthy here, so the leftJoin matched a users row —
-                      // ownerRole can't actually be null in this branch.
-                      <RoleSelect userId={c.ownerId} role={c.ownerRole!} isSelf={c.ownerId === session.user.id} />
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="mt-4">
+            <AdminCharacterList rows={rows} canEditRoles={canEditRoles} selfUserId={session.user.id} />
+          </div>
         )}
       </section>
 
