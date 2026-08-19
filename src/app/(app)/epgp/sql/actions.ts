@@ -23,8 +23,12 @@ const BANNED_KEYWORDS = /\b(insert|update|delete|drop|alter|create|replace|attac
 // 1. Reject anything but a single statement (no `;` before the very end).
 // 2. Require it to start with SELECT/WITH.
 // 3. Reject banned DML/DDL/pragma keywords outright.
-// 4. Wrap the whole thing as `SELECT * FROM (<query>) LIMIT 200` — this is
-//    the actual guarantee: even if 1-3 miss something, only a single
+// 4. Reject SQL comments (`--`, `/* */`) — without this, a query like
+//    `SELECT 1) UNION SELECT sql FROM sqlite_master -- ` comments out the
+//    wrapper's closing `)` and `LIMIT 200` below, defeating guarantee #5.
+//    Ad-hoc debugging queries have no legitimate need for a comment.
+// 5. Wrap the whole thing as `SELECT * FROM (<query>) LIMIT 200` — this is
+//    the actual guarantee: even if 1-4 miss something, only a single
 //    read-only expression can be wrapped this way, and the row cap always
 //    applies regardless of what LIMIT (if any) the user wrote.
 export async function runEpgpQuery(_prev: SqlQueryResult, formData: FormData): Promise<SqlQueryResult> {
@@ -50,6 +54,9 @@ export async function runEpgpQuery(_prev: SqlQueryResult, formData: FormData): P
   }
   if (BANNED_KEYWORDS.test(body)) {
     return { error: "That query contains a disallowed keyword — this sandbox is read-only.", query: raw };
+  }
+  if (body.includes("--") || body.includes("/*")) {
+    return { error: "Comments (-- or /* */) aren't allowed — they can hide the end of the query.", query: raw };
   }
 
   const { env } = await getCloudflareContext({ async: true });
