@@ -29,13 +29,13 @@ export function roleRank(role: Role | null): number {
 export function RoleBadge({ role, className = "" }: { role: Role | null; className?: string }) {
   if (role === null) {
     return (
-      <span className={`rounded border border-neutral-800 bg-neutral-900/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-neutral-600 ${className}`}>
+      <span className={`whitespace-nowrap rounded border border-neutral-800 bg-neutral-900/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-neutral-600 ${className}`}>
         Unclaimed
       </span>
     );
   }
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase ${STYLES[role]} ${className}`}>
+    <span className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase ${STYLES[role]} ${className}`}>
       {LABELS[role]}
     </span>
   );
