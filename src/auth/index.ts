@@ -113,7 +113,14 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
         plugins: [
           apiKey({
             requireName: true,
-            keyExpiration: { defaultExpiresIn: 1000 * 60 * 60 * 24 * 180 },
+            // @better-auth/api-key's defaultExpiresIn is SECONDS (see its
+            // own expiresIn zod schema — "Expiration time ... in seconds"
+            // — and getDate(opts.keyExpiration.defaultExpiresIn, "sec") in
+            // the plugin source), not milliseconds. The previous value
+            // here (1000 * 60 * 60 * 24 * 180) was 180 days worth of
+            // *milliseconds* fed in as seconds — ~493 years, i.e. keys
+            // that never meaningfully expire. 180 real days:
+            keyExpiration: { defaultExpiresIn: 60 * 60 * 24 * 180 },
           }),
         ],
       },
