@@ -162,14 +162,36 @@ pre-existing gap, not something you broke.
   multi-winner Determine Winner, roster-driven review, submit), Manual
   Entry, Browse (read-only Ledger/Totals/Characters), Settings (API key,
   log file, link to `/epgp/app-key`).
-- Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed but
-  **not scheduled** (scheduled Workflows need a paid Workers plan; this
-  account is on Free). D1's own Time Travel is active regardless. See
-  `workers/db-backup/README.md`.
+- Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed, code
+  works, **deliberately left unscheduled**. Decided 2026-08-20: D1's own
+  Time Travel (point-in-time recovery, always-on, zero setup — 7 days on
+  this account's Free plan) already covers the realistic risk here (bad
+  data/a bug, not a Cloudflare-account-level disaster), so paying for
+  Workers Paid or building free-tier Cron polling isn't worth it right
+  now. Revisit only if the actual risk profile changes — see
+  `workers/db-backup/README.md` for how to turn it on later.
+- Parser app's selected log file now persists across restarts/rebuilds
+  (`internal/config`), not just the API key.
+- Fixed: `@better-auth/api-key`'s `keyExpiration.defaultExpiresIn` was set
+  in milliseconds but the plugin reads it as seconds — keys were getting
+  ~493-year expirations instead of the intended 180 days. Harmless
+  direction (too-long, not too-short) and not the cause of any reported
+  "key stopped working" issue — that one's still unexplained; see below.
 
 **Explicitly deferred / open decisions:**
-- Backup scheduling: upgrade to Workers Paid, or rework as a plain
-  Cron-Trigger Worker for the free plan — user's call, not yet made.
+- **API key intermittently "stops working" (unconfirmed root cause).**
+  User reported having to regenerate their officer API key twice; the
+  key expiration units bug above was a real bug but pointed the wrong
+  direction (made keys live too long, not expire early) and doesn't
+  explain it. The key active as of 2026-08-20 (`apikeys` row named
+  "Osui") had a recent successful `last_request`, so whatever happened
+  wasn't reproducible from the stored data alone. Leading theory,
+  unconfirmed: transient failures during this session's own rapid
+  deploy cycles (a request landing between a code deploy and its
+  matching D1 migration), not a real standing bug — but don't treat
+  that as settled. If it happens again, reach for `npx wrangler tail
+  seekers-tracker --format pretty` live while reproducing, the same way
+  the login bug got root-caused, rather than guessing further.
 - `src/lib/epgp/tier.ts`'s `normalizeBidTier()` is unused — the shipped
   Bids flow uses a fixed dropdown, not free-text tier parsing. Leave it
   unless there's a reason to auto-resolve slang from raw tell text
