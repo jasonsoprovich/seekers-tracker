@@ -107,6 +107,9 @@ export default async function AdminPage() {
             <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
               Import Audit Trail
             </Link>
+            <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
+              App Key
+            </Link>
           </>
         }
       />
