@@ -6,7 +6,7 @@ import { AddLedgerEntryForm } from "@/components/epgp/AddLedgerEntryForm";
 import { LedgerTable, type EpRow, type GpRow } from "@/components/epgp/LedgerTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { fieldClasses } from "@/components/ui/Field";
-import { characters, epLedger, epgpPointValues, gpLedger } from "@/db";
+import { characters, epLedger, epgpPointValues, gpLedger, users } from "@/db";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -46,9 +46,11 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
             points: epLedger.points,
             note: epLedger.note,
             source: epLedger.source,
+            enteredByName: users.username,
           })
           .from(epLedger)
           .innerJoin(characters, eq(epLedger.characterId, characters.id))
+          .leftJoin(users, eq(epLedger.enteredBy, users.id))
           .where(
             term
               ? or(like(characters.name, `%${term}%`), like(epLedger.activity, `%${term}%`))
@@ -68,9 +70,11 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
             note: gpLedger.note,
             duplicateFlag: gpLedger.duplicateFlag,
             source: gpLedger.source,
+            enteredByName: users.username,
           })
           .from(gpLedger)
           .innerJoin(characters, eq(gpLedger.characterId, characters.id))
+          .leftJoin(users, eq(gpLedger.enteredBy, users.id))
           .where(
             term
               ? or(like(characters.name, `%${term}%`), like(gpLedger.itemName, `%${term}%`), like(gpLedger.tier, `%${term}%`))
@@ -102,7 +106,17 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="EPGP Ledger" subtitle="Raw EP and GP transaction history — every row that adds up to the standings on /roster." />
+      <PageHeader
+        title="EPGP Ledger"
+        subtitle="Raw EP and GP transaction history — every row that adds up to the standings on /roster."
+        actions={
+          canManage && (
+            <Link href="/epgp/ledger/audit" className="text-emerald-400 hover:text-emerald-300">
+              Audit Trail
+            </Link>
+          )
+        }
+      />
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex gap-2">

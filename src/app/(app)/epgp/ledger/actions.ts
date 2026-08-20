@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { epLedger, gpLedger } from "@/db";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
 import { getSession } from "@/lib/session";
 
@@ -61,15 +62,23 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
 
   const db = await getDb();
   if (input.kind === "ep") {
-    await db
+    const [before] = await db.select().from(epLedger).where(eq(epLedger.id, input.id));
+    if (!before) return { error: "Ledger row not found." };
+    const [after] = await db
       .update(epLedger)
       .set({ activity: activityOrTier, points: input.points, occurredAt, note: input.note.trim() || null })
-      .where(eq(epLedger.id, input.id));
+      .where(eq(epLedger.id, input.id))
+      .returning();
+    await recordLedgerChange(db, "ep", input.id, "update", before, after, session.user.id);
   } else {
-    await db
+    const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, input.id));
+    if (!before) return { error: "Ledger row not found." };
+    const [after] = await db
       .update(gpLedger)
       .set({ tier: activityOrTier, itemName: input.itemName.trim() || null, points: input.points, occurredAt, note: input.note.trim() || null })
-      .where(eq(gpLedger.id, input.id));
+      .where(eq(gpLedger.id, input.id))
+      .returning();
+    await recordLedgerChange(db, "gp", input.id, "update", before, after, session.user.id);
   }
 
   return {};
@@ -86,9 +95,15 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
 
   const db = await getDb();
   if (kind === "ep") {
+    const [before] = await db.select().from(epLedger).where(eq(epLedger.id, id));
+    if (!before) return { error: "Ledger row not found." };
     await db.delete(epLedger).where(eq(epLedger.id, id));
+    await recordLedgerChange(db, "ep", id, "delete", before, null, session.user.id);
   } else {
+    const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, id));
+    if (!before) return { error: "Ledger row not found." };
     await db.delete(gpLedger).where(eq(gpLedger.id, id));
+    await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
   }
 
   return {};

@@ -14,6 +14,7 @@ export type EpRow = {
   points: number;
   note: string | null;
   source: "import" | "manual" | "parse";
+  enteredByName: string | null;
 };
 
 export type GpRow = {
@@ -25,6 +26,7 @@ export type GpRow = {
   points: number;
   note: string | null;
   source: "import" | "manual" | "parse";
+  enteredByName: string | null;
 };
 
 type Props = { type: "ep"; rows: EpRow[]; canManage: boolean } | { type: "gp"; rows: GpRow[]; canManage: boolean };
@@ -42,7 +44,7 @@ export function LedgerTable(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "" });
 
-  const baseCols = props.type === "ep" ? 5 : 6;
+  const baseCols = props.type === "ep" ? 6 : 7;
   const totalCols = props.canManage ? baseCols + 1 : baseCols;
 
   function startEdit(row: EpRow | GpRow) {
@@ -128,6 +130,7 @@ export function LedgerTable(props: Props) {
               )}
               <th className="px-3 py-2 font-medium">Points</th>
               <th className="px-3 py-2 font-medium">Source</th>
+              <th className="px-3 py-2 font-medium">Recorded by</th>
               {props.canManage && <th className="px-3 py-2 font-medium">Actions</th>}
             </tr>
           </thead>
@@ -184,6 +187,7 @@ export function LedgerTable(props: Props) {
                         />
                       </td>
                       <td className="px-3 py-2 text-neutral-500">{r.source}</td>
+                      <td className="px-3 py-2 text-neutral-500">{r.enteredByName ?? "—"}</td>
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
                           <button
@@ -214,6 +218,7 @@ export function LedgerTable(props: Props) {
                       )}
                       <td className={`px-3 py-2 font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>{r.points}</td>
                       <td className="px-3 py-2 text-neutral-500">{r.source}</td>
+                      <td className="px-3 py-2 text-neutral-500">{r.enteredByName ?? "—"}</td>
                       {props.canManage && (
                         <td className="px-3 py-2">
                           <div className="flex gap-2">

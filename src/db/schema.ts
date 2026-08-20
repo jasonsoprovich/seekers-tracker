@@ -200,6 +200,36 @@ export const gpLedger = sqliteTable(
   (table) => [index("gp_ledger_character_id_idx").on(table.characterId), index("gp_ledger_occurred_at_idx").on(table.occurredAt)],
 );
 
+// Edit/delete trail for ep_ledger/gp_ledger rows — who's recorded points is
+// already on each row (entered_by), but that only ever shows the ORIGINAL
+// entry; an officer correcting or removing someone else's entry left no
+// trace before this. `before`/`after` are whole-row JSON snapshots (not a
+// per-field diff) so this table doesn't need its own schema migration
+// every time ep_ledger/gp_ledger gains a column. No FK on ledgerId — a
+// delete's audit row must survive after the ledger row it describes is
+// gone. See src/lib/epgp/ledger-audit.ts for the write path (called from
+// both the website's ledger actions and any future officer-app edit/delete
+// route) and /epgp/ledger/audit for the read view.
+export const ledgerAuditLog = sqliteTable(
+  "ledger_audit_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ledgerType: text("ledger_type", { enum: ["ep", "gp"] }).notNull(),
+    ledgerId: integer("ledger_id").notNull(),
+    action: text("action", { enum: ["update", "delete"] }).notNull(),
+    changedBy: text("changed_by").references(() => users.id),
+    changedAt: integer("changed_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    before: text("before", { mode: "json" }).notNull(),
+    after: text("after", { mode: "json" }),
+  },
+  (table) => [
+    index("ledger_audit_log_ledger_idx").on(table.ledgerType, table.ledgerId),
+    index("ledger_audit_log_changed_at_idx").on(table.changedAt),
+  ],
+);
+
 // New capability the sheet never had (guild leadership asked for this
 // directly — see the EPGP plan): a loot event groups every bid placed on a
 // drop, not just the eventual winner, so retractions/last-second changes/
