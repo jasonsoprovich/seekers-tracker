@@ -175,23 +175,27 @@ pre-existing gap, not something you broke.
 - Fixed: `@better-auth/api-key`'s `keyExpiration.defaultExpiresIn` was set
   in milliseconds but the plugin reads it as seconds — keys were getting
   ~493-year expirations instead of the intended 180 days. Harmless
-  direction (too-long, not too-short) and not the cause of any reported
-  "key stopped working" issue — that one's still unexplained; see below.
+  direction (too-long, not too-short) and not the cause of the "key
+  stopped working" issue — that one turned out to be separate; see below.
+- **Fixed (root cause found, 2026-08-20): API key "stops working" within
+  minutes was a rate limit, not expiration.** `@better-auth/api-key`
+  defaults to 10 requests per 24-hour window when `rateLimit` is left
+  unset in the plugin config, which this app never set. The parser app's
+  Browse tab and roster lookups alone exceed 10 requests within minutes
+  of normal clicking. A rate-limited `verifyApiKey` call comes back
+  `{valid: false}` with no distinguishing info surfaced —
+  `requireOfficerApiKey` (`src/lib/api-key-auth.ts`) collapsed that into
+  the same "Invalid or expired API key" message used for an actually
+  invalid/expired key, which is exactly what made this look like
+  expiration. Fixed: `src/auth/index.ts` now sets an explicit
+  `rateLimit: { timeWindow: 60_000, maxRequests: 120 }`, and
+  `requireOfficerApiKey` surfaces the real error code/message instead of
+  masking every failure the same way. **Existing keys need to be
+  regenerated** — `rateLimitMax`/`rateLimitTimeWindow` are stored per-row
+  at key-creation time, so the new default only applies to keys generated
+  after this deployed.
 
 **Explicitly deferred / open decisions:**
-- **API key intermittently "stops working" (unconfirmed root cause).**
-  User reported having to regenerate their officer API key twice; the
-  key expiration units bug above was a real bug but pointed the wrong
-  direction (made keys live too long, not expire early) and doesn't
-  explain it. The key active as of 2026-08-20 (`apikeys` row named
-  "Osui") had a recent successful `last_request`, so whatever happened
-  wasn't reproducible from the stored data alone. Leading theory,
-  unconfirmed: transient failures during this session's own rapid
-  deploy cycles (a request landing between a code deploy and its
-  matching D1 migration), not a real standing bug — but don't treat
-  that as settled. If it happens again, reach for `npx wrangler tail
-  seekers-tracker --format pretty` live while reproducing, the same way
-  the login bug got root-caused, rather than guessing further.
 - `src/lib/epgp/tier.ts`'s `normalizeBidTier()` is unused — the shipped
   Bids flow uses a fixed dropdown, not free-text tier parsing. Leave it
   unless there's a reason to auto-resolve slang from raw tell text
