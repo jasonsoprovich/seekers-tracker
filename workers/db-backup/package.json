@@ -1,0 +1,8 @@
+{
+  "name": "seekers-tracker-db-backup",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  }
+}
