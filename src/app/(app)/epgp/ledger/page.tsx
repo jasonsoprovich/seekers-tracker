@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, or } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -35,7 +35,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   const role = await getUserRole(session.user.id);
   const canManage = canManageEpgp(role);
 
-  const [rows, characterOptions, activityRows] = await Promise.all([
+  const [rows, characterOptions, activityRows, itemRows] = await Promise.all([
     type === "ep"
       ? db
           .select({
@@ -89,9 +89,11 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
       .from(epgpPointValues)
       .where(and(eq(epgpPointValues.kind, type), eq(epgpPointValues.retired, false)))
       .orderBy(asc(epgpPointValues.sortOrder)),
+    db.selectDistinct({ itemName: gpLedger.itemName }).from(gpLedger).where(isNotNull(gpLedger.itemName)).orderBy(asc(gpLedger.itemName)),
   ]);
 
   const activitySuggestions = activityRows.map((r) => r.activity);
+  const itemSuggestions = itemRows.map((r) => r.itemName).filter((n): n is string => n !== null);
 
   const hasNext = rows.length > PAGE_SIZE;
   const pageRows = rows.slice(0, PAGE_SIZE);
@@ -154,7 +156,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
 
       {canManage && (
         <div className="mt-4">
-          <AddLedgerEntryForm type={type} characters={characterOptions} activitySuggestions={activitySuggestions} />
+          <AddLedgerEntryForm type={type} characters={characterOptions} activitySuggestions={activitySuggestions} itemSuggestions={itemSuggestions} />
         </div>
       )}
 

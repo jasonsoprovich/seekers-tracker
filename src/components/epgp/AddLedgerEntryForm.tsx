@@ -17,10 +17,12 @@ export function AddLedgerEntryForm({
   type,
   characters,
   activitySuggestions,
+  itemSuggestions,
 }: {
   type: "ep" | "gp";
   characters: CharacterOption[];
   activitySuggestions: string[];
+  itemSuggestions: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -77,7 +79,12 @@ export function AddLedgerEntryForm({
       {type === "gp" && (
         <Field className="w-40">
           <span className="text-neutral-400">Item</span>
-          <input name="itemName" className={fieldClasses({ size: "sm" })} placeholder="Optional" />
+          <input name="itemName" list="gp-item-suggestions" className={fieldClasses({ size: "sm" })} placeholder="Optional" />
+          <datalist id="gp-item-suggestions">
+            {itemSuggestions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </Field>
       )}
 
