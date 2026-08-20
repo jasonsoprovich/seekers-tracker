@@ -85,6 +85,14 @@ pre-existing gap, not something you broke.
 - Routes the parser app calls:
   - `GET /api/officer/characters` — roster + resolved `mainCharacterName`
     + `priorityRating` per character (alt borrows its main's).
+  - `POST /api/officer/characters` — creates a character the roster has
+    never seen, from just a name (a captured Attendance/Bids row with no
+    match): as a new alt of an existing main when `mainCharacterId` is
+    given, or as a brand-new main when it's omitted. `class`/`race`/
+    `level` are unknowable from a log capture, so it uses the same
+    `UNKNOWN_CLASS_ID`/`UNKNOWN_RACE_ID`/level-1 placeholder convention
+    `scripts/import-epgp.ts` uses for sheet-only characters. See the
+    parser app's `NoMatchSelect.tsx`.
   - `GET /api/officer/items` — distinct `gp_ledger.item_name` values (item
     autocomplete; no separate items catalog).
   - `GET /api/officer/point-values` — non-retired EP/GP activities, for
@@ -160,8 +168,11 @@ pre-existing gap, not something you broke.
 - `seekers-epgp-parser`: Attendance (capture + roster-linked review +
   submit), Bids (single-click capture via `send tells` detection,
   multi-winner Determine Winner, roster-driven review, submit), Manual
-  Entry, Browse (read-only Ledger/Totals/Characters), Settings (API key,
-  log file, link to `/epgp/app-key`).
+  Entry, Browse (read-only Ledger/Totals/Characters, sortable columns),
+  Settings (API key, log file, link to `/epgp/app-key`). Unmatched
+  Attendance/Bids rows resolve via `NoMatchSelect` — link to an existing
+  character, attach as a new alt of a main, or add as a new main (see
+  `POST /api/officer/characters` above).
 - Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed, code
   works, **deliberately left unscheduled**. Decided 2026-08-20: D1's own
   Time Travel (point-in-time recovery, always-on, zero setup — 7 days on
