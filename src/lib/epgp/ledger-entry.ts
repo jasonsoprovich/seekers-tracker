@@ -36,12 +36,24 @@ export async function insertLedgerEntry(
   const activityOrTier = (input.kind === "ep" ? input.activity : input.tier).trim();
   if (!activityOrTier) return { ok: false, error: input.kind === "ep" ? "Activity is required." : "Tier is required." };
 
-  const [character] = await db.select({ id: characters.id }).from(characters).where(eq(characters.id, input.characterId));
+  const [character] = await db
+    .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId })
+    .from(characters)
+    .where(eq(characters.id, input.characterId));
   if (!character) return { ok: false, error: "Character not found." };
+
+  // EPGP is tracked entirely per main (docs §10 — alts are informational,
+  // not rankable) and computeEpgpTotals groups strictly by raw
+  // character_id with no alt->main collapsing of its own; the roster
+  // page's display-time redirect (totalsFor) only shows a main's totals,
+  // so a row landing on an alt's own id would be invisible there. Redirect
+  // here, once, so every caller (this site's form, the officer app's
+  // manual-entry/attendance/bids routes) gets it for free.
+  const targetCharacterId = character.charType === "alt" && character.mainCharacterId !== null ? character.mainCharacterId : character.id;
 
   if (input.kind === "ep") {
     await db.insert(epLedger).values({
-      characterId: input.characterId,
+      characterId: targetCharacterId,
       occurredAt,
       activity: activityOrTier,
       points: input.points,
@@ -51,7 +63,7 @@ export async function insertLedgerEntry(
     });
   } else {
     await db.insert(gpLedger).values({
-      characterId: input.characterId,
+      characterId: targetCharacterId,
       occurredAt,
       itemName: input.itemName.trim() || null,
       tier: activityOrTier,
