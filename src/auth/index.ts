@@ -1,3 +1,4 @@
+import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
 import { withCloudflare } from "better-auth-cloudflare";
 import { drizzle } from "drizzle-orm/d1";
@@ -100,6 +101,21 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
             },
           },
         },
+        // Officer-issued keys for the standalone EPGP parser app
+        // (seekers-epgp-parser) to call /api/officer/* without a browser
+        // session. Deliberately NOT using `enableSessionForAPIKeys` — that
+        // option mocks a full site session for any request carrying a valid
+        // key, meaning a leaked key could act as that officer everywhere on
+        // the site (every page, every server action), not just the two
+        // narrow officer routes it's meant for. Instead, those routes call
+        // `auth.api.verifyApiKey` directly and check the required
+        // permission themselves — see src/lib/api-key-auth.ts.
+        plugins: [
+          apiKey({
+            requireName: true,
+            keyExpiration: { defaultExpiresIn: 1000 * 60 * 60 * 24 * 180 },
+          }),
+        ],
       },
     ),
   });

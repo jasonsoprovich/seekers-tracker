@@ -1,10 +1,13 @@
-import { desc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, like, or } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AddLedgerEntryForm } from "@/components/epgp/AddLedgerEntryForm";
+import { LedgerTable, type EpRow, type GpRow } from "@/components/epgp/LedgerTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { fieldClasses } from "@/components/ui/Field";
-import { characters, epLedger, gpLedger } from "@/db";
+import { characters, epLedger, epgpPointValues, gpLedger } from "@/db";
+import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -29,9 +32,12 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
 
   const db = await getDb();
 
-  const rows =
+  const role = await getUserRole(session.user.id);
+  const canManage = canManageEpgp(role);
+
+  const [rows, characterOptions, activityRows] = await Promise.all([
     type === "ep"
-      ? await db
+      ? db
           .select({
             id: epLedger.id,
             characterName: characters.name,
@@ -51,7 +57,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
           .orderBy(desc(epLedger.occurredAt))
           .limit(PAGE_SIZE + 1)
           .offset(offset)
-      : await db
+      : db
           .select({
             id: gpLedger.id,
             characterName: characters.name,
@@ -59,6 +65,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
             itemName: gpLedger.itemName,
             tier: gpLedger.tier,
             points: gpLedger.points,
+            note: gpLedger.note,
             duplicateFlag: gpLedger.duplicateFlag,
             source: gpLedger.source,
           })
@@ -71,8 +78,16 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
           )
           .orderBy(desc(gpLedger.occurredAt))
           .limit(PAGE_SIZE + 1)
-          .offset(offset)
-  ;
+          .offset(offset),
+    db.select({ id: characters.id, name: characters.name }).from(characters).orderBy(asc(characters.name)),
+    db
+      .select({ activity: epgpPointValues.activity })
+      .from(epgpPointValues)
+      .where(and(eq(epgpPointValues.kind, type), eq(epgpPointValues.retired, false)))
+      .orderBy(asc(epgpPointValues.sortOrder)),
+  ]);
+
+  const activitySuggestions = activityRows.map((r) => r.activity);
 
   const hasNext = rows.length > PAGE_SIZE;
   const pageRows = rows.slice(0, PAGE_SIZE);
@@ -123,52 +138,18 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         </form>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead>
-            <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
-              <th className="px-3 py-2 font-medium">Date</th>
-              <th className="px-3 py-2 font-medium">Character</th>
-              {type === "ep" ? (
-                <th className="px-3 py-2 font-medium">Activity</th>
-              ) : (
-                <>
-                  <th className="px-3 py-2 font-medium">Item</th>
-                  <th className="px-3 py-2 font-medium">Tier</th>
-                </>
-              )}
-              <th className="px-3 py-2 font-medium">Points</th>
-              <th className="px-3 py-2 font-medium">Source</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {pageRows.map((r) => (
-              <tr key={r.id} className="hover:bg-neutral-900/40">
-                <td className="px-3 py-2 text-neutral-400">{r.occurredAt.toLocaleDateString()}</td>
-                <td className="px-3 py-2 font-medium">{r.characterName}</td>
-                {type === "ep" && "activity" in r ? (
-                  <td className="px-3 py-2 text-neutral-400">{r.activity}</td>
-                ) : (
-                  "itemName" in r && (
-                    <>
-                      <td className="px-3 py-2 text-neutral-400">{r.itemName ?? "—"}</td>
-                      <td className="px-3 py-2 text-neutral-400">{r.tier}</td>
-                    </>
-                  )
-                )}
-                <td className={`px-3 py-2 font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>{r.points}</td>
-                <td className="px-3 py-2 text-neutral-500">{r.source}</td>
-              </tr>
-            ))}
-            {pageRows.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-neutral-500">
-                  No rows match this search.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {canManage && (
+        <div className="mt-4">
+          <AddLedgerEntryForm type={type} characters={characterOptions} activitySuggestions={activitySuggestions} />
+        </div>
+      )}
+
+      <div className="mt-4">
+        {type === "ep" ? (
+          <LedgerTable type="ep" rows={pageRows as EpRow[]} canManage={canManage} />
+        ) : (
+          <LedgerTable type="gp" rows={pageRows as GpRow[]} canManage={canManage} />
+        )}
       </div>
 
       <div className="mt-4 flex items-center justify-between text-sm">

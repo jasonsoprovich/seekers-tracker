@@ -89,6 +89,11 @@ export default async function RosterPage() {
                 SQL Sandbox
               </Link>
             )}
+            {canManageEpgp(role) && (
+              <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
+                App Key
+              </Link>
+            )}
           </>
         }
       />

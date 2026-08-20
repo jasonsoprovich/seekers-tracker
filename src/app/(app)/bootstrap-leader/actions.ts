@@ -1,11 +1,11 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createAuth } from "@/auth";
-import { users } from "@/db";
+import { accounts, users } from "@/db";
 import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -44,10 +44,22 @@ export async function claimLeaderRole(): Promise<ClaimLeaderResult> {
     // Discord's API hiccuped that one time, discordVerified is stuck false
     // forever with no way to retry. Re-check live here instead of trusting
     // the stale flag.
+    // better-auth 1.7 scopes getAccessToken to a specific linked-account
+    // row (accountId) rather than resolving one from providerId + userId —
+    // "provider IDs cannot serve as account selectors" per the 1.7 upgrade
+    // guide — so look up this user's Discord account row first.
+    const [discordAccount] = await db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.userId, session.user.id), eq(accounts.providerId, "discord")));
+    if (!discordAccount) {
+      return { error: "No linked Discord account found — sign in with Discord again." };
+    }
+
     const { env, cf } = await getCloudflareContext({ async: true });
     const auth = createAuth(env, cf);
     const { accessToken } = await auth.api.getAccessToken({
-      body: { providerId: "discord", userId: session.user.id },
+      body: { accountId: discordAccount.id },
       headers: await headers(),
     });
     verified = await checkAndStampGuildMembership(db, session.user.id, accessToken);

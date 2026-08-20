@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { cache } from "react";
 
 import { users } from "@/db";
 
@@ -8,12 +9,13 @@ export type Role = "member" | "officer" | "leader" | "admin";
 
 // Always re-read from D1 rather than trusting session.user.role — a role
 // change (Task 11's own admin panel) must take effect on the next request,
-// not the next re-login.
-export async function getUserRole(userId: string): Promise<Role | null> {
+// not the next re-login. cache()'d for the same reason as getSession() —
+// canManageCharacter() below and several pages each call this per request.
+export const getUserRole = cache(async function getUserRole(userId: string): Promise<Role | null> {
   const db = await getDb();
   const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
   return row?.role ?? null;
-}
+});
 
 // officer/leader/admin: "+ edit/view any member's characters" (docs/guild-
 // website-feasibility.md §3 role table). admin (site/dev administration) is

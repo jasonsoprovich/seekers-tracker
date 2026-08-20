@@ -14,9 +14,10 @@
     "import:epgp": "tsx scripts/import-epgp.ts"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "^1.6.29",
+    "@better-auth/api-key": "^1.7.1",
+    "@better-auth/drizzle-adapter": "^1.7.1",
     "@opennextjs/cloudflare": "^1.19.9",
-    "better-auth": "^1.6.29",
+    "better-auth": "^1.7.1",
     "better-auth-cloudflare": "^0.3.1",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.11",
