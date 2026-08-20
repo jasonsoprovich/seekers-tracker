@@ -121,6 +121,17 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
             // *milliseconds* fed in as seconds — ~493 years, i.e. keys
             // that never meaningfully expire. 180 real days:
             keyExpiration: { defaultExpiresIn: 60 * 60 * 24 * 180 },
+            // @better-auth/api-key's rate-limit default is 10 requests per
+            // 24-hour window (its own resolveConfiguration default,
+            // undocumented in this app's config since we never set
+            // `rateLimit` before). A denied request comes back from
+            // verifyApiKey as `{valid: false}` indistinguishable from a
+            // truly invalid/expired key by requireOfficerApiKey, which is
+            // what looked like "the key stops working" — the parser app's
+            // Browse tab and roster lookups alone burn through 10 requests
+            // in minutes. Raised to a window officers won't realistically
+            // hit while clicking around.
+            rateLimit: { enabled: true, timeWindow: 60 * 1000, maxRequests: 120 },
           }),
         ],
       },

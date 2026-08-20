@@ -24,7 +24,14 @@ export async function requireOfficerApiKey(request: Request): Promise<OfficerApi
 
   const result = await auth.api.verifyApiKey({ body: { key, permissions: EPGP_WRITE_PERMISSION } });
   if (!result.valid || !result.key) {
-    return { error: "Invalid or expired API key.", status: 401 };
+    // Surface the real reason (e.g. RATE_LIMITED) instead of a blanket
+    // "invalid or expired" — that blanket message is what made the
+    // rate-limit bug (see src/auth/index.ts) look like key expiration.
+    if (result.error?.code === "RATE_LIMITED") {
+      return { error: "Rate limit exceeded for this API key. Wait a moment and try again.", status: 429 };
+    }
+    const message = typeof result.error?.message === "string" ? result.error.message : undefined;
+    return { error: message ?? "Invalid or expired API key.", status: 401 };
   }
 
   const role = await getUserRole(result.key.referenceId);

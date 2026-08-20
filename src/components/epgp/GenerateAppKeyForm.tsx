@@ -13,6 +13,7 @@ export function GenerateAppKeyForm() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -36,9 +37,23 @@ export function GenerateAppKeyForm() {
           Key generated — copy it now and paste it into the EPGP parser app&apos;s Settings. You won&apos;t be able to see it again.
         </p>
         <code className="mt-2 block break-all rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-neutral-100">{newKey}</code>
-        <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => setNewKey(null)}>
-          Done
-        </Button>
+        <div className="mt-3 flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              await navigator.clipboard.writeText(newKey);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+          >
+            {copied ? "Copied!" : "Copy to clipboard"}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setNewKey(null)}>
+            Done
+          </Button>
+        </div>
       </div>
     );
   }
