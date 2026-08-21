@@ -173,6 +173,14 @@ pre-existing gap, not something you broke.
   Attendance/Bids rows resolve via `NoMatchSelect` — link to an existing
   character, attach as a new alt of a main, or add as a new main (see
   `POST /api/officer/characters` above).
+- `seekers-epgp-parser` update check (2026-08-20): no installer, no
+  silent auto-updater (Wails has none built in) — instead an in-app
+  startup banner. `main.Version` is embedded via `-ldflags` only on
+  `vX.Y.Z` tag pushes, which also publish a GitHub Release with the
+  `.exe` attached; `internal/updatecheck` compares the running build
+  against that repo's `releases/latest` and prompts the officer to
+  re-download if behind. See that repo's `CLAUDE.md` → "Releases &
+  update checks" for the cut-a-release steps.
 - Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed, code
   works, **deliberately left unscheduled**. Decided 2026-08-20: D1's own
   Time Travel (point-in-time recovery, always-on, zero setup — 7 days on
