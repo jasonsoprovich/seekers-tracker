@@ -53,7 +53,12 @@ next-env.d.ts
 
 # local planning docs (not part of the shipped app)
 docs/
-data/imports/
+# data/imports/ holds real guild-member data (Discord IDs) dropped in by
+# hand — ignore everything in it except the READMEs documenting expected
+# shape (PLAN.md §14), which are meant to be committed.
+data/imports/**
+!data/imports/**/
+!data/imports/**/README.md
 data/snapshots/
 
 # generated seed SQL (regenerate with `npm run seed:xlsx`, see CLAUDE.md)

@@ -242,11 +242,36 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Current focus: PLAN.md §11 Phase 3 (players + ledger re-attribution) —
-blocked on Toryn's MySQL dump (§14).** Phases 0, 1, and 2 are complete as of
-2026-08-21, ahead of the 2026-09-30 expansion-decay deadline. Global decay
-cutover deadline: 2026-10-17.
+task 3.1 (the dump itself) still blocked on Toryn's MySQL dump (§14); tasks
+3.2/3.3 (schema, don't need the dump's contents) shipped 2026-08-22.** Phases
+0, 1, and 2 are complete as of 2026-08-21, ahead of the 2026-09-30
+expansion-decay deadline. Global decay cutover deadline: 2026-10-17.
 
 **Shipped:**
+- **Phase 3 tasks 3.1 (partial, non-dump half)/3.2/3.3 — players table +
+  characters schema prep, 2026-08-22 (migration 0017)**: new `players` table
+  per §4a (`discord_id` unique/nullable, `user_id`, `display_name`,
+  `main_character_id`, `status` enum `active|inactive|departed`,
+  `joined_at`/`departed_at`, `note`) — the account EP/GP will attach to once
+  `computeEpgpTotals` is repointed (task 3.11), distinct from both a
+  `users` site login and a `characters` row. `characters` gains nullable
+  `player_id` (fk `players`, populated by 3.4+) and `char_priority` (display
+  order mirroring Toryn's bot: main 0/alt 1/mule 2); `char_type` enum widened
+  to `main | alt | mule`. Fixed five UI-side `"main" | "alt"` type literals
+  (roster/admin/progression/claim-list tables, `CharacterForm`) to widen to
+  `"mule"` too — type-only, no mule-facing UI added yet.
+  `sos_bot_staging` table added (verbatim dump columns, truncate-and-reload)
+  plus `scripts/import-sos-bot-dump.ts`
+  (`npm run import:sos-bot-dump -- --file <path>`, dependency-free CSV
+  parser) and `data/imports/sos-bot/README.md` documenting the expected
+  filename/columns — this is task 3.1's schema/tooling half; **the dump
+  itself still hasn't arrived**, so `sos_bot_staging` is empty in every
+  environment and 3.4+ (deriving `players`/`characters.player_id` from it)
+  can't start yet. Verified the import script against a synthetic sample CSV
+  (missing-`discord_id` row skipped+warned, quoted embedded comma, blank
+  optional fields) — loads correctly, re-running truncates/reloads
+  idempotently — then cleared the synthetic rows back out of local D1.
+  `tsc --noEmit` clean, harness 12/12 after migration + reseed.
 - **Phase 2 (expansion decay) complete**: `decay_events` table (migration
   0016) plus a nullable `decay_event_id` on `ep_ledger`/`gp_ledger`, so every
   row a decay batch writes traces back to (and can be deleted by) its event.

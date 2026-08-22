@@ -20,7 +20,7 @@ export type RosterRow = {
   className: string;
   raceId: number;
   level: number;
-  charType: "main" | "alt";
+  charType: "main" | "alt" | "mule";
   status: CharacterStatus;
   mainCharacterId: number | null;
   // Alts share their main's EP/GP/Priority/decay — see roster/page.tsx.

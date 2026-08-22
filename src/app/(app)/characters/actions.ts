@@ -17,7 +17,7 @@ type ParsedCharacter = {
   class: number;
   race: number;
   level: number;
-  charType: "main" | "alt";
+  charType: "main" | "alt" | "mule";
   mainCharacterId: number | null;
   quarmyUrl: string | null;
 };

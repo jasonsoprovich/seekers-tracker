@@ -40,6 +40,39 @@ export const users = sqliteTable("users", {
   lastLoginAt: integer("last_login_at", { mode: "timestamp" }),
 });
 
+// The account EP/GP attaches to (PLAN.md §4a / Phase 3) — not the same thing
+// as a `users` site login (a player may exist, seeded from Toryn's Discord
+// bot dump, before anyone ever logs into the site) nor a `characters` row (a
+// player owns a group of characters: one main plus alts/mules). Introduced so
+// a leader-approved main swap (mainCharacterId) no longer orphans EP/GP
+// history the way redirecting `characters.ownerId` would — see
+// characters.playerId's comment and computeEpgpTotals's Phase 3 note.
+// discordId is the stable key: Discord membership is mandatory for guild
+// members, unlike a site account.
+export const players = sqliteTable("players", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  discordId: text("discord_id").unique(),
+  userId: text("user_id").references(() => users.id),
+  displayName: text("display_name").notNull(),
+  mainCharacterId: integer("main_character_id").references((): AnySQLiteColumn => characters.id),
+  // Departed clears EP but never GP (PLAN.md §1e) — that asymmetry lives in
+  // decay_events (kind 'departure'), not here. This status just drives
+  // default-view filtering (roster/priority/bid views hide non-active by
+  // default) per §4j.
+  status: text("status", { enum: ["active", "inactive", "departed"] })
+    .notNull()
+    .default("active"),
+  joinedAt: integer("joined_at", { mode: "timestamp" }),
+  departedAt: integer("departed_at", { mode: "timestamp" }),
+  note: text("note"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const characters = sqliteTable("characters", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   // Nullable: the EPGP import (scripts/import-epgp.ts) creates rows for
@@ -47,6 +80,18 @@ export const characters = sqliteTable("characters", {
   // account yet. Null means "unclaimed roster character" — see the EPGP
   // plan's "Character claiming" open question.
   ownerId: text("owner_id").references(() => users.id),
+  // Nullable: populated by Phase 3's players backfill (PLAN.md §4c), not at
+  // table-creation time — most existing rows predate any players data.
+  // players.mainCharacterId is authoritative for "which character is this
+  // player's main"; this column is the reverse pointer used to group a
+  // player's characters and is kept in sync with it, not the other way
+  // around.
+  playerId: integer("player_id").references(() => players.id),
+  // Display order mirroring Toryn's Discord bot (main 0, alt 1, mule 2), so
+  // the bot (Phase 10) and this site agree on character list ordering
+  // without either recomputing it. Nullable until Phase 3 backfills it from
+  // the bot dump.
+  charPriority: integer("char_priority"),
   // COLLATE NOCASE (not a plain .unique()) so "tuffums" and "Tuffums" collide
   // at the DB level instead of silently becoming two characters with two
   // separate EP/GP ledgers — the exact class of bug the EPGP importer had to
@@ -58,7 +103,9 @@ export const characters = sqliteTable("characters", {
   class: integer("class").notNull(),
   race: integer("race").notNull(),
   level: integer("level").notNull(),
-  charType: text("char_type", { enum: ["main", "alt"] })
+  // "mule" added Phase 3 (PLAN.md §4c) — bank-holding characters
+  // (Lunamule, Darkclaw) excluded from EPGP, distinct from a played alt.
+  charType: text("char_type", { enum: ["main", "alt", "mule"] })
     .notNull()
     .default("main"),
   // Non-destructive roster housekeeping: "retired"/"removed" hide the
@@ -364,6 +411,36 @@ export const epgpSettings = sqliteTable(
     note: text("note"),
   },
   (table) => [index("epgp_settings_key_effective_idx").on(table.settingKey, table.effectiveFrom)],
+);
+
+// Staging landing zone for Toryn's sos_bot.characters dump (PLAN.md §14,
+// Phase 3 task 3.1) — verbatim columns, one row per dump record. Populated by
+// scripts/import-sos-bot-dump.ts, which truncates and reloads this table on
+// every run so a corrected dump can be re-imported without accumulating
+// duplicates. Never read directly by the app; tasks 3.4+ derive players and
+// characters.player_id/char_priority from it in a separate, reviewable step
+// (kept separate from staging so a bad derivation can be re-run without
+// re-importing the dump). columns and expected shape are documented in
+// data/imports/sos-bot/README.md.
+export const sosBotStaging = sqliteTable(
+  "sos_bot_staging",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    discordId: text("discord_id").notNull(),
+    charName: text("char_name").notNull(),
+    charRace: text("char_race"),
+    charClass: text("char_class"),
+    charType: text("char_type"),
+    charPriority: integer("char_priority"),
+    // Toryn's schema field, unused per PLAN.md §14 (officer status comes
+    // from Discord roles, §4b) — carried through verbatim for completeness,
+    // not read by any derivation step.
+    isOfficer: integer("is_officer", { mode: "boolean" }),
+    importedAt: integer("imported_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index("sos_bot_staging_discord_id_idx").on(table.discordId)],
 );
 
 export const importLog = sqliteTable("import_log", {

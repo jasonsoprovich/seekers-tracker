@@ -21,7 +21,7 @@ export type AdminCharacterRow = {
   raceId: number;
   raceName: string;
   level: number;
-  charType: "main" | "alt";
+  charType: "main" | "alt" | "mule";
   status: CharacterStatus;
   mainCharacterId: number | null;
   mainName: string | null;

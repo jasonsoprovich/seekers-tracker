@@ -32,7 +32,10 @@ export function CharacterForm({
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
-  const [charType, setCharType] = useState<"main" | "alt">(character?.charType ?? "main");
+  // "mule" is a Phase 3 backfill-only type (PLAN.md §4c) — this form has no
+  // UI for it, so a mule row edited here just shows neither radio checked
+  // until the user picks main/alt, same as any other unset selection.
+  const [charType, setCharType] = useState<"main" | "alt" | "mule">(character?.charType ?? "main");
 
   return (
     <form action={formAction} className="flex max-w-md flex-col gap-5">

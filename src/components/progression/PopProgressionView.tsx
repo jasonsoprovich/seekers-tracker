@@ -17,7 +17,7 @@ export interface ProgressionRow {
   classId: number;
   className: string;
   level: number;
-  charType: "main" | "alt";
+  charType: "main" | "alt" | "mule";
   status: CharacterStatus;
   done: number;
   total: number;

@@ -12,7 +12,7 @@ export type ClaimRow = {
   className: string;
   raceName: string;
   level: number;
-  charType: "main" | "alt";
+  charType: "main" | "alt" | "mule";
   alreadyPending: boolean;
 };
 
