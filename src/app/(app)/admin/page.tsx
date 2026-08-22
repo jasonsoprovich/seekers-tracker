@@ -115,6 +115,11 @@ export default async function AdminPage() {
                 EPGP Settings
               </Link>
             )}
+            {canManageEpgpConfig(role) && (
+              <Link href="/epgp/decay" className="text-emerald-400 hover:text-emerald-300">
+                EPGP Decay
+              </Link>
+            )}
           </>
         }
       />
