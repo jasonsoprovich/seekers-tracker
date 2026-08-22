@@ -241,9 +241,9 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 1 (effective-dated settings).** Phase 0
-is complete as of 2026-08-21. Deadlines: expansion decay button by
-2026-09-30, global decay cutover by 2026-10-17.
+**Current focus: PLAN.md §11 Phase 2 (expansion decay).** ⚠ **DEADLINE
+2026-09-30** — the leader's last manual expansion decay. Phases 0 and 1 are
+complete as of 2026-08-21. Global decay cutover deadline: 2026-10-17.
 
 **Shipped:**
 - **Phase 0 (Foundations) complete**: `getCachedEpgpTotals` caching
@@ -255,6 +255,29 @@ is complete as of 2026-08-21. Deadlines: expansion decay button by
   passing (0.8) — **this is the regression suite for every later phase, run
   it (`npm run verify`) before and after any schema or totals-logic
   change.** See "Local-first testing" above for how these fit together.
+- **Phase 1 (effective-dated settings) complete**: `epgp_settings` is now
+  append-only history — `(id, setting_key, value, effective_from,
+  changed_by, changed_at, note)`, migration 0015 — instead of one mutable
+  row per key. `src/lib/epgp/settings.ts` owns reads/writes:
+  `getSettingAt(key, date)` resolves the value in force at an arbitrary
+  date (what makes the mutable EP cap in §2 and the decay-model cutover in
+  §1c safe later); `getSettingsAt()` batches all keys "as of now" for
+  `computeEpgpTotals`; `setSetting()`/`getSettingHistory()` back the new
+  leader-only `/epgp/settings` UI (inline edit + expandable change log —
+  the table itself is the audit trail) and `GET /api/officer/settings`.
+  `scripts/import-epgp.ts` seeds baseline values idempotently (only fills a
+  gap, never reverts a leader's later change) and now also seeds
+  `min_attendance`/`decay_model`, new website-only settings not on the
+  sheet. `seekers-epgp-parser` fetches settings at startup and via a
+  Refresh button instead of hardcoding anything (task 1.6 — no hardcoded
+  threshold existed yet to remove; this is the plumbing task 4.4 attaches
+  its pre-submit check to). Verified end-to-end with a real minted API key
+  against a locally-running site + the actual Go binary, not just unit
+  tests. **Also fixed while testing this**: `scripts/snapshot.sh` restore
+  could silently resurrect writes made after the snapshot — Miniflare's D1
+  runs SQLite in WAL mode, and a plain `cp` left a stale `-wal` sidecar next
+  to the restored file, which got replayed on next open. Fixed by
+  checkpointing before save and dropping sidecars after restore.
 - Core site: Discord auth + guild-membership gate, character CRUD/claim,
   PoP flag import/checklist, admin panel (roles, claims, import audit),
   Roster (merged EPGP standings, main/alt grouping), EPGP ledger with
