@@ -152,6 +152,37 @@ export const cycles = sqliteTable("cycles", {
   endDate: integer("end_date", { mode: "timestamp" }).notNull(),
 });
 
+// Explicit decay applications (PLAN.md §1b/1c/1e) — every decay mechanism
+// except the legacy pre-cutover cycle decay (§1a, which stays derived at
+// read time from raw ledger sums and is never stored) writes one row here
+// plus the linked negative ep_ledger/gp_ledger rows it produced. One row =
+// one leader-triggered batch: preview -> commit -> optionally reverse as a
+// unit. See src/lib/epgp/decay.ts.
+export const decayEvents = sqliteTable(
+  "decay_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind", { enum: ["legacy_cycle", "global_cycle", "expansion", "departure"] }).notNull(),
+    // Nullable: a departure event only ever touches EP (§1e — GP is never
+    // cleared on departure), so gpRate stays null for that kind.
+    epRate: real("ep_rate"),
+    gpRate: real("gp_rate"),
+    effectiveDate: integer("effective_date", { mode: "timestamp" }).notNull(),
+    label: text("label"),
+    appliedBy: text("applied_by").references(() => users.id),
+    appliedAt: integer("applied_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Reversal (src/lib/epgp/decay.ts's reverseDecayEvent) deletes the
+    // linked ep_ledger/gp_ledger rows outright — PLAN.md §2.6 — but keeps
+    // this row so the fact that a decay was applied and then undone stays
+    // in the record, instead of vanishing entirely.
+    reversedAt: integer("reversed_at", { mode: "timestamp" }),
+    reversedBy: text("reversed_by").references(() => users.id),
+  },
+  (table) => [index("decay_events_kind_effective_idx").on(table.kind, table.effectiveDate)],
+);
+
 // Effort Points ledger. Decay is an explicit negative-point row here (as it
 // was in the sheet's EP Log), not separate bookkeeping — totals are a
 // straight SUM(). See scripts/import-epgp.ts and src/lib/epgp/totals.ts.
@@ -171,11 +202,19 @@ export const epLedger = sqliteTable(
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
       .default("manual"),
+    // Set only on rows a decay_events batch produced (or, for the 3
+    // historical expansion decays, backfilled onto rows the sheet import
+    // already created — PLAN.md §2.3). Null on every ordinary award row.
+    decayEventId: integer("decay_event_id").references(() => decayEvents.id),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [index("ep_ledger_character_id_idx").on(table.characterId), index("ep_ledger_occurred_at_idx").on(table.occurredAt)],
+  (table) => [
+    index("ep_ledger_character_id_idx").on(table.characterId),
+    index("ep_ledger_occurred_at_idx").on(table.occurredAt),
+    index("ep_ledger_decay_event_id_idx").on(table.decayEventId),
+  ],
 );
 
 // Gear Points ledger — one row per awarded/decayed/adjusted GP transaction.
@@ -200,11 +239,17 @@ export const gpLedger = sqliteTable(
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
       .default("manual"),
+    // See epLedger.decayEventId's comment — same meaning here.
+    decayEventId: integer("decay_event_id").references(() => decayEvents.id),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [index("gp_ledger_character_id_idx").on(table.characterId), index("gp_ledger_occurred_at_idx").on(table.occurredAt)],
+  (table) => [
+    index("gp_ledger_character_id_idx").on(table.characterId),
+    index("gp_ledger_occurred_at_idx").on(table.occurredAt),
+    index("gp_ledger_decay_event_id_idx").on(table.decayEventId),
+  ],
 );
 
 // Edit/delete trail for ep_ledger/gp_ledger rows — who's recorded points is
