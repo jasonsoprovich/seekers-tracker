@@ -8,7 +8,7 @@ import { characters, users } from "@/db";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
-import { computeEpgpTotals } from "@/lib/epgp/totals";
+import { getCachedEpgpTotals } from "@/lib/epgp/totals";
 import { getSession } from "@/lib/session";
 
 // Visible to every role (member/officer/leader) — this is a read-only view
@@ -39,7 +39,7 @@ export default async function RosterPage() {
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
       .orderBy(characters.name),
-    computeEpgpTotals(db),
+    getCachedEpgpTotals(db),
   ]);
 
   // Alts don't carry their own EP/GP — loot priority is tracked per main,

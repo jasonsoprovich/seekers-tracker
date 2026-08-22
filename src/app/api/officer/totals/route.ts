@@ -3,7 +3,7 @@ import { asc, like } from "drizzle-orm";
 import { characters } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
-import { computeEpgpTotals } from "@/lib/epgp/totals";
+import { getCachedEpgpTotals } from "@/lib/epgp/totals";
 
 // Backs the officer app's Browse > Totals tab — same EP/GP/Priority
 // standings as /roster, with the same alt-borrows-its-main's-totals
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       .from(characters)
       .where(term ? like(characters.name, `%${term}%`) : undefined)
       .orderBy(asc(characters.name)),
-    computeEpgpTotals(db),
+    getCachedEpgpTotals(db),
   ]);
 
   const nameById = new Map(rows.map((r) => [r.id, r.name]));

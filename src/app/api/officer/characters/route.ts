@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { characters } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
-import { computeEpgpTotals } from "@/lib/epgp/totals";
+import { getCachedEpgpTotals } from "@/lib/epgp/totals";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
 
 // Roster snapshot for the EPGP parser app's local name-matching/validation
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       })
       .from(characters)
       .orderBy(asc(characters.name)),
-    computeEpgpTotals(db),
+    getCachedEpgpTotals(db),
   ]);
 
   const nameById = new Map(rows.map((r) => [r.id, r.name]));
