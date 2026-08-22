@@ -270,11 +270,26 @@ cutover deadline: 2026-10-17.
   wrote to a new `decay_events` row each. `scripts/verify-expansion-decay.ts`
   (`npm run verify:expansion-decay`) checks the formula against the real
   2025-12-30 event — 86% of rows reproduce within a balance-scaled tolerance;
-  the rest are two documented non-bug categories (leader's own "100% manual
+  the rest are two documented non-bug categories: leader's own "100% manual
   math" per §1b, and long-quiet GP-only characters the historical run
-  excluded entirely — see the new §16 open question on whether the 9/30 run
-  should do the same, since there's no departure-status field yet to
-  reconstruct that exclusion). Verify harness still 12/12 throughout.
+  excluded entirely (their retained GP wasn't decayed) — **resolved
+  2026-08-22**, confirmed with the leader that going forward decay applies
+  to every character equally regardless of guild status, no exceptions
+  (§1f/§16); `previewExpansionDecay` already worked this way, no code
+  change needed. Verify harness still 12/12 throughout.
+- **Phase 2 addendum — inactivity EP wipe (§1f), same session**: a
+  leader-requested tool, confirmed in the same conversation above. Zeros a
+  selected set of characters' EP as a non-destructive `decay_events` row
+  (`kind: 'departure'`, `ep_rate: 1`, `gp_rate: null`) — GP is never
+  touched (§1e's asymmetry). `previewDepartureWipe`/`commitDepartureWipe`
+  select by explicit character ids and/or "no EP-earning ledger row since
+  date X"; reuses `reverseDecayEvent` as-is (already kind-agnostic).
+  `POST /api/officer/decay/departure/{preview,commit}` (leader-only) plus a
+  second section on `/epgp/decay` — search by name or inactivity cutoff →
+  preview (current EP, last EP activity, GP shown but marked unaffected) →
+  confirm → result. Verified live the same way as the expansion-decay
+  routes (real minted officer key against local D1); DB restored
+  afterward, harness 12/12.
 - **Phase 0 (Foundations) complete**: `getCachedEpgpTotals` caching
   (0.1–0.4, see below); `scripts/import-epgp.ts` as the deterministic
   seed-from-xlsx tool (0.5); `scripts/snapshot.sh` save/restore (0.6);
