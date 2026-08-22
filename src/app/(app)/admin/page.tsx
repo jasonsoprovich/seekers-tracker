@@ -6,7 +6,7 @@ import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/A
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, users } from "@/db";
-import { canManageAnyCharacter, canManageRoles, getUserRole } from "@/lib/authz";
+import { canManageAnyCharacter, canManageEpgpConfig, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -110,6 +110,11 @@ export default async function AdminPage() {
             <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
               App Key
             </Link>
+            {canManageEpgpConfig(role) && (
+              <Link href="/epgp/settings" className="text-emerald-400 hover:text-emerald-300">
+                EPGP Settings
+              </Link>
+            )}
           </>
         }
       />
