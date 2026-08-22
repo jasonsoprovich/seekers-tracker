@@ -241,11 +241,40 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 2 (expansion decay).** ⚠ **DEADLINE
-2026-09-30** — the leader's last manual expansion decay. Phases 0 and 1 are
-complete as of 2026-08-21. Global decay cutover deadline: 2026-10-17.
+**Current focus: PLAN.md §11 Phase 3 (players + ledger re-attribution) —
+blocked on Toryn's MySQL dump (§14).** Phases 0, 1, and 2 are complete as of
+2026-08-21, ahead of the 2026-09-30 expansion-decay deadline. Global decay
+cutover deadline: 2026-10-17.
 
 **Shipped:**
+- **Phase 2 (expansion decay) complete**: `decay_events` table (migration
+  0016) plus a nullable `decay_event_id` on `ep_ledger`/`gp_ledger`, so every
+  row a decay batch writes traces back to (and can be deleted by) its event.
+  `src/lib/epgp/decay.ts` owns the logic: `previewExpansionDecay` (read-only,
+  rate × raw ledger balance as of the effective date — verified to the cent
+  against the real 2025-12-30 event), `commitExpansionDecay` (one
+  `decay_events` row + a linked negative ledger row per character with a
+  positive balance; rejects a duplicate unreversed event on the same date),
+  `reverseDecayEvent` (deletes the linked rows, marks the event reversed,
+  writes a `ledger_audit_log` "delete" entry per row). Two consumers of the
+  same functions: `/api/officer/decay/{preview,commit,reverse}`
+  (`requireOfficerApiKey` + leader-only `canManageEpgpConfig` — decay is a
+  leader call throughout PLAN.md §1b/§1c, a higher bar than the officer-level
+  manual-entry/attendance/bids routes) and `/epgp/decay` (session-authed
+  server actions) — the leader UI: rate + date → preview table → confirm →
+  result, plus a decay-history list with a reverse button. Verified live
+  against local D1 with a real minted officer key (preview math, duplicate
+  rejection, reverse + re-commit, non-leader 403), not just tsc/build.
+  `scripts/backfill-expansion-decay.ts` (`npm run backfill:expansion-decay`,
+  idempotent) links the 3 historical "Decay" rows the sheet import already
+  wrote to a new `decay_events` row each. `scripts/verify-expansion-decay.ts`
+  (`npm run verify:expansion-decay`) checks the formula against the real
+  2025-12-30 event — 86% of rows reproduce within a balance-scaled tolerance;
+  the rest are two documented non-bug categories (leader's own "100% manual
+  math" per §1b, and long-quiet GP-only characters the historical run
+  excluded entirely — see the new §16 open question on whether the 9/30 run
+  should do the same, since there's no departure-status field yet to
+  reconstruct that exclusion). Verify harness still 12/12 throughout.
 - **Phase 0 (Foundations) complete**: `getCachedEpgpTotals` caching
   (0.1–0.4, see below); `scripts/import-epgp.ts` as the deterministic
   seed-from-xlsx tool (0.5); `scripts/snapshot.sh` save/restore (0.6);
