@@ -158,6 +158,10 @@ export async function getCachedEpgpTotals(db: ReturnType<typeof drizzle>): Promi
     return new Map(rows);
   }
 
+  // Only the miss path hits D1 — this line is what makes the TTL window
+  // visible in `wrangler tail` (PLAN.md §6 task 0.4). A quiet stretch of
+  // cache hits between misses is the caching working, not a gap in logging.
+  console.log("[epgp-totals] cache miss, querying D1");
   const totals = await computeEpgpTotals(db);
   const response = new Response(JSON.stringify([...totals]), {
     headers: { "content-type": "application/json", "cache-control": `max-age=${TOTALS_CACHE_TTL_SECONDS}` },
