@@ -54,3 +54,7 @@ next-env.d.ts
 # local planning docs (not part of the shipped app)
 docs/
 data/imports/
+data/snapshots/
+
+# generated seed SQL (regenerate with `npm run seed:xlsx`, see CLAUDE.md)
+drizzle/seed/

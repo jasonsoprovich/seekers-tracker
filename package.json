@@ -11,7 +11,9 @@
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview -c wrangler.dev.jsonc",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
-    "import:epgp": "tsx scripts/import-epgp.ts"
+    "import:epgp": "tsx scripts/import-epgp.ts",
+    "snapshot": "scripts/snapshot.sh",
+    "verify": "tsx scripts/verify-harness.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.7.1",
