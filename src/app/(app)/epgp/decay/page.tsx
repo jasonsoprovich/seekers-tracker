@@ -2,6 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { redirect } from "next/navigation";
 
+import { DepartureWipeForm } from "@/components/epgp/DepartureWipeForm";
 import { ExpansionDecayForm } from "@/components/epgp/ExpansionDecayForm";
 import { ReverseDecayButton } from "@/components/epgp/ReverseDecayButton";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -69,6 +70,17 @@ export default async function EpgpDecayPage() {
         </p>
         <div className="mt-3">
           <ExpansionDecayForm />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Inactivity EP wipe</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          Zeroes EP only — GP is never touched (§1e). Search by name or by an inactivity cutoff date. Confirmed with the leader (§1f): every
+          character is treated the same, active or long-departed.
+        </p>
+        <div className="mt-3">
+          <DepartureWipeForm />
         </div>
       </section>
 

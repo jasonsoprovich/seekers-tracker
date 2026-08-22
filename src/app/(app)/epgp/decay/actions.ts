@@ -1,8 +1,17 @@
 "use server";
 
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
+import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
-import { commitExpansionDecay, previewExpansionDecay, reverseDecayEvent, type DecayPreviewRow } from "@/lib/epgp/decay";
+import {
+  commitDepartureWipe,
+  commitExpansionDecay,
+  previewDepartureWipe,
+  previewExpansionDecay,
+  reverseDecayEvent,
+  type DecayPreviewRow,
+  type DeparturePreviewRow,
+} from "@/lib/epgp/decay";
 import { getSession } from "@/lib/session";
 
 // Flat optional-field shape (not a discriminated union) so callers can just
@@ -11,6 +20,8 @@ import { getSession } from "@/lib/session";
 export type PreviewDecayResult = { rows?: DecayPreviewRow[]; totalEpDecay?: number; totalGpDecay?: number; error?: string };
 export type CommitDecayResult = { decayEventId?: number; epRows?: number; gpRows?: number; error?: string };
 export type ReverseDecayResult = { error?: string };
+export type PreviewDepartureResult = { rows?: DeparturePreviewRow[]; totalEp?: number; unmatchedNames?: string[]; error?: string };
+export type CommitDepartureResult = { decayEventId?: number; epRows?: number; unmatchedNames?: string[]; error?: string };
 
 function parseRate(raw: string): number | null {
   const n = Number(raw);
@@ -22,6 +33,37 @@ function parseEffectiveDate(raw: string): Date | null {
   if (!raw) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseInactiveSince(raw: string): Date | undefined {
+  if (!raw) return undefined;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+function splitNames(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map((n) => n.trim())
+    .filter(Boolean);
+}
+
+// Resolves leader-typed names to character ids, same "report what didn't
+// match instead of dropping it silently" pattern the officer app's
+// attendance route uses (src/app/api/officer/attendance/route.ts).
+async function resolveCharacterNames(
+  db: Awaited<ReturnType<typeof getDb>>,
+  raw: string,
+): Promise<{ characterIds: number[]; unmatchedNames: string[] }> {
+  const names = [...new Set(splitNames(raw))];
+  const characterIds: number[] = [];
+  const unmatchedNames: string[] = [];
+  for (const name of names) {
+    const id = await findCharacterIdByName(db, name);
+    if (id === null) unmatchedNames.push(name);
+    else characterIds.push(id);
+  }
+  return { characterIds, unmatchedNames };
 }
 
 async function requireLeader(): Promise<{ userId: string } | { error: string }> {
@@ -75,4 +117,55 @@ export async function reverseDecayAction(decayEventId: number): Promise<ReverseD
   const result = await reverseDecayEvent(db, decayEventId, auth.userId);
   if ("error" in result) return { error: result.error };
   return {};
+}
+
+// PLAN.md §11 Phase 2 tasks 2.9-2.12 (§1f) — the leader-requested,
+// non-destructive EP wipe. namesInput and inactiveSinceInput are
+// alternative selection modes (names win if both are given, matching
+// previewDepartureWipe/commitDepartureWipe); unmatched names come back so
+// the leader can fix a typo rather than have it silently drop.
+export async function previewDepartureAction(namesInput: string, inactiveSinceInput: string): Promise<PreviewDepartureResult> {
+  const auth = await requireLeader();
+  if ("error" in auth) return auth;
+
+  const db = await getDb();
+  const names = splitNames(namesInput);
+  let characterIds: number[] | undefined;
+  let unmatchedNames: string[] | undefined;
+  if (names.length > 0) {
+    const resolved = await resolveCharacterNames(db, namesInput);
+    characterIds = resolved.characterIds;
+    unmatchedNames = resolved.unmatchedNames;
+  }
+  const inactiveSince = parseInactiveSince(inactiveSinceInput);
+  if (!characterIds?.length && !inactiveSince) {
+    return { error: "Enter at least one character name, or an inactive-since date.", unmatchedNames };
+  }
+
+  const rows = await previewDepartureWipe(db, { characterIds, inactiveSince });
+  const totalEp = rows.reduce((sum, r) => sum + r.epBalance, 0);
+  return { rows, totalEp, unmatchedNames };
+}
+
+export async function commitDepartureAction(namesInput: string, inactiveSinceInput: string, label: string): Promise<CommitDepartureResult> {
+  const auth = await requireLeader();
+  if ("error" in auth) return auth;
+
+  const db = await getDb();
+  const names = splitNames(namesInput);
+  let characterIds: number[] | undefined;
+  let unmatchedNames: string[] | undefined;
+  if (names.length > 0) {
+    const resolved = await resolveCharacterNames(db, namesInput);
+    characterIds = resolved.characterIds;
+    unmatchedNames = resolved.unmatchedNames;
+  }
+  const inactiveSince = parseInactiveSince(inactiveSinceInput);
+  if (!characterIds?.length && !inactiveSince) {
+    return { error: "Enter at least one character name, or an inactive-since date.", unmatchedNames };
+  }
+
+  const result = await commitDepartureWipe(db, { characterIds, inactiveSince, label: label.trim() || undefined, appliedBy: auth.userId });
+  if ("error" in result) return { error: result.error, unmatchedNames };
+  return { ...result, unmatchedNames };
 }
