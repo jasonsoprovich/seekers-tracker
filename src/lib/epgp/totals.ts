@@ -119,3 +119,57 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
 
   return totals;
 }
+
+// computeEpgpTotals runs 4 unfiltered GROUP BY SUM() queries over the full
+// ep_ledger/gp_ledger — D1 scans every row on every call, and it was being
+// called uncached from a server component (roster/page.tsx, re-runs per
+// request) plus three officer API routes. That's what burns the 5M/day
+// free-tier row-read budget (PLAN.md §6). Cache the result in Cloudflare's
+// edge Cache API under a synthetic key — there's no real inbound request
+// this response corresponds to, so `cache.put` needs a made-up GET Request
+// to key off. TTL is short (not correctness-critical data — EPGP standings
+// tolerate a ~1min-stale read) but long enough to collapse a burst of page
+// loads into one D1 hit.
+const TOTALS_CACHE_TTL_SECONDS = 45;
+const TOTALS_CACHE_KEY = new Request("https://seekers-tracker.internal/cache/epgp-totals");
+
+// cloudflare-env.d.ts's CacheStorage/Cache (the Workers runtime's single
+// `.default` cache) get shadowed by the "dom" lib's same-named types (the
+// browser Cache Storage API — named caches only, no `.default`) once both
+// are in `tsconfig.json`'s `lib`, which this Next.js app needs for its
+// client-side code. `caches` resolves to the DOM interface at the type
+// level even though the Workers runtime object underneath is the
+// Cloudflare one, so reach `.default` through a narrow local cast instead
+// of fighting the lib conflict.
+interface CloudflareCache {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
+  delete(request: Request): Promise<boolean>;
+}
+function defaultCache(): CloudflareCache {
+  return (caches as unknown as { default: CloudflareCache }).default;
+}
+
+export async function getCachedEpgpTotals(db: ReturnType<typeof drizzle>): Promise<Map<number, EpgpTotal>> {
+  const cache = defaultCache();
+  const cached = await cache.match(TOTALS_CACHE_KEY);
+  if (cached) {
+    const rows = (await cached.json()) as [number, EpgpTotal][];
+    return new Map(rows);
+  }
+
+  const totals = await computeEpgpTotals(db);
+  const response = new Response(JSON.stringify([...totals]), {
+    headers: { "content-type": "application/json", "cache-control": `max-age=${TOTALS_CACHE_TTL_SECONDS}` },
+  });
+  await cache.put(TOTALS_CACHE_KEY, response);
+  return totals;
+}
+
+// Called by every EPGP-ledger write path (insertLedgerEntry covers manual
+// entry, attendance, and bids' GP charges — see that file) so a fresh totals
+// read never has to wait out the TTL after an officer just changed the
+// numbers.
+export async function invalidateEpgpTotalsCache(): Promise<void> {
+  await defaultCache().delete(TOTALS_CACHE_KEY);
+}
