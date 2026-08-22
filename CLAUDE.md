@@ -72,15 +72,46 @@ pre-existing gap, not something you broke.
 **Develop and test against local D1, not remote.** `wrangler dev --local` and
 `wrangler d1 execute --local` run against a real SQLite file via Miniflare:
 **zero D1 billing, no row-read or write caps.** The free-tier budget problem
-does not exist locally.
+does not exist locally. **Never test decay or migration logic against remote
+D1.** A bad decay run writes thousands of rows against the 100K/day write cap
+and is painful to undo. Remote does have D1 Time Travel (7 days, free plan)
+as a last-resort rollback — don't rely on it as a testing strategy.
 
-- Local DB lives at `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`
-- Snapshot/restore by copying that file, or re-run `scripts/seed-from-xlsx.ts`
-- **Never test decay or migration logic against remote D1.** A bad decay run
-  writes thousands of rows against the 100K/day write cap and is painful to
-  undo.
-- Remote does have D1 Time Travel (7 days, free plan) as a last-resort
-  rollback — but don't rely on it as a testing strategy.
+- Local DB lives at
+  `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite` (one real
+  `.sqlite`, plus a `metadata.sqlite` to ignore).
+
+**Seed from the sheet** — `scripts/import-epgp.ts` (run via
+`npm run import:epgp -- --file "/path/to/SoS - EPGP.xlsx" --wipe`). Parses
+the guild's downloaded `.xlsx`, prints a reconciliation report against the
+sheet's own cached `Totals` tab, and emits `drizzle/seed/epgp-import.sql`
+(gitignored — regenerate, don't commit). Apply with
+`npx wrangler d1 execute seekers-of-souls --local --file=drizzle/seed/epgp-import.sql`.
+Deterministic and idempotent — safe to re-run after a fresh sheet export;
+`--wipe` clears the EPGP ledger/config tables first (never touches
+`characters`, which is `INSERT OR IGNORE` either way). This is also the
+9/30 production-snapshot tool (PLAN.md §7).
+
+**Snapshot/restore** — `scripts/snapshot.sh {save|restore|list} [name]`
+(`npm run snapshot -- save foo`) copies the live `.sqlite` to/from
+`data/snapshots/` (gitignored — contains real guild member data). Instant,
+no re-import. Use before any destructive test (a decay run, a migration
+you're not sure about); restore to undo in one command.
+
+**Verify** — `npm run verify` (`scripts/verify-harness.ts`) runs the actual
+`computeEpgpTotals()` production code path against local D1 (via
+`getPlatformProxy`, not a Workers dev server) and asserts EP/GP/decay/
+priority for a curated set of characters (`scripts/golden-fixtures.ts`,
+picked per PLAN.md §5 to exercise specific edge cases — floor-exempt,
+cap-limited, GP-only-departed, all-3-expansion veterans) against the sheet's
+own cached numbers. **This is the regression suite for every later phase —
+run it after any change to `totals.ts`, a migration, or a re-seed, before
+moving on.** A sheet re-export commonly drifts the local seed by a row or
+two (officers keep editing the live sheet); if fixtures fail by small
+amounts after a re-import, re-verify against a fresh sheet export before
+assuming it's a code bug — `import-epgp.ts`'s own reconciliation report
+(157/158 within ±1 as of 2026-08-21) is the independent check for that.
+Exits non-zero on any failure, so it's CI-ready later.
 
 `data/imports/` is **gitignored** — it holds Toryn's MySQL dump (Discord IDs
 for every guild member) and in-game inventory exports. Never commit its
@@ -210,10 +241,20 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 0.** Deadlines: expansion decay button by
+**Current focus: PLAN.md §11 Phase 1 (effective-dated settings).** Phase 0
+is complete as of 2026-08-21. Deadlines: expansion decay button by
 2026-09-30, global decay cutover by 2026-10-17.
 
 **Shipped:**
+- **Phase 0 (Foundations) complete**: `getCachedEpgpTotals` caching
+  (0.1–0.4, see below); `scripts/import-epgp.ts` as the deterministic
+  seed-from-xlsx tool (0.5); `scripts/snapshot.sh` save/restore (0.6);
+  `scripts/golden-fixtures.ts`, a 12-character curated set covering every
+  §5 edge case that's testable pre-Phase-3 (0.7); `scripts/verify-harness.ts`
+  asserting `computeEpgpTotals()` against the sheet's cached numbers, 12/12
+  passing (0.8) — **this is the regression suite for every later phase, run
+  it (`npm run verify`) before and after any schema or totals-logic
+  change.** See "Local-first testing" above for how these fit together.
 - Core site: Discord auth + guild-membership gate, character CRUD/claim,
   PoP flag import/checklist, admin panel (roles, claims, import audit),
   Roster (merged EPGP standings, main/alt grouping), EPGP ledger with
@@ -269,14 +310,6 @@ contents, and never print raw Discord IDs into logs or commit messages.
   regenerated** — `rateLimitMax`/`rateLimitTimeWindow` are stored per-row
   at key-creation time, so the new default only applies to keys generated
   after this deployed.
-
-**Known issue being fixed in PLAN.md Phase 0:**
-- `computeEpgpTotals` (`src/lib/epgp/totals.ts`) runs four unfiltered
-  `GROUP BY SUM()` queries over the full `ep_ledger` + `gp_ledger` on every
-  call, with no caching — D1 scans ~50K rows per page load. Called from
-  `roster/page.tsx` (a server component, so once per request),
-  `api/officer/totals`, `api/officer/characters`, `api/officer/bids`. This
-  is what burns the 5M/day free-tier row-read budget. Phase 0 tasks 0.1–0.4.
 
 **Explicitly deferred / open decisions:**
 - `src/lib/epgp/tier.ts`'s `normalizeBidTier()` is unused — the shipped
