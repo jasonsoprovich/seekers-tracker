@@ -207,17 +207,21 @@ const POINT_VALUES: { kind: "ep" | "gp"; activity: string; points: number; retir
   { kind: "gp", activity: "No Looter", points: 0 },
 ];
 
-// Base EP/GP, decay %, and the per-cycle EP cap, read directly off the
-// Overview/Point Values tabs on 2026-08-18. src/lib/epgp/totals.ts falls
-// back to these same numbers if this table is ever empty, so they're
-// duplicated here deliberately, not derived from one shared source.
-const SETTINGS: Record<string, number> = {
-  ep_decay: 0.2,
-  gp_decay: 0.2,
-  base_ep: 150,
-  base_gp: 100,
-  ep_cap_per_cycle: 900,
-  min_ep: 0,
+// Base EP/GP, decay %, per-cycle EP cap, minimum attendance, and the decay
+// model version — read directly off the Overview/Point Values tabs on
+// 2026-08-18, plus min_attendance/decay_model per PLAN.md §4h/§1c (not on
+// the sheet at all; these are new website-only settings). src/db/schema.ts's
+// epgp_settings default fallback mirrors these same numbers, so they're
+// duplicated deliberately, not derived from one shared source. Written as
+// effective-dated rows (PLAN.md §4i) — see the SQL emission below.
+const SETTINGS: Record<string, string> = {
+  ep_decay: "0.2",
+  gp_decay: "0.2",
+  base_ep: "150",
+  base_gp: "100",
+  ep_cap_per_cycle: "900",
+  min_attendance: "12",
+  decay_model: "legacy",
 };
 
 // ---------- main ----------
@@ -488,8 +492,8 @@ async function main() {
     const rawGp = preGpAmt + (curGp.get(key) ?? 0);
     // Mirrors Totals!I/J's threshold guard: the sheet skips decay entirely
     // for a character whose raw lifetime total hasn't reached base_ep/gp yet.
-    const ep = rawEp - (rawEp < SETTINGS.base_ep ? 0 : preEpAmt * SETTINGS.ep_decay);
-    const gp = rawGp - (rawGp < SETTINGS.base_gp ? 0 : preGpAmt * SETTINGS.gp_decay);
+    const ep = rawEp - (rawEp < Number(SETTINGS.base_ep) ? 0 : preEpAmt * Number(SETTINGS.ep_decay));
+    const gp = rawGp - (rawGp < Number(SETTINGS.base_gp) ? 0 : preGpAmt * Number(SETTINGS.gp_decay));
     if (Math.abs(ep - sheet.ep) <= 1 && Math.abs(gp - sheet.gp) <= 1) {
       matched++;
     } else {
@@ -534,9 +538,16 @@ async function main() {
     );
   }
 
-  out.push("\n-- epgp_settings (INSERT OR REPLACE — leadership may have already tuned these in the app; re-running the importer intentionally resets them to the sheet's last-known values)");
+  // Effective-dated (PLAN.md §4i) — there's no single row per key to
+  // REPLACE anymore. Seeds the since-the-beginning-of-time baseline
+  // (effective_from = 0) for a key ONLY if it has no row yet at all, so
+  // re-running this importer can never silently revert a value the leader
+  // has since tuned in the officer settings UI — it only fills a gap.
+  out.push("\n-- epgp_settings baseline (idempotent: only inserts a key that has no row at all yet)");
   for (const [key, value] of Object.entries(SETTINGS)) {
-    out.push(`INSERT OR REPLACE INTO epgp_settings (key, value, updated_at) VALUES (${sqlStr(key)}, ${sqlStr(String(value))}, unixepoch());`);
+    out.push(
+      `INSERT INTO epgp_settings (setting_key, value, effective_from, changed_by, changed_at, note) SELECT ${sqlStr(key)}, ${sqlStr(value)}, 0, NULL, unixepoch(), 'seeded from xlsx import' WHERE NOT EXISTS (SELECT 1 FROM epgp_settings WHERE setting_key = ${sqlStr(key)});`,
+    );
   }
 
   out.push("\n-- epgp_point_values");

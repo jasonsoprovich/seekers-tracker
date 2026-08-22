@@ -294,18 +294,32 @@ export const epgpPointValues = sqliteTable("epgp_point_values", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
-// Guild-tunable EPGP constants (base EP/GP, decay %, per-cycle EP cap) —
-// key/value rather than fixed columns so new settings don't need a schema
-// change. See src/lib/epgp/totals.ts for how these combine with the
-// ledgers into a character's live EP/GP/Priority Rating.
-export const epgpSettings = sqliteTable("epgp_settings", {
-  key: text("key").primaryKey(),
-  value: text("value").notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  updatedBy: text("updated_by").references(() => users.id),
-});
+// Guild-tunable EPGP constants (base EP/GP, decay %, per-cycle EP cap,
+// minimum attendance, decay model) — key/value rather than fixed columns so
+// new settings don't need a schema change. Effective-dated (PLAN.md §4i):
+// changing a value writes a NEW row rather than overwriting the old one, so
+// `getSettingAt(key, date)` (src/lib/epgp/settings.ts) can resolve "what was
+// this setting worth when a given ledger row was written" even after the
+// leader retunes it later. This is what makes the mutable 900 EP cap (§2)
+// and the dual legacy/global decay model (§1c) safe — a rate change never
+// silently rewrites history. The row with the greatest effective_from <=
+// the query date, per setting_key, is the one "in force". Never update or
+// delete a row in place; always insert a new one.
+export const epgpSettings = sqliteTable(
+  "epgp_settings",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    settingKey: text("setting_key").notNull(),
+    value: text("value").notNull(),
+    effectiveFrom: integer("effective_from", { mode: "timestamp" }).notNull(),
+    changedBy: text("changed_by").references(() => users.id),
+    changedAt: integer("changed_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    note: text("note"),
+  },
+  (table) => [index("epgp_settings_key_effective_idx").on(table.settingKey, table.effectiveFrom)],
+);
 
 export const importLog = sqliteTable("import_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),

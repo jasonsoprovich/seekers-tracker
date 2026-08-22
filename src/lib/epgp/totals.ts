@@ -1,7 +1,9 @@
 import { gte, lt, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { cycles, epLedger, epgpSettings, gpLedger } from "@/db";
+import { cycles, epLedger, gpLedger } from "@/db";
+
+import { getSettingsAt } from "./settings";
 
 export type EpgpTotal = {
   characterId: number;
@@ -12,24 +14,17 @@ export type EpgpTotal = {
   priorityRating: number;
 };
 
-// Defaults match the sheet's own Point Values tab as observed on
-// 2026-08-18 (Base EP 150 / Base GP 100, 20% decay both sides). Only used
-// when epgp_settings has no row for a key yet (e.g. a fresh dev DB before
-// the seed script runs) — the seed script writes real rows from the sheet.
-const DEFAULT_SETTINGS: Record<string, number> = {
-  ep_decay: 0.2,
-  gp_decay: 0.2,
-  base_ep: 150,
-  base_gp: 100,
-  ep_cap_per_cycle: 900,
-};
-
+// Totals are always computed "as of now" — this predates the effective-
+// dated settings table (PLAN.md §4i, Phase 1) and stays that way until a
+// later phase actually needs a rate to apply differently to old vs new
+// ledger rows (the mutable cap in §2, the decay-model cutover in §1c).
+// Until then, "now" is the only date any caller needs.
 export async function getEpgpSettings(db: ReturnType<typeof drizzle>): Promise<Record<string, number>> {
-  const rows = await db.select().from(epgpSettings);
-  const settings = { ...DEFAULT_SETTINGS };
-  for (const row of rows) {
-    const num = Number(row.value);
-    if (Number.isFinite(num)) settings[row.key] = num;
+  const raw = await getSettingsAt(db, new Date());
+  const settings: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const num = Number(value);
+    if (Number.isFinite(num)) settings[key] = num;
   }
   return settings;
 }
