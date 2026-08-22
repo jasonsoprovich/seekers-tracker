@@ -41,12 +41,16 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
             // better-auth appends `scope` to the provider's own defaults
             // (identify + email) unless told otherwise, so disable those and
             // request exactly what we use: "identify" for the profile,
-            // "guilds" for the first-login membership check (Task 5). No
-            // "email" scope, so Discord may return email: null anyway on
-            // phone-only accounts — mapProfileToUser below falls back to a
-            // placeholder that's never used to contact anyone.
+            // "guilds" for the first-login membership check (Task 5),
+            // "guilds.members.read" so that same check can also fetch the
+            // user's role IDs within the guild (GET
+            // /users/@me/guilds/{guild.id}/member) — see
+            // src/lib/discord-verify.ts. No "email" scope, so Discord may
+            // return email: null anyway on phone-only accounts —
+            // mapProfileToUser below falls back to a placeholder that's
+            // never used to contact anyone.
             disableDefaultScope: true,
-            scope: ["identify", "guilds"],
+            scope: ["identify", "guilds", "guilds.members.read"],
             mapProfileToUser: (profile: { id: string; email?: string | null }) => ({
               discordId: profile.id,
               email: profile.email ?? `${profile.id}@discord.placeholder.local`,
@@ -83,6 +87,13 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
               // Set server-side only, after the guild-membership check.
               input: false,
               fieldName: "discordVerified",
+            },
+            discordRoleIds: {
+              type: "string",
+              required: false,
+              // Set server-side only, alongside discordVerified.
+              input: false,
+              fieldName: "discordRoleIds",
             },
             lastLoginAt: {
               type: "date",

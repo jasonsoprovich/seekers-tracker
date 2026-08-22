@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `discord_role_ids` text;

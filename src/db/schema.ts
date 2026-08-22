@@ -24,6 +24,13 @@ export const users = sqliteTable("users", {
   discordVerified: integer("discord_verified", { mode: "boolean" })
     .notNull()
     .default(false),
+  // JSON-stringified array of the user's Discord role IDs within
+  // SEEKERS_DISCORD_GUILD_ID, snapshotted at the same time as
+  // discordVerified (see src/lib/discord-verify.ts). Not yet used to
+  // derive `role` — that's still admin-panel-driven — this just captures
+  // the data so a future role-mapping decision doesn't need a schema
+  // change of its own.
+  discordRoleIds: text("discord_role_ids"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

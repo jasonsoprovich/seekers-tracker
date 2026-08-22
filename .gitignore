@@ -53,3 +53,4 @@ next-env.d.ts
 
 # local planning docs (not part of the shipped app)
 docs/
+data/imports/

@@ -26,6 +26,28 @@ export async function checkAndStampGuildMembership(
   const guilds = (await res.json()) as { id: string }[];
   const isMember = guilds.some((g) => g.id === guildId);
 
-  await db.update(users).set({ discordVerified: isMember, lastLoginAt: new Date() }).where(eq(users.id, userId));
+  // Only the member endpoint (not the plain guild-list one above) carries
+  // role IDs, and it 404s for non-members — only call it once membership
+  // is confirmed. A failure here (rate limit, transient error) shouldn't
+  // block the membership stamp, so it just leaves discordRoleIds as-is.
+  let roleIds: string[] | undefined;
+  if (isMember) {
+    const memberRes = await fetch(`https://discord.com/api/users/@me/guilds/${guildId}/member`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (memberRes.ok) {
+      const member = (await memberRes.json()) as { roles: string[] };
+      roleIds = member.roles;
+    }
+  }
+
+  await db
+    .update(users)
+    .set({
+      discordVerified: isMember,
+      lastLoginAt: new Date(),
+      ...(roleIds ? { discordRoleIds: JSON.stringify(roleIds) } : {}),
+    })
+    .where(eq(users.id, userId));
   return isMember;
 }
