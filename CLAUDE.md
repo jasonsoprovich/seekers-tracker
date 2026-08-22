@@ -1,20 +1,41 @@
 # Seekers of Souls — guild website + EPGP tooling
 
-This is one half of a two-repo system. Read this whole file before making
+This is one repo of a three-repo system. Read this whole file before making
 changes — it's the thing that survives a cleared conversation.
 
-**The two repos:**
+## ⚠ Read `../PLAN.md` first
 
-| Repo | What it is | Where |
-|---|---|---|
-| `seekers-tracker` (this repo) | The website: Next.js app on Cloudflare Workers, D1, R2. Guild roster, character claiming, PoP flags, EPGP ledger/standings, admin panel. | `~/repos/github.com/jasonsoprovich/seekers-tracker` |
-| `seekers-epgp-parser` | Standalone desktop app (Wails: Go backend + React/TS frontend) an officer runs locally. Parses their EverQuest log file for raid attendance and loot bids, then submits to this site over HTTP. | `~/repos/github.com/jasonsoprovich/seekers-epgp-parser` (sibling directory) |
+**`../PLAN.md` (in the `seekers/` parent directory) is the authoritative
+plan** for the current rebuild: verified findings about how the guild's EPGP
+rules actually work, the target schema, and a phased task list with deadlines.
 
-They talk to each other over `/api/officer/*` routes on this site,
-authenticated with an officer-issued API key (`x-api-key` header) instead
-of a browser session — see "How the two repos connect" below. Both repos
-get worked on in the same conversations; when you're deep in one, check
-whether a change needs a matching change in the other.
+- **§11** is the execution plan — numbered phases, one task per commit, each
+  tagged by repo.
+- **§1–§10** explain *why*. Consult them when a task needs context.
+- **Do not redesign anything covered there without saying so explicitly.**
+  Several findings (decay is non-compounding; the EP cap was never
+  consistently enforced; departure clears EP but never GP) are
+  counter-intuitive and were verified against the live spreadsheet's formulas
+  and cached values. Re-deriving them from intuition will get them wrong.
+
+Work one phase at a time. Don't start a phase until the previous phase's
+verification task passes.
+
+**The three repos** (all siblings under `seekers/`):
+
+| Repo | What it is |
+|---|---|
+| `seekers-tracker` (this repo) | The website: Next.js on Cloudflare Workers, D1, R2. Guild roster, character claiming, PoP flags, EPGP ledger/standings, admin panel. |
+| `../seekers-epgp-parser` | Standalone desktop app (Wails: Go + React/TS) an officer runs locally. Parses their EverQuest log for raid attendance and loot bids, submits over HTTP. |
+| `../seekers-bot` | Discord slash-command bot (Cloudflare Worker). **Not created yet — PLAN.md Phase 10.** |
+
+**This repo owns the D1 schema and all migrations.** The other repos bind to
+the database but never migrate it.
+
+They talk over `/api/officer/*` routes authenticated with an officer-issued
+API key (`x-api-key`) instead of a browser session — see "How the repos
+connect". Repos get worked on in the same conversations; when you're deep in
+one, check whether a change needs a matching change in another.
 
 ## Stack
 
@@ -46,18 +67,38 @@ npx tsc --noEmit -p tsconfig.json                       # typecheck only (fast)
 issue, unrelated to any specific change) — don't chase it, it's a known
 pre-existing gap, not something you broke.
 
+## Local-first testing (PLAN.md §5) — important
+
+**Develop and test against local D1, not remote.** `wrangler dev --local` and
+`wrangler d1 execute --local` run against a real SQLite file via Miniflare:
+**zero D1 billing, no row-read or write caps.** The free-tier budget problem
+does not exist locally.
+
+- Local DB lives at `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`
+- Snapshot/restore by copying that file, or re-run `scripts/seed-from-xlsx.ts`
+- **Never test decay or migration logic against remote D1.** A bad decay run
+  writes thousands of rows against the 100K/day write cap and is painful to
+  undo.
+- Remote does have D1 Time Travel (7 days, free plan) as a last-resort
+  rollback — but don't rely on it as a testing strategy.
+
+`data/imports/` is **gitignored** — it holds Toryn's MySQL dump (Discord IDs
+for every guild member) and in-game inventory exports. Never commit its
+contents, and never print raw Discord IDs into logs or commit messages.
+
 ## Workflow conventions (do these without being asked)
 
-- **Commit after every major task/feature**, not just at the very end of
-  a session — small scoped commits, not one giant one. Match the existing
-  commit-message style: a one-line summary, then a body explaining *why*,
-  not just what. Never mention Claude in commit messages by name beyond
-  the `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` trailer.
+- **Commit after every task in PLAN.md §11**, not just at the end of a
+  session. Reference the phase/task: `Phase 0.3: repoint totals call sites`.
+  Match the existing commit-message style — one-line summary, then a body
+  explaining *why*, not just what. Never mention Claude in commit messages
+  beyond the `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`
+  trailer.
 - **Migration order matters**: generate → apply `--local` → verify →
   apply `--remote` → *then* `npm run deploy`. Deploying code that expects
   a column/table before the remote migration exists will error in
   production.
-- **After any change to `seekers-epgp-parser`**: `wails generate module`
+- **After any change to `../seekers-epgp-parser`**: `wails generate module`
   (regenerates TS bindings), then `wails build`, from that repo's root —
   don't skip this even for a Go-only change if it touches an exported
   `App` method's signature.
@@ -69,11 +110,15 @@ pre-existing gap, not something you broke.
   touching `app.go` or `internal/parse`, write a throwaway
   `app_manual_test.go` (package `main`) that calls the real methods and
   prints JSON, run it, then delete it before committing.
+- **Run the EPGP verification harness (PLAN.md §5 / task 0.8) after any
+  change touching points, decay, the cap, or totals.** It asserts computed
+  EP/GP/decay/priority against the spreadsheet's own cached values. Drift is
+  a bug, not acceptable rounding.
 - If something looks broken in production, reach for `npx wrangler tail
   seekers-tracker --format pretty` before guessing — it's what found both
   the OAuth-callback bug and confirmed the fix, live.
 
-## How the two repos connect
+## How the repos connect
 
 - `src/lib/api-key-auth.ts` — `requireOfficerApiKey()`, called by every
   `/api/officer/*` route. Verifies the `x-api-key` header via
@@ -116,11 +161,14 @@ pre-existing gap, not something you broke.
   alt→main collapsing of its own — a row landing on an alt's own id would
   be invisible on Roster, which only ever displays a main's totals for its
   alts.
+  **PLAN.md Phase 3 changes this**: attribution moves from the main
+  *character* to a `players` account row, so a main swap no longer orphans
+  history. Don't build new logic on the character-keyed assumption.
 - `docs/guild-website-feasibility.md` §9 task 20 / §10 describes an
   earlier plan (Cloudflare Cron pulling the guild's Google Sheet). **That
   was superseded by the parser-app + API-key architecture described
   here** — the sheet-sync plan was never built. Don't treat that section
-  of the doc as current.
+  of the doc as current. Where it conflicts with `../PLAN.md`, PLAN.md wins.
 
 ## Hard-won gotchas (don't rediscover these)
 
@@ -132,7 +180,7 @@ pre-existing gap, not something you broke.
   generated SQL can even be syntactically broken (`ADD COLUMN ... NOT
   NULL` with no `DEFAULT` fails outright on a non-empty SQLite table).
   Read that version's upgrade guide for manual-preparation callouts before
-  assuming `generate` + `apply` is suffient. This exact gap broke Discord
+  assuming `generate` + `apply` is sufficient. This exact gap broke Discord
   login in production once already (see commit `5ee052c`).
 - **Go `time.Parse` defaults to UTC.** The EQ client log has no timezone
   of its own — its timestamps are the officer's local wall-clock time,
@@ -156,8 +204,14 @@ pre-existing gap, not something you broke.
   Alt Loot (1) for winner determination — Alt Loot ranks *below* Low Bid
   even though both cost 10 GP today, per the guild's own documented tier
   ordering (feasibility doc §10). Confirmed with the user, not assumed.
+- **The 900 EP cap was never consistently enforced historically** — 189 of
+  3,493 (cycle, character) pairs exceed it in the sheet. Import recorded
+  awarded values as-is; never recompute them from nominal. PLAN.md §2.
 
 ## Roadmap / status (update this section as things ship or change)
+
+**Current focus: PLAN.md §11 Phase 0.** Deadlines: expansion decay button by
+2026-09-30, global decay cutover by 2026-10-17.
 
 **Shipped:**
 - Core site: Discord auth + guild-membership gate, character CRUD/claim,
@@ -174,13 +228,15 @@ pre-existing gap, not something you broke.
   character, attach as a new alt of a main, or add as a new main (see
   `POST /api/officer/characters` above).
 - `seekers-epgp-parser` update check (2026-08-20): no installer, no
-  silent auto-updater (Wails has none built in) — instead an in-app
+  silent auto-updater (Wails v2 has none built in) — instead an in-app
   startup banner. `main.Version` is embedded via `-ldflags` only on
   `vX.Y.Z` tag pushes, which also publish a GitHub Release with the
   `.exe` attached; `internal/updatecheck` compares the running build
   against that repo's `releases/latest` and prompts the officer to
   re-download if behind. See that repo's `CLAUDE.md` → "Releases &
   update checks" for the cut-a-release steps.
+  **PLAN.md Phase 8 upgrades this** from notify-only into an actual
+  download-and-swap, reusing the existing version/release plumbing.
 - Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed, code
   works, **deliberately left unscheduled**. Decided 2026-08-20: D1's own
   Time Travel (point-in-time recovery, always-on, zero setup — 7 days on
@@ -214,6 +270,14 @@ pre-existing gap, not something you broke.
   at key-creation time, so the new default only applies to keys generated
   after this deployed.
 
+**Known issue being fixed in PLAN.md Phase 0:**
+- `computeEpgpTotals` (`src/lib/epgp/totals.ts`) runs four unfiltered
+  `GROUP BY SUM()` queries over the full `ep_ledger` + `gp_ledger` on every
+  call, with no caching — D1 scans ~50K rows per page load. Called from
+  `roster/page.tsx` (a server component, so once per request),
+  `api/officer/totals`, `api/officer/characters`, `api/officer/bids`. This
+  is what burns the 5M/day free-tier row-read budget. Phase 0 tasks 0.1–0.4.
+
 **Explicitly deferred / open decisions:**
 - `src/lib/epgp/tier.ts`'s `normalizeBidTier()` is unused — the shipped
   Bids flow uses a fixed dropdown, not free-text tier parsing. Leave it
@@ -221,3 +285,4 @@ pre-existing gap, not something you broke.
   server-side.
 - Gear tracking, pq-companion JSON import, per-class dashboards (original
   feasibility doc §9 Phase 2/3) — not started, not discussed recently.
+- Remaining open questions live in `../PLAN.md` §16.
