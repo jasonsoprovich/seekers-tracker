@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
+import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 
 // Shared by the website's manual-entry Server Action
 // (src/app/(app)/epgp/ledger/actions.ts) and the officer app's
@@ -73,6 +74,11 @@ export async function insertLedgerEntry(
       source,
     });
   }
+
+  // Every EPGP-affecting write goes through this function (website form,
+  // officer manual-entry/attendance/bids routes), so invalidating here once
+  // covers every caller instead of each one remembering to do it.
+  await invalidateEpgpTotalsCache();
 
   return { ok: true };
 }
