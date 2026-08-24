@@ -5,6 +5,7 @@ import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
 import { getCachedEpgpTotals } from "@/lib/epgp/totals";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
+import { createStandalonePlayer } from "@/lib/players";
 
 // Roster snapshot for the EPGP parser app's local name-matching/validation
 // (attendance and bid rows reference characters by name — see the app's
@@ -98,13 +99,14 @@ export async function POST(request: Request) {
 
   let mainCharacterId: number | null = null;
   let mainCharacterName: string | null = null;
+  let target: { name: string; charType: string; playerId: number | null } | undefined;
   if (body.mainCharacterId !== undefined && body.mainCharacterId !== null) {
     mainCharacterId = Number(body.mainCharacterId);
     if (!Number.isInteger(mainCharacterId) || mainCharacterId <= 0) {
       return Response.json({ error: "Invalid main character selection." }, { status: 400 });
     }
-    const [target] = await db
-      .select({ name: characters.name, charType: characters.charType })
+    [target] = await db
+      .select({ name: characters.name, charType: characters.charType, playerId: characters.playerId })
       .from(characters)
       .where(eq(characters.id, mainCharacterId));
     if (!target) return Response.json({ error: "Selected main character no longer exists." }, { status: 400 });
@@ -124,6 +126,21 @@ export async function POST(request: Request) {
         mainCharacterId,
       })
       .returning();
+
+    // PLAN.md §11 Phase 10 / §16's gap — every character needs a player_id
+    // or it's invisible to computeEpgpTotals. An alt of a known main
+    // shares that main's player outright (the same identity, just
+    // captured from a log line, not a guess); a brand-new main gets its
+    // own standalone player, same shape Phase 3 task 3.5 used for every
+    // sheet-only character. Defensive fallback: every character has
+    // player_id today, but if the selected main somehow doesn't, give it
+    // one first rather than silently leaving the new alt player_id-less.
+    if (mainCharacterId && target) {
+      const mainPlayerId = target.playerId ?? (await createStandalonePlayer(db, mainCharacterId, target.name));
+      await db.update(characters).set({ playerId: mainPlayerId }).where(eq(characters.id, created.id));
+    } else {
+      await createStandalonePlayer(db, created.id, name);
+    }
 
     return Response.json(
       {

@@ -3,9 +3,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/AdminCharacterList";
+import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characterPopFlags, characters, users } from "@/db";
+import { characterPopFlags, characters, players, users } from "@/db";
 import { canManageAnyCharacter, canManageEpgpConfig, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
@@ -31,6 +32,7 @@ export default async function AdminPage() {
       charType: characters.charType,
       status: characters.status,
       mainCharacterId: characters.mainCharacterId,
+      playerId: characters.playerId,
       ownerUsername: users.username,
       ownerId: characters.ownerId,
       ownerRole: users.role,
@@ -94,6 +96,25 @@ export default async function AdminPage() {
         .from(users)
         .orderBy(users.username)
     : [];
+
+  // PLAN.md §11 Phase 10 task 10.3 — leader-only "main swap" section. Only
+  // worth showing a player here if they have 2+ non-mule characters to
+  // choose between (the common one-character case has nothing to swap).
+  const playerRows = canEditRoles
+    ? await db.select({ id: players.id, displayName: players.displayName, mainCharacterId: players.mainCharacterId }).from(players)
+    : [];
+  const charactersByPlayer = new Map<number, { id: number; name: string }[]>();
+  if (canEditRoles) {
+    for (const c of roster) {
+      if (c.playerId === null || c.charType === "mule" || c.status === "removed") continue;
+      if (!charactersByPlayer.has(c.playerId)) charactersByPlayer.set(c.playerId, []);
+      charactersByPlayer.get(c.playerId)!.push({ id: c.id, name: c.name });
+    }
+  }
+  const playersWithChoices = playerRows
+    .map((p) => ({ ...p, options: charactersByPlayer.get(p.id) ?? [] }))
+    .filter((p) => p.options.length >= 2)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -164,6 +185,30 @@ export default async function AdminPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {canEditRoles && (
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold">Player Main Characters</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            Which character each player&apos;s EP/GP priority and roster identity is anchored to. Swapping never
+            touches EP/GP — those are tracked per player, not per character (PLAN.md §4a) — it only relabels which
+            character is &quot;main&quot; and which are alts. Only players with more than one character are listed
+            here.
+          </p>
+          {playersWithChoices.length === 0 ? (
+            <p className="mt-4 text-neutral-400">No player currently has more than one character to choose between.</p>
+          ) : (
+            <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
+              {playersWithChoices.map((p) => (
+                <li key={p.id} className="flex items-center justify-between px-4 py-3">
+                  <p className="font-medium">{p.displayName}</p>
+                  <MainCharacterSelect playerId={p.id} options={p.options} currentMainCharacterId={p.mainCharacterId} />
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       )}
     </div>

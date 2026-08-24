@@ -3,11 +3,12 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characters } from "@/db";
+import { characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
 import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
+import { attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type CharacterFormState = { error?: string };
@@ -109,13 +110,26 @@ export async function createCharacter(
   const mainError = await validateMainCharacterId(db, parsed.data.mainCharacterId);
   if (mainError) return { error: mainError };
 
+  let created: { id: number };
   try {
-    await db.insert(characters).values({ ownerId: session.user.id, ...parsed.data });
+    [created] = await db
+      .insert(characters)
+      .values({ ownerId: session.user.id, ...parsed.data })
+      .returning({ id: characters.id });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       return { error: "A character with that name already exists. If it's yours, claim it from /characters/claim instead." };
     }
     throw err;
+  }
+
+  // PLAN.md §11 Phase 10 task 10.2 / §16 gap — a character created straight
+  // through this form (not claimed from the pre-seeded roster) previously
+  // never got player_id set at all, making it invisible to computeEpgpTotals.
+  const [me] = await db.select({ id: users.id, discordId: users.discordId, username: users.username }).from(users).where(eq(users.id, session.user.id));
+  if (me) {
+    const playerId = await resolvePlayerForUser(db, me);
+    if (playerId) await attachCharacterToPlayer(db, created.id, playerId);
   }
 
   redirect("/characters");

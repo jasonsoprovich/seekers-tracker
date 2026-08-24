@@ -3,9 +3,10 @@
 import { and, eq, ne } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characterClaims, characters } from "@/db";
+import { characterClaims, characters, users } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type ClaimReviewResult = { error?: string };
@@ -38,6 +39,20 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
     .update(characterClaims)
     .set({ status: "approved", reviewedBy: session.user.id, reviewedAt: now })
     .where(eq(characterClaims.id, claimId));
+
+  // PLAN.md §11 Phase 10 task 10.2 — attach the newly-owned character to the
+  // requester's player (normally already resolved by resolvePlayerForUser
+  // on their login, per task 10.1; resolved here too so an approval never
+  // silently skips this for a requester who logged in before that hook
+  // existed, or any other edge case that left it unresolved).
+  const [requester] = await db
+    .select({ id: users.id, discordId: users.discordId, username: users.username })
+    .from(users)
+    .where(eq(users.id, claim.requesterId));
+  if (requester) {
+    const playerId = await resolvePlayerForUser(db, requester);
+    if (playerId) await attachCharacterToPlayer(db, claim.characterId, playerId);
+  }
 
   // Any other still-pending claim on this character (from a different
   // requester) is now moot — auto-deny it rather than leaving it stuck

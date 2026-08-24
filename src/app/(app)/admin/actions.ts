@@ -6,11 +6,14 @@ import { redirect } from "next/navigation";
 import { characterGear, characterPopFlags, characterStats, characters, importLog, users } from "@/db";
 import { canManageAnyCharacter, canManageRoles, getUserRole, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { swapMainCharacter, type SwapMainResult } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type SetRoleResult = { error?: string };
 
 export type DeleteCharacterResult = { error?: string };
+
+export type { SwapMainResult };
 
 // Officer/leader-only (§9 task 11's admin panel). D1 doesn't enforce FKs by
 // default and these tables have no ON DELETE CASCADE, so clean up every
@@ -80,4 +83,22 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
     .where(eq(users.id, userId));
 
   return {};
+}
+
+// PLAN.md §11 Phase 10 task 10.3 — "leader-approved main swap." Leader/admin
+// only (canManageRoles — same bar as role promotion/demotion, §4c/§10's
+// "leader-approved"), unlike claim approval (canManageAnyCharacter, includes
+// officers) — a main swap changes who a player's roster/priority identity
+// is, a bigger call than approving an ownership claim.
+export async function setPlayerMainCharacter(playerId: number, characterId: number): Promise<SwapMainResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const role = await getUserRole(session.user.id);
+  if (!canManageRoles(role)) {
+    return { error: "Only leaders can change a player's main character." };
+  }
+
+  const db = await getDb();
+  return swapMainCharacter(db, playerId, characterId, session.user.id);
 }

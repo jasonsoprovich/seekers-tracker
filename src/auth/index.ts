@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "@/db";
 import { checkAndStampGuildMembership } from "@/lib/discord-verify";
+import { resolvePlayerForUser } from "@/lib/players";
 
 // Checks Discord server membership + roles for the guild in
 // SEEKERS_DISCORD_GUILD_ID and stamps users.discordVerified/discordRoleIds.
@@ -32,6 +33,20 @@ async function verifyGuildMembershipOnLogin(db: ReturnType<typeof drizzle>, user
     .where(and(eq(schema.accounts.userId, userId), eq(schema.accounts.providerId, "discord")));
   if (!discordAccount) return;
   await checkAndStampGuildMembership(db, userId, discordAccount.accessToken);
+}
+
+// PLAN.md §11 Phase 10 task 10.1 — "a user logging in via Discord resolves
+// to a players row by discord_id ... rather than claiming characters one
+// at a time from scratch." Runs alongside the guild-membership check,
+// same session.create.after hook, same reasoning (idempotent, cheap,
+// re-run every login rather than gated behind a one-time signup event).
+async function resolvePlayerOnLogin(db: ReturnType<typeof drizzle>, userId: string) {
+  const [user] = await db
+    .select({ id: schema.users.id, discordId: schema.users.discordId, username: schema.users.username })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  if (!user) return;
+  await resolvePlayerForUser(db, user);
 }
 
 function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
@@ -126,6 +141,7 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
               after: async (session) => {
                 if (!db) return;
                 await verifyGuildMembershipOnLogin(db, session.userId);
+                await resolvePlayerOnLogin(db, session.userId);
               },
             },
           },

@@ -55,6 +55,14 @@ export const players = sqliteTable("players", {
   userId: text("user_id").references(() => users.id),
   displayName: text("display_name").notNull(),
   mainCharacterId: integer("main_character_id").references((): AnySQLiteColumn => characters.id),
+  // Who/when last changed mainCharacterId (PLAN.md §11 Phase 10 task 10.3 —
+  // "leader-approved main swap"). Mirrors statusChangedBy/statusChangedAt
+  // below rather than a separate audit table: a main swap is rare and
+  // already leader-gated at the action level (src/lib/players.ts's
+  // swapMainCharacter, canManageRoles), so who/when on the row itself is
+  // enough to answer "who approved this" without a full history table.
+  mainCharacterChangedBy: text("main_character_changed_by").references(() => users.id),
+  mainCharacterChangedAt: integer("main_character_changed_at", { mode: "timestamp" }),
   // Departed clears EP but never GP (PLAN.md §1e) — that asymmetry lives in
   // decay_events (kind 'departure'), not here. This status just drives
   // default-view filtering (roster/priority/bid views hide non-active by
