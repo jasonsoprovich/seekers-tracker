@@ -241,13 +241,70 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 4 (attendance minimum) is COMPLETE as of
-2026-08-24 for tasks 4.1-4.5** (4.2b deliberately not implemented — see
-below and PLAN.md §16). Phases 0-3 are complete. Next up: Phase 5 (global
-decay cutover), deadline 2026-10-17. Expansion-decay deadline (2026-09-30)
-already met by Phase 2.
+**Current focus: PLAN.md §11 Phase 5 (global decay cutover) is COMPLETE as of
+2026-08-24**, ahead of its 2026-10-17 deadline. Phases 0-4 are complete
+(4.2b deliberately not implemented — see below and PLAN.md §16).
+Expansion-decay deadline (2026-09-30) already met by Phase 2. Next up:
+Phase 6 (Discord role deny-list) — or wait until closer to 9/30 for Phase 7
+(production snapshot).
 
 **Shipped:**
+- **Phase 5 — global decay cutover, 2026-08-24**: `computeEpgpTotals`
+  (`totals.ts`, task 5.2) now branches on the `decay_model` setting
+  (already effective-dated since Phase 1 — task 5.1 turned out to be a
+  no-op, just wiring up an existing column): `legacy` keeps deriving the
+  flat, non-compounding 20% pre-cycle haircut exactly as before (§1a, never
+  stored); `global` trusts raw ledger sums as-is, since 10%-compounding
+  cycle decay is now applied as real stored negative rows at commit
+  time — deriving anything on top would double-decay. `decay.ts`'s
+  expansion-decay machinery generalized (task 5.3) into
+  `previewRateDecay`/`commitRateDecay`/`findActiveRateDecayEvent`, taking a
+  `RateDecayKind` (`"expansion" | "global_cycle"`) — the mechanics were
+  already identical (rate × balance before `effectiveDate`, written as a
+  linked negative ledger row); only the label (`"Decay"` vs. `"Cycle
+  Decay"`) and `decay_events.kind` differ.
+  `POST /api/officer/decay/commit` gained a `kind` field (defaults to
+  `"expansion"` for any existing caller); preview and reverse needed no
+  changes, since both were already kind-agnostic. Leader UI (task 5.4):
+  `GlobalCycleDecayForm` mirrors `ExpansionDecayForm`'s rate → preview →
+  confirm → commit shape (defaults to 10% per §1c's confirmed guild vote,
+  adjustable), added as a new `/epgp/decay` section, sharing the existing
+  preview action since preview math doesn't depend on kind.
+  `scripts/verify-global-decay.ts` (`npm run verify:global-decay`, task
+  5.5) runs 6 *real* `commitRateDecay(kind: "global_cycle")` batches
+  against a snapshotted local D1 (snapshots first, restores in a `finally`
+  regardless of outcome — safe to re-run against the live local DB) and
+  confirms per-cycle and end-to-end 0.9ⁿ compounding on raw ledger balances
+  for the top-10-EP players, every pre-cutover `ep_ledger`/`gp_ledger` row
+  byte-identical before and after, and that flipping `decay_model` to
+  `"global"` makes `computeEpgpTotals` report a tracked player's `ep`/`gp`
+  as the raw ledger sum with `epDecay`/`gpDecay` both 0.
+  **Running that test surfaced a real production bug, not a test
+  artifact**: `decay.ts`'s own `ep_ledger`/`gp_ledger` inserts
+  (`commitRateDecay` — both `expansion` and the new `global_cycle` — and
+  `commitDepartureWipe`) never set `player_id`, only `character_id`.
+  Harmless until Phase 3 task 3.11 repointed `computeEpgpTotals` to group
+  by `player_id`; from that point on, every decay/departure commit became
+  invisible to Roster and every totals-based view, even though the raw
+  ledger math itself was correct throughout — `insertLedgerEntry` got this
+  exact fix in the Phase 4 prerequisite commit, but `decay.ts` writes
+  ledger rows directly via Drizzle and was missed. Fixed by threading
+  `playerId` through `DecayPreviewRow`/`DeparturePreviewRow` (read once via
+  `characters.player_id` in the preview step, no extra query at commit
+  time) so every commit path sets it. **The 3 historical expansion-decay
+  events were never affected** — they were backfilled by linking rows
+  `scripts/import-epgp.ts` already wrote with `player_id` populated,
+  never through this code path; confirmed directly (only 18 of 277
+  decay-linked `ep_ledger` rows have a NULL `player_id`, and those are
+  pre-existing orphaned rows, §1e, unrelated to this bug). Verified: `npm
+  run verify` 13/13 (legacy-era numbers unmoved, task 5.6),
+  `verify:expansion-decay` still 86% (unchanged baseline — the `playerId`
+  addition to `previewRateDecay` is purely additive), `npm run build`
+  clean. **Not verified in an actual browser** — `/epgp/decay` is
+  leader-only behind Discord OAuth, which this session has no credentials
+  for; the UI's logic was instead verified through the identical code path
+  its server actions call directly (`commitRateDecay`/`previewRateDecay`),
+  exercised live against local D1 by the new script above.
 - **Phase 4 — attendance minimum, 2026-08-24**: `src/lib/epgp/attendance.ts`
   (`ATTENDANCE_GATED_ACTIVITIES` — Raid - Start/Mid/End, Event Attend only,
   an allowlist rather than an exemption denylist so anything else stays
