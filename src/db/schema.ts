@@ -551,3 +551,94 @@ export const characterClaims = sqliteTable(
     index("character_claims_character_id_idx").on(table.characterId),
   ],
 );
+
+// One row per (officer-triggered) inventory-export import for one holder
+// character (PLAN.md §4f, §11 Phase 8). Mirrors import_log's shape.
+// reportsSharedBank records whether this particular import included the
+// SharedBank*/Bank-Coin rows — those are account-wide, not per-character
+// (§3 addendum), so only one mule per real account should ever have this
+// true; kept here so a re-import that flips the toggle is traceable rather
+// than a silent "why did this mule's shared items disappear" mystery.
+export const bankImports = sqliteTable("bank_imports", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  characterId: integer("character_id")
+    .notNull()
+    .references(() => characters.id),
+  uploadedBy: text("uploaded_by")
+    .notNull()
+    .references(() => users.id),
+  sourceFile: text("source_file"),
+  rowCount: integer("row_count").notNull(),
+  reportsSharedBank: integer("reports_shared_bank", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// Guild bank holdings, normalized to one row per physical stack (PLAN.md §3:
+// the sheet's old comma-joined slot list is exactly the problem this fixes).
+// An import is delete-and-replace per holder_character_id, one transaction
+// (§3/§11 task 8.4) — self-healing when items move between mules, and every
+// mule's import stays independent of every other mule's.
+//
+// container/slotIndex decompose the export's raw Location string
+// (frontend/src/lib/inventoryLocations.ts in the sibling pq-companion repo
+// has the reference regex): container is the bag identifier ("General1",
+// "Bank12", "SharedBank2") for a bag and its contents, or the raw location
+// itself for anything that isn't a bag ("Head", "Bank-Coin", ...).
+// slotIndex is 0 for a bag's own row (the bag item sitting in that top-level
+// slot) or a non-bag row, 1..N for a slot inside the bag — always set
+// (never NULL) so the unique index below is fully enforced rather than
+// relying on SQLite's NULL-never-collides behavior.
+export const bankHoldings = sqliteTable(
+  "bank_holdings",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    holderCharacterId: integer("holder_character_id")
+      .notNull()
+      .references(() => characters.id),
+    // "currency" is a deliberate small extension past §4f's literal
+    // (item | spell) — the export's Bank-Coin row needs *some* category, and
+    // giving it its own rather than overloading "item" is what makes "total
+    // currency" a trivial SUM(quantity) WHERE category = 'currency' in the
+    // consolidated view the leader asked for, instead of a name-string match.
+    category: text("category", { enum: ["item", "spell", "currency"] })
+      .notNull()
+      .default("item"),
+    container: text("container").notNull(),
+    slotIndex: integer("slot_index").notNull().default(0),
+    itemName: text("item_name").notNull(),
+    // The export's own EQ item ID — not in §4f's original column list, but
+    // the parser gets it for free from the export format (confirmed 2026-
+    // 08-24) and it's a far more reliable join/dedup key than itemName
+    // (case, punctuation, "Spell: " prefixes). Nullable: a manual entry
+    // (task 8.6, source = 'manual') may not have a known item ID.
+    itemId: integer("item_id"),
+    quantity: integer("quantity").notNull().default(1),
+    // Not populated by the inventory parser — the export format has no
+    // class-restriction data, only the items database would (not yet
+    // integrated here). Stays manually editable per §4f's spec.
+    classRestriction: text("class_restriction"),
+    // guild_bank: counts toward the consolidated guild bank view.
+    // reserved: this holder's own gear/stash, captured incidentally by a
+    // full-inventory export but not guild property — excluded from guild
+    // totals/browse. See the hybrid-alt design in
+    // data/imports/bank/README.md.
+    status: text("status", { enum: ["guild_bank", "reserved"] })
+      .notNull()
+      .default("guild_bank"),
+    note: text("note"),
+    source: text("source", { enum: ["manual", "import"] }).notNull(),
+    importId: integer("import_id").references(() => bankImports.id),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    uniqueIndex("bank_holdings_holder_container_slot_unique").on(
+      table.holderCharacterId,
+      table.container,
+      table.slotIndex,
+    ),
+  ],
+);
