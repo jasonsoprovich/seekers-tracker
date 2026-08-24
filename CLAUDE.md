@@ -241,13 +241,71 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 3 (players + ledger re-attribution) is
-COMPLETE as of 2026-08-24 (all tasks 3.1-3.12).** Next up: Phase 4
-(attendance minimum). Phases 0, 1, and 2 are complete as of 2026-08-21, ahead
-of the 2026-09-30 expansion-decay deadline. Global decay cutover deadline:
-2026-10-17.
+**Current focus: PLAN.md §11 Phase 4 (attendance minimum) is COMPLETE as of
+2026-08-24 for tasks 4.1-4.5** (4.2b deliberately not implemented — see
+below and PLAN.md §16). Phases 0-3 are complete. Next up: Phase 5 (global
+decay cutover), deadline 2026-10-17. Expansion-decay deadline (2026-09-30)
+already met by Phase 2.
 
 **Shipped:**
+- **Phase 4 — attendance minimum, 2026-08-24**: `src/lib/epgp/attendance.ts`
+  (`ATTENDANCE_GATED_ACTIVITIES` — Raid - Start/Mid/End, Event Attend only,
+  an allowlist rather than an exemption denylist so anything else stays
+  exempt by construction per §4h; `checkMinAttendance()`, effective-dated
+  off `min_attendance` at the capture's own `occurredAt`, same pattern as
+  the EP cap). `POST /api/officer/attendance` calls it before inserting
+  anything (task 4.1) and rejects the whole batch with count/required/
+  shortfall if short — headcount is the raw distinct-name count from the
+  capture, not the post-resolution count, since attendance is about who was
+  actually in the zone. Task 4.3's player-level dedupe: within one request,
+  a name whose character resolves to a player_id already awarded in this
+  submission is skipped and logged (`console.warn`, visible via
+  `wrangler tail`) rather than silently dropped; a second DB check against
+  existing `ep_ledger` rows for the same (player, activity, occurred_at)
+  catches a duplicate resubmission of the same capture across two separate
+  requests. Both kinds of skip come back in a new `duplicates` array
+  alongside the existing `unmatched`, and the parser app surfaces both in
+  its result message. `scripts/verify-attendance-minimum.ts` (task 4.5,
+  `npm run verify:attendance-minimum`) replays every historical
+  attendance-gated capture through the real `checkMinAttendance()` — **does
+  not hard-assert §4h's "31" figure**, since that was a point-in-time count
+  and the guild has kept raiding since (66 sub-12 captures as of this
+  snapshot, still growing); instead asserts every group's accept/reject
+  outcome agrees with an independent `count < 12` check, which is what
+  actually catches a regression. Parser app (task 4.4):
+  `AttendancePanel.tsx` fetches settings via the already-bound
+  `FetchGuildSettings` on mount and again immediately before submit
+  ("re-validate at submit," §4i) and blocks locally with "X of Y required"
+  if the gated activity's row count is short — server-side stays
+  authoritative regardless. `officerapi.AttendanceResponse` gained
+  `Duplicates []string` (bindings regenerated via `wails generate module`).
+  **4.2b (`Event Lead` inherits its event's validity) is not implemented**
+  — see PLAN.md §16 for why (no reliable way to correlate a Manual Entry
+  Event Lead award, submitted at "now," back to the raid capture it
+  belongs to, without a schema or UI change).
+  **Prerequisite fix found and made while starting this phase**:
+  `insertLedgerEntry` (`src/lib/epgp/ledger-entry.ts`) had never actually
+  been updated for Phase 3's schema — every new row (website form, officer
+  manual-entry/attendance/bids) was writing `player_id`, `points_nominal`,
+  `points_awarded`, `cap_applied`, `cap_at_entry` as NULL/default, despite
+  the schema's own comments claiming otherwise. Harmless as long as nothing
+  had actually written through it since the Phase 3.11 deploy (confirmed:
+  local D1 had zero `manual`/`parse`-sourced rows), but every new
+  attendance award in this phase would otherwise have landed with
+  `player_id = NULL` and been invisible to `computeEpgpTotals` — the same
+  fate as an orphaned row, just silent. Fixed to set `player_id` (an alt
+  shares its player's `player_id` already, no extra query needed) and,
+  for EP rows, `points_nominal = points_awarded = points` with
+  `cap_applied = false` and `cap_at_entry` read live via `getSettingAt`.
+  **Write-time cap *clamping* (the order-dependent per-cycle running sum,
+  §2) is still not implemented** — deliberately: it depends on cycle
+  management, which PLAN.md §16 lists as a still-open decision, so there's
+  no correct cycle to sum against yet. Verified directly against local D1
+  (not just `tsc`/`build`): a fresh `Event Attend` row for Khrathak came
+  back with `player_id=49, points_nominal=50, points_awarded=50,
+  cap_applied=0, cap_at_entry=900`, then deleted; confirmed Khrathak and
+  his alt Tyvalus share `player_id=49` (what the dedupe logic depends on).
+  Verify harness still 13/13, `npm run build` and `wails build` both clean.
 - **Phase 3 tasks 3.7-3.12 — ledger schema, orphaned rows, status model,
   `computeEpgpTotals` repointed to `player_id`, 2026-08-24 (migrations
   0018-0019)**: `ep_ledger`/`gp_ledger` gain `player_id`, `points_nominal`,
