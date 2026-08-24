@@ -252,14 +252,45 @@ production-snapshot Phase 7 is now Phase 14 — moved to last, same date;
 see below.) The leader wants every remaining phase (8 guild bank, 9 Discord
 bot, 10 character claiming, 11 quest flags, 12 live bids, 13 Wails v3
 migration) built and tested before committing to a go-live cutover date;
-going live is now the final one-time event, not a mid-plan milestone. Next
-up: any of Phases 8-12 (13 depends on nothing new either, but there's no
-reason to rush it ahead of the deadline-driven work). Prep for the eventual
-Phase 14 (dry-run `seed-from-xlsx`/harness against a current sheet export, a
-go-live runbook) can happen anytime without freezing the live sheet or
-touching a fresh remote D1.
+going live is now the final one-time event, not a mid-plan milestone. Prep
+for the eventual Phase 14 (dry-run `seed-from-xlsx`/harness against a
+current sheet export, a go-live runbook) can happen anytime without
+freezing the live sheet or touching a fresh remote D1.
+
+**Phase 8 (guild bank) in progress as of 2026-08-24** — 8.1 (migration) and
+8.3 (parser, `seekers-epgp-parser/internal/bankexport`) done; 8.2/8.4-8.6
+still need real mule exports (`data/imports/bank/`) before they can be
+finished. Next up otherwise: any of Phases 9-12 (13 depends on nothing new
+either, but there's no reason to rush it ahead of the deadline-driven
+work).
 
 **Shipped:**
+- **Phase 8.1/8.3 — guild bank schema + inventory export parser,
+  2026-08-24** (in progress — 8.2/8.4-8.6 remain): the leader shared two
+  real Zeal inventory exports (one player's own characters, for format
+  reference only, not guild mules) which settled what §9/Phase 8 had left
+  open. `bank_holdings`/`bank_imports` migrated (§4f) with two small
+  additions beyond its literal spec: `itemId` (free from the confirmed
+  export format, more reliable than name matching) and a `category:
+  'currency'` value. The bigger find: `SharedBank*`/`Bank-Coin` turned out
+  to be account-wide, not per-character — confirmed byte-identical across
+  two characters sharing an account — which would have made a naive
+  per-mule import multiply-count every shared item and the banked
+  currency. Resolved without any new schema/account concept: the officer
+  app's per-import picker (task 8.3/8.4) will carry a "this mule reports
+  SharedBank/Bank-Coin" toggle, on for exactly one mule per real account,
+  stripping those rows from every other mule's payload before it's ever
+  sent — see `data/imports/bank/README.md` for the full design write-up.
+  `seekers-epgp-parser/internal/bankexport` ports the sibling
+  `pq-companion` repo's already-tested `internal/zeal` parsing logic
+  (same export format) rather than reinventing it — `ParseExport` splits
+  a file into `Holdings` (per-character) and `SharedBank` (real slots
+  1-10 + Bank-Coin, dropping the server's confirmed-dead 11-30), shaped
+  to map directly onto a `bank_holdings` row. Tested against a checked-in
+  synthetic fixture pair (the real reference exports are personal account
+  data — verified once via a throwaway test per this repo's own
+  convention, then not committed). Still needs real mule exports before
+  8.2/8.4-8.6 (the actual import/browse/edit UI) can be finished.
 - **Phase 7 — officer app auto-update, 2026-08-23** (`seekers-epgp-parser`):
   upgraded the existing notify-only `internal/updatecheck.Check` into a real
   download-verify-swap-relaunch, per §7 Option B (stay on Wails v2, add a
