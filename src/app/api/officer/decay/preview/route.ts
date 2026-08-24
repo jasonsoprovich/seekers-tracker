@@ -1,7 +1,7 @@
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { previewExpansionDecay } from "@/lib/epgp/decay";
+import { previewRateDecay } from "@/lib/epgp/decay";
 
 type PreviewRequestBody = { rate?: unknown; effectiveDate?: unknown };
 
@@ -16,11 +16,14 @@ function parseEffectiveDate(raw: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// PLAN.md §11 Phase 2 task 2.4 — read-only preview of what an expansion
-// decay commit would write: every character with a positive EP or GP
-// balance as of `effectiveDate`, and the exact amount `rate` takes. No
-// writes happen here; the leader UI (task 2.7) calls this before commit,
-// same shape POST /api/officer/decay/commit accepts.
+// PLAN.md §11 Phase 2 task 2.4 (extended by Phase 5 task 5.3) — read-only
+// preview of what a rate-decay commit (expansion §1b, or global_cycle §1c)
+// would write: every character with a positive EP or GP balance as of
+// `effectiveDate`, and the exact amount `rate` takes. The math doesn't
+// depend on which mechanism is asking, so no `kind` is needed here — only
+// POST /api/officer/decay/commit distinguishes them. No writes happen
+// here; the leader UI (Phase 2 task 2.7 / Phase 5 task 5.4) calls this
+// before commit.
 export async function POST(request: Request) {
   const auth = await requireOfficerApiKey(request);
   if ("error" in auth) {
@@ -47,7 +50,7 @@ export async function POST(request: Request) {
   if (!effectiveDate) return Response.json({ error: "`effectiveDate` is required and must be a valid date." }, { status: 400 });
 
   const db = await getDb();
-  const rows = await previewExpansionDecay(db, rate, effectiveDate);
+  const rows = await previewRateDecay(db, rate, effectiveDate);
 
   const totalEpDecay = rows.reduce((sum, r) => sum + r.epDecay, 0);
   const totalGpDecay = rows.reduce((sum, r) => sum + r.gpDecay, 0);

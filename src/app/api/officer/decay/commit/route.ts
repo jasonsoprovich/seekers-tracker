@@ -1,9 +1,9 @@
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { commitExpansionDecay } from "@/lib/epgp/decay";
+import { commitRateDecay, type RateDecayKind } from "@/lib/epgp/decay";
 
-type CommitRequestBody = { rate?: unknown; effectiveDate?: unknown; label?: unknown };
+type CommitRequestBody = { kind?: unknown; rate?: unknown; effectiveDate?: unknown; label?: unknown };
 
 function parseRate(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0 || raw > 1) return null;
@@ -16,11 +16,21 @@ function parseEffectiveDate(raw: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// PLAN.md §11 Phase 2 task 2.5 — commits one expansion decay batch: a
-// decay_events row plus a linked negative ep_ledger/gp_ledger row per
-// character with a positive balance. Rejects a duplicate unreversed event
-// on the same effectiveDate (commitExpansionDecay itself enforces this) so
-// a double-submit from the leader UI can't double-decay everyone.
+// Defaults to "expansion" when omitted — this route predates Phase 5's
+// global_cycle kind, and existing/undocumented callers sending the
+// pre-Phase-5 body shape should keep behaving exactly as before.
+function parseKind(raw: unknown): RateDecayKind | null {
+  if (raw === undefined) return "expansion";
+  return raw === "expansion" || raw === "global_cycle" ? raw : null;
+}
+
+// PLAN.md §11 Phase 2 task 2.5, extended by Phase 5 task 5.3 — commits one
+// rate-decay batch (expansion §1b, or global_cycle §1c 10%-compounding
+// cycle decay) selected by `kind`: a decay_events row plus a linked
+// negative ep_ledger/gp_ledger row per character with a positive balance.
+// Rejects a duplicate unreversed event of the same kind on the same
+// effectiveDate (commitRateDecay itself enforces this) so a double-submit
+// from the leader UI can't double-decay everyone.
 export async function POST(request: Request) {
   const auth = await requireOfficerApiKey(request);
   if ("error" in auth) {
@@ -38,6 +48,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
+  const kind = parseKind(body.kind);
+  if (kind === null) return Response.json({ error: "`kind` must be `expansion` or `global_cycle`." }, { status: 400 });
   const rate = parseRate(body.rate);
   if (rate === null) return Response.json({ error: "`rate` must be a number greater than 0 and at most 1." }, { status: 400 });
   const effectiveDate = parseEffectiveDate(body.effectiveDate);
@@ -45,7 +57,7 @@ export async function POST(request: Request) {
   const label = typeof body.label === "string" ? body.label : undefined;
 
   const db = await getDb();
-  const result = await commitExpansionDecay(db, { rate, effectiveDate, label, appliedBy: auth.userId });
+  const result = await commitRateDecay(db, { kind, rate, effectiveDate, label, appliedBy: auth.userId });
   if ("error" in result) return Response.json({ error: result.error }, { status: 409 });
 
   return Response.json(result, { status: 201 });

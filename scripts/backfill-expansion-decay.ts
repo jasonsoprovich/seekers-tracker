@@ -17,7 +17,7 @@ import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
 import { decayEvents, epLedger, gpLedger } from "../src/db/schema";
-import { findActiveExpansionDecayEvent } from "../src/lib/epgp/decay";
+import { findActiveRateDecayEvent } from "../src/lib/epgp/decay";
 
 // Rates from PLAN.md §1b's verified table — "Rate (labelled in GP Loot
 // column)". Dates are the effective date, midnight local-to-the-import
@@ -35,7 +35,7 @@ async function main() {
     const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
 
     for (const { effectiveDate, rate, label } of HISTORICAL_EVENTS) {
-      const existing = await findActiveExpansionDecayEvent(db, effectiveDate);
+      const existing = await findActiveRateDecayEvent(db, "expansion", effectiveDate);
       let eventId: number;
       if (existing) {
         console.log(`${effectiveDate.toDateString()}: decay_events row already exists (id ${existing.id}), reusing it.`);

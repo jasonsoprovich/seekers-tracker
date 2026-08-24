@@ -1,14 +1,14 @@
 // PLAN.md §11 Phase 2 task 2.8 — "apply 85% to the local snapshot, assert
 // it reproduces the real 2025-12-30 rows."
 //
-// Deliberately does NOT call commitExpansionDecay for 2025-12-30: task 2.3
+// Deliberately does NOT call commitRateDecay for 2025-12-30: task 2.3
 // already backfilled a decay_events row for that exact date (from the
-// rows scripts/import-epgp.ts's sheet import wrote), and commitExpansion-
-// Decay rejects a second unreversed event on the same date by design
+// rows scripts/import-epgp.ts's sheet import wrote), and commitRateDecay
+// rejects a second unreversed event on the same date by design
 // (task 2.5's duplicate guard) — so re-committing isn't a meaningful test
 // here, it would just prove the guard works (already covered live against
 // a synthetic date; see the Phase 2.7 commit message). Instead this calls
-// previewExpansionDecay — read-only, no snapshot/revert needed — for the
+// previewRateDecay — read-only, no snapshot/revert needed — for the
 // same rate and date, and compares its output against the real historical
 // rows already linked to that decay_events row, character by character.
 //
@@ -37,7 +37,7 @@
 //     sheet itself — simply doesn't carry rows for long-quiet characters.
 //     There's no `players`/`characters` departure-status field yet to
 //     reconstruct that exclusion prospectively (PLAN.md §4a/§4j, blocked on
-//     Toryn's dump — Phase 3), so previewExpansionDecay decays every
+//     Toryn's dump — Phase 3), so previewRateDecay decays every
 //     character with a positive balance, which is the correct behavior
 //     until that status model exists. This script only compares against
 //     characters who DID receive a real historical row; the rest are
@@ -52,7 +52,7 @@ import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
 import { characters, decayEvents, epLedger, gpLedger } from "../src/db/schema";
-import { previewExpansionDecay } from "../src/lib/epgp/decay";
+import { previewRateDecay } from "../src/lib/epgp/decay";
 
 const EFFECTIVE_DATE = new Date("2025-12-30T00:00:00Z");
 
@@ -88,7 +88,7 @@ async function main() {
       db.select().from(epLedger).where(eq(epLedger.decayEventId, event.id)),
       db.select().from(gpLedger).where(eq(gpLedger.decayEventId, event.id)),
       db.select({ id: characters.id, name: characters.name }).from(characters),
-      previewExpansionDecay(db, event.epRate, EFFECTIVE_DATE),
+      previewRateDecay(db, event.epRate, EFFECTIVE_DATE),
     ]);
 
     const names = new Map(allCharacters.map((c) => [c.id, c.name]));

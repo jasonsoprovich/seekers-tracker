@@ -5,14 +5,18 @@ import { characters, decayEvents, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 
-// PLAN.md §1b — one entry point per decay mechanism that writes stored
-// rows. Legacy cycle decay (§1a) stays derived at read time in
-// totals.ts and never appears here. global_cycle (§1c, Phase 5) reuses the
-// same decay_events table and the same preview -> commit -> reverse shape
-// this file builds for expansion decay, but isn't implemented yet.
-// departure IS implemented (§1f/§2.9-2.12) — see previewDepartureWipe below.
+// PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
+// rows. Legacy cycle decay (§1a) stays derived at read time in totals.ts
+// and never appears here. expansion (§1b/Phase 2) and global_cycle
+// (§1c/Phase 5) share the exact same mechanics — rate x whatever balance a
+// character had before effectiveDate, written as a linked negative ledger
+// row — so previewRateDecay/commitRateDecay/findActiveRateDecayEvent below
+// take a kind and serve both; only the label and the decay_events.kind
+// differ. departure is its own shape (a full wipe, not a rate) — see
+// previewDepartureWipe below.
 export const DECAY_KINDS = ["legacy_cycle", "global_cycle", "expansion", "departure"] as const;
 export type DecayKind = (typeof DECAY_KINDS)[number];
+export type RateDecayKind = Extract<DecayKind, "expansion" | "global_cycle">;
 
 export type DecayPreviewRow = {
   characterId: number;
@@ -80,8 +84,12 @@ async function lastPositiveEpActivity(db: ReturnType<typeof drizzle>): Promise<M
 // and the exact amount `rate` would take from each. Read-only — safe to
 // call as often as the leader wants before committing. A character whose
 // balance is already <= 0 is left out entirely (mirrors the sheet: a
-// character owed nothing never got a Decay row).
-export async function previewExpansionDecay(db: ReturnType<typeof drizzle>, rate: number, effectiveDate: Date): Promise<DecayPreviewRow[]> {
+// character owed nothing never got a Decay row). The math doesn't depend
+// on which rate-decay mechanism is asking (expansion vs. global_cycle) —
+// both apply `rate` to the same "balance before effectiveDate" — so this
+// is shared as-is; kind only matters at commit time (label + duplicate
+// guard) and to the caller deciding when to run it.
+export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: number, effectiveDate: Date): Promise<DecayPreviewRow[]> {
   const [epBalances, gpBalances, allCharacters] = await Promise.all([
     balancesAt(db, epLedger, effectiveDate),
     balancesAt(db, gpLedger, effectiveDate),
@@ -109,49 +117,60 @@ export async function previewExpansionDecay(db: ReturnType<typeof drizzle>, rate
 }
 
 // Guards against double-applying the same event (PLAN.md §2.5) — a
-// reversed event doesn't block a redo on the same date.
-export async function findActiveExpansionDecayEvent(db: ReturnType<typeof drizzle>, effectiveDate: Date) {
+// reversed event doesn't block a redo on the same date. Scoped per kind: an
+// expansion decay and a global_cycle decay landing on the same calendar
+// date are different events and shouldn't collide with each other.
+export async function findActiveRateDecayEvent(db: ReturnType<typeof drizzle>, kind: RateDecayKind, effectiveDate: Date) {
   const [row] = await db
     .select()
     .from(decayEvents)
-    .where(and(eq(decayEvents.kind, "expansion"), eq(decayEvents.effectiveDate, effectiveDate), isNull(decayEvents.reversedAt)));
+    .where(and(eq(decayEvents.kind, kind), eq(decayEvents.effectiveDate, effectiveDate), isNull(decayEvents.reversedAt)));
   return row ?? null;
 }
 
 export type CommitDecayResult = { decayEventId: number; epRows: number; gpRows: number };
 export type CommitDecayOutcome = CommitDecayResult | { error: string };
 
+// Ledger activity/tier label per rate-decay kind. "Decay" for expansion
+// matches the sheet import's label for the 3 historical events
+// (scripts/import-epgp.ts / scripts/backfill-expansion-decay.ts key off
+// this exact string), so it must stay as-is. global_cycle gets its own
+// label so a leader reading the ledger can tell an expansion haircut from
+// an ordinary 10%-compounding cycle decay at a glance.
+const RATE_DECAY_LABEL: Record<RateDecayKind, string> = { expansion: "Decay", global_cycle: "Cycle Decay" };
+
 // Writes one decay_events row plus every non-zero preview row as a linked
-// negative ep_ledger/gp_ledger entry, activity/tier "Decay" — same label
-// the sheet import used for the 3 historical events (scripts/import-epgp.ts),
-// so this reads identically to them in the ledger view. Not a single D1
-// transaction (this codebase's other multi-row writes — bids, attendance —
-// follow the same parent-row-first, sequential-insert shape; see
-// bids/route.ts), but the decay_events row is meaningless with zero linked
-// rows, so a failure partway through still leaves something reversible
-// rather than silently-wrong totals.
-export async function commitExpansionDecay(
+// negative ep_ledger/gp_ledger entry. Shared by expansion decay (§1b,
+// Phase 2) and global cycle decay (§1c, Phase 5) — same mechanics, just a
+// different kind/label/rate. Not a single D1 transaction (this codebase's
+// other multi-row writes — bids, attendance — follow the same
+// parent-row-first, sequential-insert shape; see bids/route.ts), but the
+// decay_events row is meaningless with zero linked rows, so a failure
+// partway through still leaves something reversible rather than
+// silently-wrong totals.
+export async function commitRateDecay(
   db: ReturnType<typeof drizzle>,
-  opts: { rate: number; effectiveDate: Date; label?: string; appliedBy: string },
+  opts: { kind: RateDecayKind; rate: number; effectiveDate: Date; label?: string; appliedBy: string },
 ): Promise<CommitDecayOutcome> {
-  const { rate, effectiveDate, appliedBy } = opts;
+  const { kind, rate, effectiveDate, appliedBy } = opts;
   const label = opts.label?.trim() || null;
 
-  const existing = await findActiveExpansionDecayEvent(db, effectiveDate);
+  const existing = await findActiveRateDecayEvent(db, kind, effectiveDate);
   if (existing) {
-    return { error: `An expansion decay event already exists for ${effectiveDate.toDateString()} — reverse it first to redo.` };
+    return { error: `A ${kind} decay event already exists for ${effectiveDate.toDateString()} — reverse it first to redo.` };
   }
 
-  const preview = await previewExpansionDecay(db, rate, effectiveDate);
+  const preview = await previewRateDecay(db, rate, effectiveDate);
   if (preview.length === 0) {
     return { error: "No characters have a positive EP or GP balance to decay as of that date." };
   }
 
   const [event] = await db
     .insert(decayEvents)
-    .values({ kind: "expansion", epRate: rate, gpRate: rate, effectiveDate, label, appliedBy })
+    .values({ kind, epRate: rate, gpRate: rate, effectiveDate, label, appliedBy })
     .returning();
 
+  const activityLabel = RATE_DECAY_LABEL[kind];
   let epRows = 0;
   let gpRows = 0;
   for (const row of preview) {
@@ -159,7 +178,7 @@ export async function commitExpansionDecay(
       await db.insert(epLedger).values({
         characterId: row.characterId,
         occurredAt: effectiveDate,
-        activity: "Decay",
+        activity: activityLabel,
         points: -row.epDecay,
         note: label,
         enteredBy: appliedBy,
@@ -172,7 +191,7 @@ export async function commitExpansionDecay(
       await db.insert(gpLedger).values({
         characterId: row.characterId,
         occurredAt: effectiveDate,
-        tier: "Decay",
+        tier: activityLabel,
         points: -row.gpDecay,
         note: label,
         enteredBy: appliedBy,

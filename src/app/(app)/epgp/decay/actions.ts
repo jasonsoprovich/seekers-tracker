@@ -5,9 +5,9 @@ import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
 import {
   commitDepartureWipe,
-  commitExpansionDecay,
+  commitRateDecay,
   previewDepartureWipe,
-  previewExpansionDecay,
+  previewRateDecay,
   reverseDecayEvent,
   type DecayPreviewRow,
   type DeparturePreviewRow,
@@ -74,12 +74,17 @@ async function requireLeader(): Promise<{ userId: string } | { error: string }> 
   return { userId: session.user.id };
 }
 
-// PLAN.md §11 Phase 2 task 2.7 — server actions backing the leader UI's
-// rate input -> preview table -> confirm -> result flow. Calls
-// src/lib/epgp/decay.ts directly (same functions the API-key-authed
-// /api/officer/decay/* routes wrap) rather than hitting those routes over
-// HTTP, mirroring how epgp/ledger/actions.ts and manual-entry/route.ts both
-// call insertLedgerEntry directly instead of one calling the other.
+// PLAN.md §11 Phase 2 task 2.7, shared by Phase 5 task 5.4 — server actions
+// backing the leader UI's rate input -> preview table -> confirm -> result
+// flow. Calls src/lib/epgp/decay.ts directly (same functions the
+// API-key-authed /api/officer/decay/* routes wrap) rather than hitting
+// those routes over HTTP, mirroring how epgp/ledger/actions.ts and
+// manual-entry/route.ts both call insertLedgerEntry directly instead of one
+// calling the other. previewDecayAction doesn't take a `kind` — the
+// preview math (rate x balance before effectiveDate) is identical for
+// expansion and global_cycle decay, so ExpansionDecayForm and
+// GlobalCycleDecayForm both call this same action; only commit needs to
+// say which kind of event it's writing.
 export async function previewDecayAction(rateInput: string, effectiveDateInput: string): Promise<PreviewDecayResult> {
   const auth = await requireLeader();
   if ("error" in auth) return auth;
@@ -90,7 +95,7 @@ export async function previewDecayAction(rateInput: string, effectiveDateInput: 
   if (!effectiveDate) return { error: "Pick a valid effective date." };
 
   const db = await getDb();
-  const rows = await previewExpansionDecay(db, rate, effectiveDate);
+  const rows = await previewRateDecay(db, rate, effectiveDate);
   const totalEpDecay = rows.reduce((sum, r) => sum + r.epDecay, 0);
   const totalGpDecay = rows.reduce((sum, r) => sum + r.gpDecay, 0);
   return { rows, totalEpDecay, totalGpDecay };
@@ -106,7 +111,25 @@ export async function commitDecayAction(rateInput: string, effectiveDateInput: s
   if (!effectiveDate) return { error: "Pick a valid effective date." };
 
   const db = await getDb();
-  return commitExpansionDecay(db, { rate, effectiveDate, label: label.trim() || undefined, appliedBy: auth.userId });
+  return commitRateDecay(db, { kind: "expansion", rate, effectiveDate, label: label.trim() || undefined, appliedBy: auth.userId });
+}
+
+// PLAN.md §11 Phase 5 task 5.3/5.4 — same shape as commitDecayAction, but
+// writes a global_cycle decay_events row (§1c: 10% against the total,
+// compounding, leader-triggered by button rather than cron because cycles
+// shift a day or two). GlobalCycleDecayForm reuses previewDecayAction above
+// for its preview step.
+export async function commitGlobalCycleDecayAction(rateInput: string, effectiveDateInput: string, label: string): Promise<CommitDecayResult> {
+  const auth = await requireLeader();
+  if ("error" in auth) return auth;
+
+  const rate = parseRate(rateInput);
+  if (rate === null) return { error: "Rate must be a number greater than 0 and at most 1 (e.g. 0.10 for 10%)." };
+  const effectiveDate = parseEffectiveDate(effectiveDateInput);
+  if (!effectiveDate) return { error: "Pick a valid effective date." };
+
+  const db = await getDb();
+  return commitRateDecay(db, { kind: "global_cycle", rate, effectiveDate, label: label.trim() || undefined, appliedBy: auth.userId });
 }
 
 export async function reverseDecayAction(decayEventId: number): Promise<ReverseDecayResult> {

@@ -3,7 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { cycles, epLedger, gpLedger } from "@/db";
 
-import { getSettingsAt } from "./settings";
+import { DEFAULT_SETTINGS, getSettingAt, getSettingsAt } from "./settings";
 
 export type EpgpTotal = {
   playerId: number;
@@ -59,6 +59,16 @@ export async function getEpgpSettings(db: ReturnType<typeof drizzle>): Promise<R
 // with no join back through characters.
 export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise<Map<number, EpgpTotal>> {
   const settings = await getEpgpSettings(db);
+  // PLAN.md §11 Phase 5 task 5.2 / §1c — which cycle-decay model is in
+  // force right now. "legacy" derives the 20% pre-cycle haircut below
+  // (§1a); "global" trusts the raw ledger sums as-is, because 10%
+  // compounding cycle decay (kind: "global_cycle", src/lib/epgp/decay.ts)
+  // is applied as real stored negative rows at commit time — deriving
+  // anything on top of that would double-decay. Both models coexist by
+  // construction: pre-cutover ledger rows never change, so switching this
+  // setting only changes how *this function* reads them, never the rows
+  // themselves.
+  const decayModel = (await getSettingAt(db, "decay_model", new Date())) ?? DEFAULT_SETTINGS.decay_model;
 
   // The sheet's Cycles tab is pre-populated with future cycles (observed
   // 2026-08-18: rows exist through cycle 72 / mid-November), so "most
@@ -121,8 +131,12 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
     const rawEp = preEpAmt + curEpAmt;
     const rawGp = preGpAmt + curGpAmt;
 
-    const epDecay = rawEp < settings.base_ep ? 0 : preEpAmt * settings.ep_decay;
-    const gpDecay = rawGp < settings.base_gp ? 0 : preGpAmt * settings.gp_decay;
+    // global: no derivation — rawEp/rawGp already reflect every
+    // global_cycle decay_events commit as a stored ledger row (§1c).
+    // legacy: derive the flat, non-compounding 20% pre-cycle haircut (§1a),
+    // unchanged from before this branch existed.
+    const epDecay = decayModel === "global" ? 0 : rawEp < settings.base_ep ? 0 : preEpAmt * settings.ep_decay;
+    const gpDecay = decayModel === "global" ? 0 : rawGp < settings.base_gp ? 0 : preGpAmt * settings.gp_decay;
     const ep = rawEp - epDecay;
     const gp = rawGp - gpDecay;
     const priorityRating = (ep + settings.base_ep) / (gp + settings.base_gp);
