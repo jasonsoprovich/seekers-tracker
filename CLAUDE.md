@@ -241,13 +241,23 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 10 (character claiming rework) is
-COMPLETE as of 2026-08-24** — see below for the writeup. Phase 9 (Discord
-bot, `../seekers-bot`) tasks 9.1-9.4 are also done, only 9.5 (a leadership
+**Current focus: PLAN.md §11 Phase 11 (quest flags) is COMPLETE as of
+2026-08-24** — see below for the writeup. Phase 10 (character claiming
+rework) is also complete, same date. Phase 9 (Discord bot,
+`../seekers-bot`) tasks 9.1-9.4 are also done, only 9.5 (a leadership
 decision, not code) open there — see that repo's own `CLAUDE.md`. Phases
 0-6 are complete (4.2b deliberately not implemented — see below and PLAN.md
 §16). Both hard deadlines so far (expansion decay 9/30, global decay
 cutover 10/17) already met, by Phase 2 and Phase 5 respectively.
+
+**Found while starting Phase 11**: the guild's real `SoS - EPGP.xlsx` is
+sitting in `~/Downloads` on this machine — the same file
+`scripts/import-epgp.ts` already reads, and what Phase 8 task 8.2 (migrate
+the sheet's own Spell Bank/Item Bank tabs) was blocked waiting on. Only used
+it for Phase 11's three tabs (EmpVT Key List/ST Key List/Sky Bank) this
+session — 8.2 is still open, noted here so it isn't mistaken for "no input
+available" next time it comes up. (8.4 is a separate blocker — real mule
+*inventory* exports, not this file — still genuinely unavailable.)
 
 **Phase 7 (officer app auto-update) is COMPLETE as of 2026-08-23.** (Old
 production-snapshot Phase 7 is now Phase 14 — moved to last, same date;
@@ -271,6 +281,51 @@ fixed while starting Phase 9, see `PLAN.md`'s own 8.5/8.6 entries for what
 they cover.
 
 **Shipped:**
+- **Phase 11 — quest flags, 2026-08-24** (migration 0022): resolves task
+  11.1's open question (PLAN.md §16) — `character_pop_flags` stays
+  untouched, three new tables instead. `character_key_flags`
+  (characterId, flagKey, label, done, loggedBy, source) covers EmpVT
+  (`empvt_emp`/`empvt_vt`, two fixed flags) and ST (a slugified key-item
+  name per row — no fixed catalog exists for these, an officer just types
+  a new one whenever a key drops); `sky_bank_rewards` and `sky_bank_stock`
+  cover the "Sky Bank" tab's two unrelated blocks (a No-Drop quest-reward
+  catalog with no character column at all, and a hand-counted guild-wide
+  stockpile) — see PLAN.md's Phase 11 write-up for the full "why not one
+  table" reasoning.
+  `scripts/import-quest-flags.ts` parses the real `EmpVT Key List`/
+  `ST Key List`/`Sky Bank` tabs (found sitting in `~/Downloads` this
+  session — see above) into the same non-destructive SQL-emitting shape as
+  `import-epgp.ts`; `character_key_flags` upserts guarded
+  `WHERE source = 'import'` so a future manual edit survives a re-import,
+  `sky_bank_rewards`/`sky_bank_stock` are whole-table delete-and-replace
+  every run (small guild-wide catalogs, no per-row provenance worth
+  protecting). `npm run verify:quest-flags` re-resolves every sheet name
+  against live `characters` and lists exactly which didn't match, so a
+  name miss is visible instead of a silent no-op (the SELECT-based INSERT
+  has no `orphaned`-row concept to catch it otherwise).
+  Two real data quirks handled, not guessed at: EmpVT sometimes annotates
+  an alt as `"Name (Main)"` — confirmed against local D1 that the base
+  name before the paren always matches a real character before relying on
+  it; Sky Bank's reward block has 23 items appearing 2-3 times with
+  identical item **and** quest name every time (a sheet re-paste, not two
+  quests sharing a name — checked, not assumed) — last-row-wins rather
+  than erroring on the unique index.
+  New `/keys` page (read-only, every role — same transparency call as
+  `/roster`/`/bank`/`/progression`): a Keys tab (94 of 783 characters have
+  any EmpVT/ST flag — listed by character, not an all-783 table like
+  Progression's, since this content is opt-in rather than universal) and
+  a Sky Bank tab (reward catalog + stock, both searchable).
+  **Verified live against local D1** (snapshot/restore around the import
+  run, exact row-count math checked by hand — 199 `character_key_flags`,
+  89 `sky_bank_rewards`, 148 `sky_bank_stock`; query layer re-run via a
+  throwaway script against the same DB, not just `tsc`/`next build`).
+  **Not verified in an actual browser** — same Discord-OAuth-credential
+  gap as every other leader/member page built this session.
+  **Not yet applied to remote D1** — migration 0022 is local-only pending
+  the same "confirm before touching production" gate every prior phase's
+  remote migration has had. Manual add/edit for these flags (mirroring
+  Phase 8's 8.6) wasn't in this phase's literal task list — left as a
+  follow-up.
 - **Phase 10 — character claiming rework, 2026-08-24** (migration 0021):
   `src/lib/players.ts` wires the `players` table (built in Phase 3, but
   never actually used by anything until now) into login, claiming,
