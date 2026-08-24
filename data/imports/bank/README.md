@@ -7,15 +7,45 @@ full context.
 
 ## Naming
 
-One file per character, named by the character it belongs to (whatever
-extension your export tool produces, e.g. `Muleflorp.txt`) — don't worry
-about getting the "right" shape. Task 8.3 (the parser, in
-`seekers-epgp-parser`) hasn't been written yet and can't be until a real
-export has been seen — every prior parser in this project (the sheet
-import, Toryn's dump) was written against real data, never a guessed
-format.
+One file per character, named by the character it belongs to. **Format
+confirmed 2026-08-24**: this is a Zeal inventory export —
+`<CharName>-Inventory.txt` or `<CharName>-Inventory_pq.proj.txt`,
+tab-delimited `Location\tName\tID\tCount/Charges\tSlots`. The sibling
+`pq-companion` repo's `backend/internal/zeal` package (`reader.go`,
+`scanner.go`) already parses this exact format — task 8.3 ports that,
+rather than writing a new parser from scratch (§3 addendum).
 
-## Mule vs. hybrid alt — open question, needs a call before 8.3 is built
+Two files here so far are **format references only, not real mule data**:
+one player's own bazaar-trader export, plus a second character on the same
+account to demonstrate account-shared data (see the SharedBank section
+below). Neither should ever be imported as guild bank content. Still need
+**real mule exports** before task 8.4's actual import can be finished.
+
+## `SharedBank*` and `Bank-Coin` are account-wide, not per-character
+
+Confirmed against the two reference exports above: their `SharedBank1`-
+`SharedBank30` rows and `Bank-Coin` value were byte-identical (same
+account, two characters), while `General-Coin` and personal `Bank1`-
+`Bank30` differed. Import every mule's full export naively and every
+shared item plus the banked currency gets counted once per mule sharing
+that account.
+
+Also: PQ only ever populates `SharedBank` slots 1-10, even though the
+export always carries all 30 modern-client slots — `pq-companion`'s
+`scanner.go` (`maxSharedBankSlot = 10`) already found this the hard way.
+11-30 are dead rows, drop them at parse time.
+
+**Resolved without any new schema/account concept.** The officer app's
+per-file picker (task 8.3) gets a **"this mule reports SharedBank/
+Bank-Coin"** toggle — on for exactly one mule per real account, off for
+every other mule sharing it. The app strips those rows from every other
+mule's payload before it's ever sent, so `bank_holdings` stays exactly as
+simple and mule-independent as §4f already designed (still no `accounts`
+table). You'll need to tell the app (or eventually the site) which mules
+share a real account — there's no way to infer that from an export file
+alone.
+
+## Mule vs. hybrid alt — working assumption, confirm before 8.3 is built
 
 Not every holder character is necessarily a pure mule — an alt might carry
 guild bank items in some bags/tabs and the player's own gear in others.
