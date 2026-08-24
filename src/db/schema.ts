@@ -169,6 +169,78 @@ export const characterPopFlags = sqliteTable(
   (table) => [primaryKey({ columns: [table.characterId, table.flagId] })],
 );
 
+// Per-character key/attunement flags — EmpVT (Emperor of War / Vex Thal
+// keys) and ST (Sleeper's Tomb key-item turn-ins), from the sheet's
+// "EmpVT Key List"/"ST Key List" tabs (PLAN.md §3, §4g, §11 Phase 11).
+// Deliberately NOT folded into characterPopFlags (task 11.1, decided
+// 2026-08-24): that table's (characterId, flagId, done, source) shape only
+// works because every flag's label/tier/zone/prereqs comes from a fixed,
+// versioned content dataset (pop-flags.json) joined by flagId — there's no
+// such dataset here (an officer hand-types a new ST key item name whenever
+// one drops, and EmpVT/ST have no tiers, zones, or prereq DAG at all), so
+// label has to live on the row itself instead of being looked up. flagKey
+// is a stable slug ('empvt_emp', 'empvt_vt', or a slugified ST item name)
+// — see scripts/import-quest-flags.ts.
+export const characterKeyFlags = sqliteTable(
+  "character_key_flags",
+  {
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    category: text("category", { enum: ["empvt", "st"] }).notNull(),
+    flagKey: text("flag_key").notNull(),
+    label: text("label").notNull(),
+    done: integer("done", { mode: "boolean" }).notNull().default(false),
+    // "Logged By" (EmpVT) / "Approved By" (ST) from the sheet.
+    loggedBy: text("logged_by"),
+    note: text("note"),
+    source: text("source", { enum: ["manual", "import"] }).notNull().default("import"),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [primaryKey({ columns: [table.characterId, table.flagKey] })],
+);
+
+// Sky Bank quest-reward catalog — the "No Drop Items" block of the sheet's
+// "Sky Bank" tab (PLAN.md §3, §4g): guild-wide reference data (which item
+// comes from which quest, class-restricted, whether its extra components
+// have dropped yet) rather than a per-character flag, so there's no
+// characterId here by design. item2/3/4Status preserve the sheet's raw
+// YES/NO/N/A rather than a derived enum, since what those three columns
+// track per quest isn't documented anywhere but the sheet itself.
+export const skyBankRewards = sqliteTable(
+  "sky_bank_rewards",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    itemName: text("item_name").notNull(),
+    qty: integer("qty").notNull().default(0),
+    questName: text("quest_name").notNull(),
+    classRestriction: text("class_restriction"),
+    item2Status: text("item2_status"),
+    item3Status: text("item3_status"),
+    item4Status: text("item4_status"),
+    officerHolding: text("officer_holding"),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [uniqueIndex("sky_bank_rewards_item_unique").on(table.itemName)],
+);
+
+// The plain Item Name/Qty block of the same "Sky Bank" tab — a hand-counted
+// guild-wide stockpile, not tied to any holder character or bag slot (no
+// Zeal export exists for it the way Phase 8's per-mule bankHoldings does).
+// Kept alongside skyBankRewards since both come from one sheet import
+// (scripts/import-quest-flags.ts), not folded into bankHoldings.
+export const skyBankStock = sqliteTable("sky_bank_stock", {
+  itemName: text("item_name").primaryKey(),
+  qty: integer("qty").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const characterGear = sqliteTable(
   "character_gear",
   {

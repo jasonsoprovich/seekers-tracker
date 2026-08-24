@@ -13,6 +13,7 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
     "import:epgp": "tsx scripts/import-epgp.ts",
     "import:sos-bot-dump": "tsx scripts/import-sos-bot-dump.ts",
+    "import:quest-flags": "tsx scripts/import-quest-flags.ts",
     "derive:players": "tsx scripts/derive-players-from-sos-bot.ts",
     "snapshot": "scripts/snapshot.sh",
     "verify": "tsx scripts/verify-harness.ts",
@@ -20,7 +21,8 @@
     "verify:expansion-decay": "tsx scripts/verify-expansion-decay.ts",
     "verify:attendance-minimum": "tsx scripts/verify-attendance-minimum.ts",
     "verify:global-decay": "tsx scripts/verify-global-decay.ts",
-    "verify:player-reconciliation": "tsx scripts/verify-player-reconciliation.ts"
+    "verify:player-reconciliation": "tsx scripts/verify-player-reconciliation.ts",
+    "verify:quest-flags": "tsx scripts/verify-quest-flags.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.7.1",

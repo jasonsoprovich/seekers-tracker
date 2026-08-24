@@ -31,6 +31,7 @@ export async function AppShell({
     { href: "/roster", label: "Roster" },
     { href: "/bank", label: "Bank" },
     { href: "/progression", label: "Pop Progression" },
+    { href: "/keys", label: "Keys & Sky Bank" },
     { href: "/dashboard", label: "Dashboard" },
     ...(isManager ? [{ href: "/admin", label: "Admin", badge: pendingClaimCount || undefined }] : []),
   ];
