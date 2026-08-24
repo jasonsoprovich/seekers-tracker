@@ -1,23 +1,37 @@
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
 import { withCloudflare } from "better-auth-cloudflare";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "@/db";
 import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 
-// Checks Discord server membership for the guild in SEEKERS_DISCORD_GUILD_ID
-// and stamps users.discordVerified. Wired as an account.create.after hook
-// (see below) so it runs exactly once, at first sign-in, rather than on
-// every request — Discord rate-limits this endpoint. A user who signs up
-// before SEEKERS_DISCORD_GUILD_ID is configured (or hits a transient
-// Discord API error here) gets re-checked on demand instead — see
-// src/app/bootstrap-leader/actions.ts.
-async function verifyGuildMembership(
-  db: ReturnType<typeof drizzle>,
-  account: { userId: string; accessToken?: string | null },
-) {
-  await checkAndStampGuildMembership(db, account.userId, account.accessToken);
+// Checks Discord server membership + roles for the guild in
+// SEEKERS_DISCORD_GUILD_ID and stamps users.discordVerified/discordRoleIds.
+// Wired as a session.create.after hook (see below) — a session is created
+// on every sign-in (first-ever and every return visit alike), which is what
+// Phase 6 task 6.3 means by "re-verify on login": a Discord role change
+// (e.g. promoted out of Guest) should take effect next login, not require
+// unlinking Discord. Runs once per login, not per request — Discord
+// rate-limits this endpoint. A user who signs up before
+// SEEKERS_DISCORD_GUILD_ID is configured (or hits a transient Discord API
+// error here) gets re-checked on demand too — see
+// src/app/(app)/bootstrap-leader/actions.ts.
+async function verifyGuildMembershipOnLogin(db: ReturnType<typeof drizzle>, userId: string) {
+  // The account's accessToken, not passed to this hook directly (unlike the
+  // old account.create.after hook this replaced) — read the row instead.
+  // This app doesn't configure better-auth's optional OAuth-token
+  // encryption, so the stored value is the same plaintext token
+  // auth.api.getAccessToken would return; revisit this read if that ever
+  // changes. Fresh as of this exact login: better-auth updates an existing
+  // account's tokens before creating the new session, same request.
+  const [discordAccount] = await db
+    .select({ accessToken: schema.accounts.accessToken })
+    .from(schema.accounts)
+    .where(and(eq(schema.accounts.userId, userId), eq(schema.accounts.providerId, "discord")));
+  if (!discordAccount) return;
+  await checkAndStampGuildMembership(db, userId, discordAccount.accessToken);
 }
 
 function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
@@ -103,11 +117,15 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
           },
         },
         databaseHooks: {
-          account: {
+          session: {
             create: {
-              after: async (account) => {
-                if (account.providerId !== "discord" || !db) return;
-                await verifyGuildMembership(db, account);
+              // "after", not "before": never block a login on Discord's API
+              // being slow/down. A stale discordVerified/discordRoleIds
+              // just falls back to last-known-good until the next login,
+              // same as before this hook existed at all.
+              after: async (session) => {
+                if (!db) return;
+                await verifyGuildMembershipOnLogin(db, session.userId);
               },
             },
           },

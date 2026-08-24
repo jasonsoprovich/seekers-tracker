@@ -51,3 +51,47 @@ export async function checkAndStampGuildMembership(
     .where(eq(users.id, userId));
   return isMember;
 }
+
+// users.discordRoleIds is the JSON.stringify'd array checkAndStampGuildMembership
+// wrote above; centralized here so every reader parses it the same way.
+export function parseDiscordRoleIds(discordRoleIds: string | null | undefined): string[] {
+  if (!discordRoleIds) return [];
+  try {
+    const parsed = JSON.parse(discordRoleIds);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// PLAN.md §4b / Phase 6: site access is a deny-list, not an allow-list —
+// every guild Discord member gets in except holders of "Orc Pawn"
+// (applicant) or "Guest". Discord's member endpoint only returns role IDs,
+// and role IDs are guild-specific (not derivable from the role names in the
+// plan), so the mapping lives in SEEKERS_DISCORD_DENIED_ROLE_IDS
+// (comma-separated snowflakes) rather than in code.
+//
+// An empty roleIds array denies too, not just a listed role. Discord's
+// member endpoint deliberately omits the implicit @everyone role from this
+// list — it's guild-wide, not assigned per-member — so `[]` means someone
+// with literally no role assigned yet, not "no restrictions apply." Luna
+// assigns roles by hand rather than on an auto-role trigger, so a brand-new
+// member sits in this state for a while by design and must be denied the
+// same as Orc Pawn/Guest, confirmed with the leader. This also fails
+// closed if a role fetch never completed (Discord API hiccup, or a user row
+// from before this column existed) — same call either way: no confirmed
+// role on file, no access.
+export function isDeniedRole(roleIds: string[]): boolean {
+  if (roleIds.length === 0) return true;
+
+  const raw = process.env.SEEKERS_DISCORD_DENIED_ROLE_IDS;
+  if (!raw) return false;
+  const denied = new Set(
+    raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
+  if (denied.size === 0) return false;
+  return roleIds.some((id) => denied.has(id));
+}

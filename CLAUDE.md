@@ -241,14 +241,72 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 5 (global decay cutover) is COMPLETE as of
-2026-08-24**, ahead of its 2026-10-17 deadline. Phases 0-4 are complete
-(4.2b deliberately not implemented — see below and PLAN.md §16).
-Expansion-decay deadline (2026-09-30) already met by Phase 2. Next up:
-Phase 6 (Discord role deny-list) — or wait until closer to 9/30 for Phase 7
-(production snapshot).
+**Current focus: PLAN.md §11 Phase 6 (Discord role deny-list) is COMPLETE as
+of 2026-08-24.** Phases 0-5 are complete (4.2b deliberately not implemented —
+see below and PLAN.md §16). Both hard deadlines so far (expansion decay
+9/30, global decay cutover 10/17) already met, by Phase 2 and Phase 5
+respectively. Next up: wait until closer to 9/30 for Phase 7 (production
+snapshot), or pull forward a later phase in the meantime.
 
 **Shipped:**
+- **Phase 6 — Discord role deny-list, 2026-08-24**: closes a real gap this
+  phase's own read of the code surfaced — `users.discordVerified` existed
+  (Phase 5's OAuth setup) but nothing actually enforced it anywhere; every
+  Discord-authenticated user, including `Orc Pawn`/`Guest`, had full site
+  access. `SEEKERS_DISCORD_DENIED_ROLE_IDS` (new secret, comma-separated
+  Discord role snowflakes — role names aren't derivable from the member
+  API's response, so the Orc Pawn/Guest -> ID mapping has to live in config)
+  + `isDeniedRole()`/`parseDiscordRoleIds()` (`discord-verify.ts`); enforced
+  once, centrally, in `(app)/layout.tsx` ahead of every page in the group
+  (task 6.2) — a non-member or denied-role holder gets redirected to a new
+  `/access-denied` page (outside the `(app)` group on purpose, so it can't
+  loop into its own redirect) instead of each route re-deriving the check.
+  Task 6.3 ("re-verify on login") replaced the old `account.create.after`
+  hook — which only ever fired once, at a user's very first sign-in ever —
+  with `databaseHooks.session.create.after`, which fires on every login
+  (first-time and returning alike); a Discord role change now takes effect
+  next login instead of requiring an unlink/relink. Reads the Discord
+  account's `accessToken` directly from the `accounts` table rather than via
+  `auth.api.getAccessToken`, since this hook lives inside the same
+  `betterAuth()` config that constructs `auth` (no clean self-reference) and
+  the app doesn't configure OAuth token encryption, so the column already
+  holds the same plaintext value that endpoint would return. `guilds.
+  members.read` (task 6.1) needed no new work — already requested since
+  Phase 5. Task 6.4 (officer privileges as a separate allow-list) was
+  already true by construction (`users.role` stays admin-panel-driven,
+  untouched here) — confirmed, not built.
+  **Extended past the original task list, confirmed with the leader same
+  day**: `isDeniedRole([])` now also denies — a member with zero Discord
+  roles assigned at all, not just Orc Pawn/Guest by name. Discord's member
+  endpoint omits the implicit `@everyone` role from its response, so `[]`
+  means genuinely unassigned; Luna assigns roles by hand rather than
+  on-join, so a brand-new member sits unassigned for a while by design and
+  must be denied the same as Orc Pawn/Guest. This also fails closed if a
+  role fetch never completed (Discord API hiccup, or a `users` row from
+  before this column existed) — same call either way: no confirmed role on
+  file, no access. One consequence: an already-signed-in user whose
+  `discordRoleIds` is still `NULL` from before this deploy gets bounced to
+  `/access-denied` on their very next page load, not just their next login —
+  signing out and back in (the page's own button) re-runs the
+  `session.create.after` hook and clears it.
+  **Verified**: `isDeniedRole`/`parseDiscordRoleIds` against 9 hand-written
+  cases (empty deny-list, single/multi-role match, empty-roles-denies with
+  and without a configured deny-list, non-member, malformed JSON) via a
+  throwaway script, deleted after; full `npm run build` + `tsc --noEmit`
+  clean; `npm run verify` still 13/13 (unrelated code path, confirming no
+  regression); `/access-denied` and `/characters` both smoke-
+  tested against a real `wrangler dev --local` Miniflare run (unauthenticated
+  requests redirect correctly, no runtime crash on either route — note
+  `wrangler dev` serves `.open-next/`, which `npm run build` does NOT
+  refresh; use `npx opennextjs-cloudflare build` or `npm run preview`
+  first). **Not verified against a real Discord login** — same constraint as
+  Phase 5's leader-only UI: this session has no Discord OAuth credentials to
+  exercise an actual sign-in round trip, so the `session.create.after` hook
+  itself (as opposed to the pure functions it calls) is unexercised live.
+  Before deploying: `SEEKERS_DISCORD_DENIED_ROLE_IDS` needs the guild's real
+  `Orc Pawn`/`Guest` role IDs set via `wrangler secret put` — right-click the
+  role in Discord (Developer Mode on) -> Copy Role ID — local `.dev.vars` is
+  left blank (denies nobody) since this session has no way to know them.
 - **Phase 5 — global decay cutover, 2026-08-24**: `computeEpgpTotals`
   (`totals.ts`, task 5.2) now branches on the `decay_model` setting
   (already effective-dated since Phase 1 — task 5.1 turned out to be a

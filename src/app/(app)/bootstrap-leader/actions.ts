@@ -39,11 +39,11 @@ export async function claimLeaderRole(): Promise<ClaimLeaderResult> {
 
   let verified = me.discordVerified;
   if (!verified) {
-    // The account.create.after hook (src/auth/index.ts) only runs once, at
-    // first sign-in — if SEEKERS_DISCORD_GUILD_ID wasn't configured yet, or
-    // Discord's API hiccuped that one time, discordVerified is stuck false
-    // forever with no way to retry. Re-check live here instead of trusting
-    // the stale flag.
+    // The session.create.after hook (src/auth/index.ts) re-verifies on every
+    // login, so this is normally already fresh — but if
+    // SEEKERS_DISCORD_GUILD_ID wasn't configured yet, or Discord's API
+    // hiccuped on this exact login, discordVerified could still be stale.
+    // Re-check live here instead of trusting the flag.
     // better-auth 1.7 scopes getAccessToken to a specific linked-account
     // row (accountId) rather than resolving one from providerId + userId —
     // "provider IDs cannot serve as account selectors" per the 1.7 upgrade
