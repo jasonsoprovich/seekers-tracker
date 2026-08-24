@@ -3,11 +3,11 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { epgpSettings } from "@/db";
 
-// The full set of leader-tunable EPGP constants (PLAN.md §4i). Not every
-// key is consumed yet — decay_model branches in Phase 5, min_attendance is
-// enforced starting Phase 4 — but all of them live in this one
-// effective-dated table from Phase 1 on, so the leader never has to wait
-// for a later phase's schema change to start tuning a value.
+// The full set of leader-tunable EPGP constants (PLAN.md §4i). All of them
+// live in this one effective-dated table from Phase 1 on, so the leader
+// never has to wait for a later phase's schema change to start tuning a
+// value — decay_model (Phase 5, §1c) and min_attendance (Phase 4, §4h) both
+// sat here unused for a phase before their consumers existed.
 export const SETTING_KEYS = ["ep_decay", "gp_decay", "base_ep", "base_gp", "ep_cap_per_cycle", "min_attendance", "decay_model"] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 

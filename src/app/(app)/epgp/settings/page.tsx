@@ -16,7 +16,11 @@ const SETTING_META: Record<SettingKey, { label: string; description: string }> =
   base_gp: { label: "Base GP", description: "Lifetime GP floor below which decay doesn't apply at all." },
   ep_cap_per_cycle: { label: "EP cap per cycle", description: "Maximum EP a single character can earn in one cycle (§2)." },
   min_attendance: { label: "Minimum attendance", description: "Guild members required for an attendance capture to award EP (§4h). Not yet enforced — Phase 4." },
-  decay_model: { label: "Decay model", description: "legacy = 20% derived from pre-cycle total; global = 10% compounding stored rows (§1c). Not yet wired up — Phase 5." },
+  decay_model: {
+    label: "Decay model",
+    description:
+      "legacy = 20% derived from pre-cycle total, never stored; global = trusts stored ledger rows as-is — run cycle decay on the EPGP Decay page first, or every character's total just looks undiscounted until you do (§1c). Switch on/around the 10/17 cutover, not before.",
+  },
 };
 
 export default async function EpgpSettingsPage() {

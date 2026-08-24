@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { DepartureWipeForm } from "@/components/epgp/DepartureWipeForm";
 import { ExpansionDecayForm } from "@/components/epgp/ExpansionDecayForm";
+import { GlobalCycleDecayForm } from "@/components/epgp/GlobalCycleDecayForm";
 import { ReverseDecayButton } from "@/components/epgp/ReverseDecayButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { decayEvents, epLedger, gpLedger, users } from "@/db";
@@ -70,6 +71,18 @@ export default async function EpgpDecayPage() {
         </p>
         <div className="mt-3">
           <ExpansionDecayForm />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Cycle decay (global model)</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          10% against every character&apos;s current total, EP and GP, compounding cycle over cycle (§1c). Applied by button, not cron, because
+          cycles shift a day or two — run this once per cycle end. Available regardless of the current <code>decay_model</code> setting; switch
+          that to <code>global</code> on the Settings page when you&apos;re ready to cut over so standings stop deriving the old legacy 20% haircut.
+        </p>
+        <div className="mt-3">
+          <GlobalCycleDecayForm />
         </div>
       </section>
 
