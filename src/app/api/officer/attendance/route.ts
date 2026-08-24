@@ -1,4 +1,8 @@
+import { and, eq } from "drizzle-orm";
+
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
+import { characters, epLedger } from "@/db";
+import { checkMinAttendance } from "@/lib/epgp/attendance";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
@@ -37,19 +41,52 @@ export async function POST(request: Request) {
   if (typeof body.occurredAt !== "string" || !body.occurredAt) {
     return Response.json({ error: "`occurredAt` is required." }, { status: 400 });
   }
+  const occurredAt = new Date(body.occurredAt);
+  if (Number.isNaN(occurredAt.getTime())) {
+    return Response.json({ error: "`occurredAt` is not a valid date." }, { status: 400 });
+  }
   if (!Array.isArray(body.characterNames) || body.characterNames.some((n) => typeof n !== "string")) {
     return Response.json({ error: "`characterNames` must be an array of strings." }, { status: 400 });
   }
   const note = typeof body.note === "string" ? body.note : "";
+  const activity = body.activity;
 
   const db = await getDb();
-  const points = await getActivePointValue(db, "ep", body.activity);
+  const points = await getActivePointValue(db, "ep", activity);
   if (points === null) {
-    return Response.json({ error: `"${body.activity}" isn't a current EP activity.` }, { status: 422 });
+    return Response.json({ error: `"${activity}" isn't a current EP activity.` }, { status: 422 });
   }
 
   const names = [...new Set(body.characterNames.map((n) => n.trim()).filter(Boolean))];
+
+  // §4h: server-side is authoritative — the app pre-checks locally too
+  // (task 4.4), but a bypassed/older client must still be blocked here.
+  // Headcount is the raw distinct-name count from this capture, not the
+  // post-resolution count below: attendance is about who was actually in
+  // the zone, not whether their character row already exists.
+  const attendanceCheck = await checkMinAttendance(db, activity, occurredAt, names.length);
+  if (!attendanceCheck.ok) {
+    return Response.json(
+      {
+        error: `Only ${attendanceCheck.count} of ${attendanceCheck.required} required guild members attended.`,
+        count: attendanceCheck.count,
+        required: attendanceCheck.required,
+        shortfall: attendanceCheck.shortfall,
+      },
+      { status: 422 },
+    );
+  }
+
   const unmatched: string[] = [];
+  const duplicates: string[] = [];
+  // §4h-1: Project Quarm bans multiboxing, so one `/who` capture can't
+  // legitimately contain two characters of the same player — but a player
+  // swapping characters between two captures of the same activity (or a
+  // duplicate paste of the same block) would otherwise award them twice.
+  // Dedupe by resolved player id per (activity, occurredAt): once in this
+  // request's own name list, and once against rows already on ep_ledger
+  // (catches a resubmission of the same capture in a separate request).
+  const seenPlayerKeys = new Set<number>();
   let inserted = 0;
 
   for (const name of names) {
@@ -58,15 +95,35 @@ export async function POST(request: Request) {
       unmatched.push(name);
       continue;
     }
-    const result = await insertLedgerEntry(
-      db,
-      { kind: "ep", characterId, activity: body.activity, points, occurredAt: body.occurredAt, note },
-      auth.userId,
-      "parse",
-    );
+
+    const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.id, characterId));
+    // A character with no player_id yet (PLAN.md §16 — created through the
+    // site's own claim/new-character flow) has no group to dedupe against;
+    // fall back to its own character id so it's still checked against
+    // itself rather than skipped or crashing.
+    const playerKey = character?.playerId ?? characterId;
+
+    if (seenPlayerKeys.has(playerKey)) {
+      duplicates.push(name);
+      console.warn(`attendance: skipped "${name}" — player ${playerKey} already awarded "${activity}" at ${body.occurredAt} in this submission`);
+      continue;
+    }
+
+    const [existing] = await db
+      .select({ id: epLedger.id })
+      .from(epLedger)
+      .where(and(eq(epLedger.playerId, playerKey), eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt)));
+    if (existing) {
+      duplicates.push(name);
+      console.warn(`attendance: skipped "${name}" — player ${playerKey} already has an "${activity}" row at ${body.occurredAt} (duplicate capture?)`);
+      continue;
+    }
+
+    seenPlayerKeys.add(playerKey);
+    const result = await insertLedgerEntry(db, { kind: "ep", characterId, activity, points, occurredAt: body.occurredAt, note }, auth.userId, "parse");
     if (result.ok) inserted++;
     else unmatched.push(name);
   }
 
-  return Response.json({ inserted, unmatched }, { status: 201 });
+  return Response.json({ inserted, unmatched, duplicates }, { status: 201 });
 }
