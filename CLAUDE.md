@@ -241,11 +241,12 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 9 (Discord bot, `../seekers-bot`) tasks
-9.1-9.4 are done as of 2026-08-24** — see that repo's own `CLAUDE.md` for
-the writeup; only 9.5 (a leadership decision, not code) remains open there.
-Phases 0-6 are complete (4.2b deliberately not implemented — see below and
-PLAN.md §16). Both hard deadlines so far (expansion decay 9/30, global decay
+**Current focus: PLAN.md §11 Phase 10 (character claiming rework) is
+COMPLETE as of 2026-08-24** — see below for the writeup. Phase 9 (Discord
+bot, `../seekers-bot`) tasks 9.1-9.4 are also done, only 9.5 (a leadership
+decision, not code) open there — see that repo's own `CLAUDE.md`. Phases
+0-6 are complete (4.2b deliberately not implemented — see below and PLAN.md
+§16). Both hard deadlines so far (expansion decay 9/30, global decay
 cutover 10/17) already met, by Phase 2 and Phase 5 respectively.
 
 **Phase 7 (officer app auto-update) is COMPLETE as of 2026-08-23.** (Old
@@ -270,6 +271,55 @@ fixed while starting Phase 9, see `PLAN.md`'s own 8.5/8.6 entries for what
 they cover.
 
 **Shipped:**
+- **Phase 10 — character claiming rework, 2026-08-24** (migration 0021):
+  `src/lib/players.ts` wires the `players` table (built in Phase 3, but
+  never actually used by anything until now) into login, claiming,
+  character creation, and a new leader-only main swap.
+  `resolvePlayerForUser` (task 10.1) resolves `users.discordId` to a
+  `players` row on every login — reusing a dump-seeded row (the common
+  case for an established member) or creating one (a member who joined
+  after Toryn's dump) — wired into the same `session.create.after` hook
+  Phase 6's guild-membership check already uses. `attachCharacterToPlayer`/
+  `createStandalonePlayer` (task 10.2) close a real gap PLAN.md §16 flagged
+  during Phase 3: **every** character-creating write path now sets
+  `player_id` — claim approval, `/characters/new`, and the officer app's
+  "no match" character creation (`api/officer/characters`), which
+  previously made every character it created `player_id`-less regardless
+  of path, not just the one §16 called out. An alt of a known main shares
+  that main's player outright; a brand-new main gets its own standalone
+  player (same shape task 3.5 already used for sheet-only characters).
+  `swapMainCharacter` (task 10.3) is leader/admin-only (`canManageRoles` —
+  the same bar as role promotion, a bigger call than claim approval's
+  officer-level `canManageAnyCharacter`) — updates
+  `players.main_character_id` and keeps the affected characters'
+  `char_type`/`main_character_id` in sync (§4c: "char_type is display
+  metadata kept in sync"), new `/admin` section mirroring the existing
+  Members & Roles list. EP/GP is untouched by construction, not by
+  care — `computeEpgpTotals` has grouped by ledger `player_id` since task
+  3.11, and this function never writes to either ledger.
+  `scripts/verify-player-reconciliation.ts` (task 10.4,
+  `npm run verify:player-reconciliation`) reports drift between
+  `sos_bot_staging` (Toryn's old bot's dump — the one other source that
+  ever asserted a character→discord_id relationship) and live state:
+  OK / claimable (dump-asserted, character still sits on a standalone
+  player — resolves itself once the right person logs in and claims it,
+  not an error) / conflicts (two different real discord_ids asserted for
+  the same character — flagged for a human, never guessed at). 697/697 OK
+  against the current snapshot. **Verified live against local D1, not just
+  `tsc`/`build`**: a real seeded-but-never-linked player row (Osui/Nariana,
+  discord_id `109700895498862592` — real data already in the local
+  snapshot) correctly links on a simulated first login and is idempotent on
+  a second; attaching a second real character bootstraps
+  `main_character_id`; a swap correctly repoints `char_type`/
+  `main_character_id` on both the old and new main and rejects a character
+  that doesn't belong to the player; `createStandalonePlayer`'s two-step
+  insert (character can't reference a player that doesn't exist yet, and
+  vice versa) produces a correctly self-referencing player. All via
+  throwaway scripts, snapshot-restored after. **Not verified**: no real
+  Discord login exists in this session to exercise
+  `resolvePlayerOnLogin`'s hook wiring itself (same constraint every prior
+  auth-hook change here has had); migration 0021 not yet applied to remote
+  D1.
 - **Phase 9.1-9.4 — `seekers-bot` scaffolded, 2026-08-24** (`../seekers-bot`,
   new repo): a Cloudflare Worker Interactions Endpoint, not a gateway bot —
   full writeup in that repo's own `CLAUDE.md`. Short version: Ed25519
