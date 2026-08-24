@@ -242,36 +242,47 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Current focus: PLAN.md §11 Phase 3 (players + ledger re-attribution) —
-task 3.1 (the dump itself) still blocked on Toryn's MySQL dump (§14); tasks
-3.2/3.3 (schema, don't need the dump's contents) shipped 2026-08-22.** Phases
-0, 1, and 2 are complete as of 2026-08-21, ahead of the 2026-09-30
-expansion-decay deadline. Global decay cutover deadline: 2026-10-17.
+tasks 3.1-3.6 shipped 2026-08-23 (Toryn's dump arrived and was imported +
+derived); 3.7-3.12 (ledger `player_id`/`points_nominal`/`orphaned`, repointing
+`computeEpgpTotals`) remain.** Phases 0, 1, and 2 are complete as of
+2026-08-21, ahead of the 2026-09-30 expansion-decay deadline. Global decay
+cutover deadline: 2026-10-17.
 
 **Shipped:**
-- **Phase 3 tasks 3.1 (partial, non-dump half)/3.2/3.3 — players table +
-  characters schema prep, 2026-08-22 (migration 0017)**: new `players` table
-  per §4a (`discord_id` unique/nullable, `user_id`, `display_name`,
-  `main_character_id`, `status` enum `active|inactive|departed`,
-  `joined_at`/`departed_at`, `note`) — the account EP/GP will attach to once
-  `computeEpgpTotals` is repointed (task 3.11), distinct from both a
-  `users` site login and a `characters` row. `characters` gains nullable
-  `player_id` (fk `players`, populated by 3.4+) and `char_priority` (display
-  order mirroring Toryn's bot: main 0/alt 1/mule 2); `char_type` enum widened
-  to `main | alt | mule`. Fixed five UI-side `"main" | "alt"` type literals
-  (roster/admin/progression/claim-list tables, `CharacterForm`) to widen to
-  `"mule"` too — type-only, no mule-facing UI added yet.
-  `sos_bot_staging` table added (verbatim dump columns, truncate-and-reload)
-  plus `scripts/import-sos-bot-dump.ts`
-  (`npm run import:sos-bot-dump -- --file <path>`, dependency-free CSV
-  parser) and `data/imports/sos-bot/README.md` documenting the expected
-  filename/columns — this is task 3.1's schema/tooling half; **the dump
-  itself still hasn't arrived**, so `sos_bot_staging` is empty in every
-  environment and 3.4+ (deriving `players`/`characters.player_id` from it)
-  can't start yet. Verified the import script against a synthetic sample CSV
-  (missing-`discord_id` row skipped+warned, quoted embedded comma, blank
-  optional fields) — loads correctly, re-running truncates/reloads
-  idempotently — then cleared the synthetic rows back out of local D1.
-  `tsc --noEmit` clean, harness 12/12 after migration + reseed.
+- **Phase 3 tasks 3.1/3.4-3.6 — Toryn's dump imported and derived into
+  players/characters, 2026-08-23**: the real dump turned out to be a full
+  `mysqldump` of `sos_bot`, not just `characters` — Toryn had started a
+  separate, unfinished web-EPGP project against the same MySQL instance, so
+  the export includes `members`/`ep_log`/`gp_log`/`bids`/`cycles`/`respawns`/
+  etc. alongside `characters`. Only `characters` has real data (697 rows) and
+  matters; everything else is empty/leftover schema, ignored entirely — see
+  `data/imports/sos-bot/README.md`. Extended `scripts/import-sos-bot-dump.ts`
+  with a dependency-free mysqldump parser (column order read from the file's
+  own `CREATE TABLE`, then every `INSERT INTO ... VALUES` row) alongside the
+  CSV path, so no manual conversion step is needed; also switched the D1
+  write from batched inserts to one-row-at-a-time after local D1 (Miniflare)
+  hit "too many SQL variables" well under SQLite's nominal 999-param limit
+  even at small batch sizes (fine for a one-time/occasional import of a few
+  hundred rows). New `scripts/derive-players-from-sos-bot.ts` (dry-run report
+  by default, `--commit` to write; idempotent — reuses existing rows on
+  re-run) implements tasks 3.4-3.6 together: builds one `players` row per
+  `discord_id` group (216 of 243 groups had a clean single `main`-typed
+  character → `main_character_id` set; the other 27 — 25 with zero mains, 2
+  with multiple, a real data-quality gap in Toryn's bot — get
+  `main_character_id` left NULL plus a `players.note` flagging it for leader
+  review, **confirmed with the user rather than guessed**); creates a
+  standalone `players` row for every one of the 86 existing `characters` the
+  dump never mentions, so GP-only departed members stay attributable (§1e);
+  and — **also confirmed with the user before writing anything** — creates a
+  new `characters` row for each of the 525 dump characters (57 mains, 438
+  alts, 30 mules) with no existing match at all, using the dump's own
+  race/class/type/priority (race/class names resolved case-insensitively
+  against `CHAR_RACES`/`CHAR_CLASSES`, unresolved values like the dump's
+  literal `"None"` falling back to `UNKNOWN_RACE_ID`/`UNKNOWN_CLASS_ID`, same
+  convention `scripts/import-epgp.ts` uses; `level` defaults to 1). Final
+  state: 329 `players`, 783 `characters`, 100% linked. `tsc --noEmit` clean,
+  harness still 12/12 (expected — totals aren't repointed to `player_id`
+  until task 3.11, so this migration couldn't have moved them yet).
 - **Phase 2 (expansion decay) complete**: `decay_events` table (migration
   0016) plus a nullable `decay_event_id` on `ep_ledger`/`gp_ledger`, so every
   row a decay batch writes traces back to (and can be deleted by) its event.
