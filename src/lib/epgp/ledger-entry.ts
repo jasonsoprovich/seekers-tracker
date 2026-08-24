@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
+import { getSettingAt } from "@/lib/epgp/settings";
 import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 
 // Shared by the website's manual-entry Server Action
@@ -38,7 +39,7 @@ export async function insertLedgerEntry(
   if (!activityOrTier) return { ok: false, error: input.kind === "ep" ? "Activity is required." : "Tier is required." };
 
   const [character] = await db
-    .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId })
+    .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId, playerId: characters.playerId })
     .from(characters)
     .where(eq(characters.id, input.characterId));
   if (!character) return { ok: false, error: "Character not found." };
@@ -52,12 +53,35 @@ export async function insertLedgerEntry(
   // manual-entry/attendance/bids routes) gets it for free.
   const targetCharacterId = character.charType === "alt" && character.mainCharacterId !== null ? character.mainCharacterId : character.id;
 
+  // An alt shares its player's player_id (Phase 3's derivation groups every
+  // character of a player under one players row regardless of main/alt/mule),
+  // so the alt's own playerId is already correct here without re-querying
+  // the target/main character.
+  const playerId = character.playerId;
+
   if (input.kind === "ep") {
+    // computeEpgpTotals (Phase 3 task 3.11) groups by ep_ledger.player_id,
+    // not character_id — a row written with player_id left NULL is
+    // invisible in every total the same way an orphaned import row is.
+    // points_nominal/points_awarded/cap_applied/cap_at_entry mirror
+    // scripts/import-epgp.ts's columns (§2) so a row written here answers
+    // the same "why did this award land at X" questions as an imported one.
+    // Write-time cap *clamping* (the running per-cycle sum in §2) isn't
+    // implemented yet — it depends on cycle management, which PLAN.md §16
+    // lists as still an open decision — so nominal/awarded are equal and
+    // cap_applied is always false here; only cap_at_entry (today's cap
+    // setting) is recorded for later reference.
+    const capAtEntryRaw = await getSettingAt(db, "ep_cap_per_cycle", occurredAt);
     await db.insert(epLedger).values({
       characterId: targetCharacterId,
+      playerId,
       occurredAt,
       activity: activityOrTier,
       points: input.points,
+      pointsNominal: input.points,
+      pointsAwarded: input.points,
+      capApplied: false,
+      capAtEntry: capAtEntryRaw !== null ? Number(capAtEntryRaw) : null,
       note: input.note.trim() || null,
       enteredBy,
       source,
@@ -65,10 +89,15 @@ export async function insertLedgerEntry(
   } else {
     await db.insert(gpLedger).values({
       characterId: targetCharacterId,
+      playerId,
       occurredAt,
       itemName: input.itemName.trim() || null,
       tier: activityOrTier,
       points: input.points,
+      pointsNominal: input.points,
+      pointsAwarded: input.points,
+      capApplied: false,
+      capAtEntry: null,
       note: input.note.trim() || null,
       enteredBy,
       source,
