@@ -18,7 +18,8 @@
     "verify": "tsx scripts/verify-harness.ts",
     "backfill:expansion-decay": "tsx scripts/backfill-expansion-decay.ts",
     "verify:expansion-decay": "tsx scripts/verify-expansion-decay.ts",
-    "verify:attendance-minimum": "tsx scripts/verify-attendance-minimum.ts"
+    "verify:attendance-minimum": "tsx scripts/verify-attendance-minimum.ts",
+    "verify:global-decay": "tsx scripts/verify-global-decay.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.7.1",

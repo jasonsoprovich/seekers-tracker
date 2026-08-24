@@ -21,6 +21,12 @@ export type RateDecayKind = Extract<DecayKind, "expansion" | "global_cycle">;
 export type DecayPreviewRow = {
   characterId: number;
   characterName: string;
+  // Carried through to commit so the negative ledger row it writes can set
+  // player_id directly (§11 Phase 3 task 3.11 grouped computeEpgpTotals by
+  // player_id; a row with player_id NULL is invisible to it — same as an
+  // orphaned row). Null only for a character that itself has no player_id
+  // yet, same edge case totals.ts already excludes safely (PLAN.md §16).
+  playerId: number | null;
   epBalance: number;
   epDecay: number;
   gpBalance: number;
@@ -93,9 +99,10 @@ export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: num
   const [epBalances, gpBalances, allCharacters] = await Promise.all([
     balancesAt(db, epLedger, effectiveDate),
     balancesAt(db, gpLedger, effectiveDate),
-    db.select({ id: characters.id, name: characters.name }).from(characters),
+    db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
   ]);
   const names = new Map(allCharacters.map((c) => [c.id, c.name]));
+  const playerIds = new Map(allCharacters.map((c) => [c.id, c.playerId]));
   const characterIds = new Set([...epBalances.keys(), ...gpBalances.keys()]);
 
   const rows: DecayPreviewRow[] = [];
@@ -106,6 +113,7 @@ export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: num
     rows.push({
       characterId,
       characterName: names.get(characterId) ?? `#${characterId}`,
+      playerId: playerIds.get(characterId) ?? null,
       epBalance,
       epDecay: epBalance > 0 ? round2(epBalance * rate) : 0,
       gpBalance,
@@ -177,6 +185,7 @@ export async function commitRateDecay(
     if (row.epDecay > 0) {
       await db.insert(epLedger).values({
         characterId: row.characterId,
+        playerId: row.playerId,
         occurredAt: effectiveDate,
         activity: activityLabel,
         points: -row.epDecay,
@@ -190,6 +199,7 @@ export async function commitRateDecay(
     if (row.gpDecay > 0) {
       await db.insert(gpLedger).values({
         characterId: row.characterId,
+        playerId: row.playerId,
         occurredAt: effectiveDate,
         tier: activityLabel,
         points: -row.gpDecay,
@@ -206,7 +216,16 @@ export async function commitRateDecay(
   return { decayEventId: event.id, epRows, gpRows };
 }
 
-export type DeparturePreviewRow = { characterId: number; characterName: string; epBalance: number; gpBalance: number; lastEpActivity: Date | null };
+export type DeparturePreviewRow = {
+  characterId: number;
+  characterName: string;
+  // Same role as DecayPreviewRow.playerId — carried through to commit so
+  // the wipe row it writes sets player_id (§11 Phase 3 task 3.11).
+  playerId: number | null;
+  epBalance: number;
+  gpBalance: number;
+  lastEpActivity: Date | null;
+};
 
 // §1f — a leader-searchable, non-destructive EP wipe ("removing any EP from
 // players who haven't raided since the start of Velious"). GP is never
@@ -223,7 +242,7 @@ export async function previewDepartureWipe(
   if (!opts.characterIds?.length && !opts.inactiveSince) return [];
 
   const [allCharacters, epBalances, gpBalances, lastActivity] = await Promise.all([
-    db.select({ id: characters.id, name: characters.name }).from(characters),
+    db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
     totalBalances(db, epLedger),
     totalBalances(db, gpLedger),
     lastPositiveEpActivity(db),
@@ -246,6 +265,7 @@ export async function previewDepartureWipe(
     rows.push({
       characterId: char.id,
       characterName: char.name,
+      playerId: char.playerId,
       epBalance,
       gpBalance: gpBalances.get(char.id) ?? 0,
       lastEpActivity: lastActivity.get(char.id) ?? null,
@@ -284,6 +304,7 @@ export async function commitDepartureWipe(
   for (const row of preview) {
     await db.insert(epLedger).values({
       characterId: row.characterId,
+      playerId: row.playerId,
       occurredAt: effectiveDate,
       activity: "Departure",
       points: -row.epBalance,
