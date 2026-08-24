@@ -241,11 +241,12 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 6 (Discord role deny-list) is COMPLETE as
-of 2026-08-24.** Phases 0-5 are complete (4.2b deliberately not implemented —
-see below and PLAN.md §16). Both hard deadlines so far (expansion decay
-9/30, global decay cutover 10/17) already met, by Phase 2 and Phase 5
-respectively.
+**Current focus: PLAN.md §11 Phase 9 (Discord bot, `../seekers-bot`) tasks
+9.1-9.4 are done as of 2026-08-24** — see that repo's own `CLAUDE.md` for
+the writeup; only 9.5 (a leadership decision, not code) remains open there.
+Phases 0-6 are complete (4.2b deliberately not implemented — see below and
+PLAN.md §16). Both hard deadlines so far (expansion decay 9/30, global decay
+cutover 10/17) already met, by Phase 2 and Phase 5 respectively.
 
 **Phase 7 (officer app auto-update) is COMPLETE as of 2026-08-23.** (Old
 production-snapshot Phase 7 is now Phase 14 — moved to last, same date;
@@ -257,16 +258,39 @@ for the eventual Phase 14 (dry-run `seed-from-xlsx`/harness against a
 current sheet export, a go-live runbook) can happen anytime without
 freezing the live sheet or touching a fresh remote D1.
 
-**Phase 8 (guild bank) in progress as of 2026-08-24** — 8.1 (migration) and
-8.3 (parser, `seekers-epgp-parser/internal/bankexport`) done; 8.2/8.4-8.6
-still need real mule exports (`data/imports/bank/`) before they can be
-finished. Next up otherwise: any of Phases 9-12 (13 depends on nothing new
-either, but there's no reason to rush it ahead of the deadline-driven
-work).
+**Phase 8 (guild bank) in progress as of 2026-08-24** — 8.1 (migration), 8.3
+(parser, `seekers-epgp-parser/internal/bankexport`), 8.5 (browse/search) and
+8.6 (manual add/edit) done; only 8.2 (migrate the sheet's own Bank tabs) and
+8.4 (the real import endpoint) still need real inputs this session doesn't
+have — 8.2 needs the guild's downloaded `.xlsx` (same file
+`scripts/import-epgp.ts` already knows how to read), 8.4 needs real mule
+exports (`data/imports/bank/`). **8.5/8.6 shipped in commit `f420b79` but
+weren't checked off in `PLAN.md`/recorded here at the time** — caught and
+fixed while starting Phase 9, see `PLAN.md`'s own 8.5/8.6 entries for what
+they cover.
 
 **Shipped:**
+- **Phase 9.1-9.4 — `seekers-bot` scaffolded, 2026-08-24** (`../seekers-bot`,
+  new repo): a Cloudflare Worker Interactions Endpoint, not a gateway bot —
+  full writeup in that repo's own `CLAUDE.md`. Short version: Ed25519
+  signature verification (`discord-interactions`' `verifyKey`) and
+  `/lookup_characters` (groups by `characters.player_id`, ordered
+  `char_priority` then name, matching Toryn's old bot's output shape) both
+  verified live against a real generated keypair and `seekers-tracker`'s
+  own local D1 snapshot, not just `tsc`. D1 binding has no
+  `migrations_dir` on purpose — that repo structurally can't run a
+  migration. 9.5 (whether passive channel reading must be preserved) is
+  still open, a leadership call.
+- **Phase 8.5/8.6 — guild bank browse/search + manual add/edit,
+  2026-08-24** (commit `f420b79`; checked off in `PLAN.md`/recorded here
+  only while starting Phase 9, see above): new `/bank` page,
+  `src/lib/bank/holdings.ts` + `BankBrowseTable` (search/category/mule/
+  class-restriction/status filters, defaulting to `guild_bank`-only, same
+  pattern as `RosterTable`), and officer-gated manual add/edit/delete for
+  items no export captures.
 - **Phase 8.1/8.3 — guild bank schema + inventory export parser,
-  2026-08-24** (in progress — 8.2/8.4-8.6 remain): the leader shared two
+  2026-08-24** (8.2/8.4 remain — both need real inputs this session
+  doesn't have, see above): the leader shared two
   real Zeal inventory exports (one player's own characters, for format
   reference only, not guild mules) which settled what §9/Phase 8 had left
   open. `bank_holdings`/`bank_imports` migrated (§4f) with two small
