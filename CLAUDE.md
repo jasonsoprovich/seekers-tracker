@@ -27,7 +27,7 @@ verification task passes.
 |---|---|
 | `seekers-tracker` (this repo) | The website: Next.js on Cloudflare Workers, D1, R2. Guild roster, character claiming, PoP flags, EPGP ledger/standings, admin panel. |
 | `../seekers-epgp-parser` | Standalone desktop app (Wails: Go + React/TS) an officer runs locally. Parses their EverQuest log for raid attendance and loot bids, submits over HTTP. |
-| `../seekers-bot` | Discord slash-command bot (Cloudflare Worker). **Not created yet — PLAN.md Phase 10.** |
+| `../seekers-bot` | Discord slash-command bot (Cloudflare Worker). **Not created yet — PLAN.md Phase 9.** |
 
 **This repo owns the D1 schema and all migrations.** The other repos bind to
 the database but never migrate it.
@@ -245,10 +245,53 @@ contents, and never print raw Discord IDs into logs or commit messages.
 of 2026-08-24.** Phases 0-5 are complete (4.2b deliberately not implemented —
 see below and PLAN.md §16). Both hard deadlines so far (expansion decay
 9/30, global decay cutover 10/17) already met, by Phase 2 and Phase 5
-respectively. Next up: wait until closer to 9/30 for Phase 7 (production
-snapshot), or pull forward a later phase in the meantime.
+respectively.
+
+**Phase 7 (officer app auto-update) is COMPLETE as of 2026-08-23.** (Old
+production-snapshot Phase 7 is now Phase 14 — moved to last, same date;
+see below.) The leader wants every remaining phase (8 guild bank, 9 Discord
+bot, 10 character claiming, 11 quest flags, 12 live bids, 13 Wails v3
+migration) built and tested before committing to a go-live cutover date;
+going live is now the final one-time event, not a mid-plan milestone. Next
+up: any of Phases 8-12 (13 depends on nothing new either, but there's no
+reason to rush it ahead of the deadline-driven work). Prep for the eventual
+Phase 14 (dry-run `seed-from-xlsx`/harness against a current sheet export, a
+go-live runbook) can happen anytime without freezing the live sheet or
+touching a fresh remote D1.
 
 **Shipped:**
+- **Phase 7 — officer app auto-update, 2026-08-23** (`seekers-epgp-parser`):
+  upgraded the existing notify-only `internal/updatecheck.Check` into a real
+  download-verify-swap-relaunch, per §7 Option B (stay on Wails v2, add a
+  Go self-update library — `github.com/minio/selfupdate`). New
+  `updatecheck.Apply` fetches the latest release's assets, requires both
+  the `.exe` and a `.sha256` sidecar to be present (aborts before
+  downloading anything if either is missing — never applies an unverified
+  binary), downloads the sidecar first to get the expected digest, then
+  streams the exe straight into `selfupdate.Apply` with that checksum;
+  `selfupdate` does the actual rename-and-swap (old exe renamed aside —
+  hidden, not deleted, on Windows — new one moved into place), which is
+  what makes overwriting a currently-running Windows exe possible at all.
+  `App.InstallUpdate` (`app.go`) wraps `Apply`, then relaunches by spawning
+  a new process from the same path and calling `runtime.Quit` — the
+  officer never has to manually relaunch. `build-windows.yml` gained a
+  `sha256sum` step publishing `seekers-epgp-parser.exe.sha256` as a release
+  asset alongside the exe, on every build (not just tagged releases, since
+  the digest has to exist before the tag that will reference it does).
+  Frontend: the existing update banner gained an "Update & restart" button
+  next to the manual "Download it" link (kept as a fallback — e.g. if the
+  install directory isn't writable, `selfupdate`'s own `CheckPermissions`
+  preflight catches that up front and the officer falls back to downloading
+  by hand). Task 7.3 (config survives a swap) was a verify-only task,
+  confirmed by inspection rather than a new test: `selfupdate.Apply` with
+  an empty `TargetPath` resolves to `osext.Executable()`
+  (`minio/selfupdate@v0.6.0/apply.go`), never anything under
+  `os.UserConfigDir()` — the swap and the config file are on structurally
+  separate paths by construction, not by luck. Task 7.4 (SmartScreen):
+  wrote a new officer-facing `seekers-epgp-parser/README.md` (the repo had
+  none before) documenting the "More info → Run anyway" click-through;
+  didn't budget for a code-signing cert — that's a real-money decision for
+  the leader, not a default to reach for, and the README says as much.
 - **Phase 6 — Discord role deny-list, 2026-08-24**: closes a real gap this
   phase's own read of the code surfaced — `users.discordVerified` existed
   (Phase 5's OAuth setup) but nothing actually enforced it anywhere; every
@@ -440,7 +483,7 @@ snapshot), or pull forward a later phase in the meantime.
   `points_nominal` (sheet column T)/`points_awarded` (column V, was already
   `points`)/`cap_applied`/`cap_at_entry` (900, constant since Phase 1) on
   every emitted row directly — no separate backfill script, so a fresh
-  production seed (Phase 7) gets this for free. It also now imports the
+  production seed (Phase 14) gets this for free. It also now imports the
   1,637 orphaned EP rows (§1e) it previously silently skipped: turned out
   their "Points Earned" formula has no cached numeric result once the name's
   blank (not literally 0 — genuinely unresolvable), which is why the
@@ -482,7 +525,7 @@ snapshot), or pull forward a later phase in the meantime.
   created through the site's own flow (`characters/new`, claim approval)
   don't get `player_id` set — `computeEpgpTotals` excludes them safely
   (same as an orphaned row) rather than crashing, but their EP/GP wouldn't
-  show up anywhere until claimed/linked. Likely Phase 11's problem to fix
+  show up anywhere until claimed/linked. Likely Phase 10's problem to fix
   properly, since character claiming rework touches the same code path.
 - **Phase 3 tasks 3.1/3.4-3.6 — Toryn's dump imported and derived into
   players/characters, 2026-08-23**: the real dump turned out to be a full
@@ -614,7 +657,7 @@ snapshot), or pull forward a later phase in the meantime.
   against that repo's `releases/latest` and prompts the officer to
   re-download if behind. See that repo's `CLAUDE.md` → "Releases &
   update checks" for the cut-a-release steps.
-  **PLAN.md Phase 8 upgrades this** from notify-only into an actual
+  **PLAN.md Phase 7 upgrades this** from notify-only into an actual
   download-and-swap, reusing the existing version/release plumbing.
 - Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed, code
   works, **deliberately left unscheduled**. Decided 2026-08-20: D1's own

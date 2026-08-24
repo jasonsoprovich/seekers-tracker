@@ -93,7 +93,7 @@ export const characters = sqliteTable("characters", {
   // around.
   playerId: integer("player_id").references(() => players.id),
   // Display order mirroring Toryn's Discord bot (main 0, alt 1, mule 2), so
-  // the bot (Phase 10) and this site agree on character list ordering
+  // the bot (Phase 9) and this site agree on character list ordering
   // without either recomputing it. Nullable until Phase 3 backfills it from
   // the bot dump.
   charPriority: integer("char_priority"),
