@@ -6,8 +6,8 @@ import { getDb } from "@/lib/db";
 import { getCachedEpgpTotals } from "@/lib/epgp/totals";
 
 // Backs the officer app's Browse > Totals tab — same EP/GP/Priority
-// standings as /roster, with the same alt-borrows-its-main's-totals
-// display rule (see Roster's totalsFor). No pagination: the guild roster
+// standings as /roster: every character sharing a player_id (PLAN.md §11
+// Phase 3 task 3.11) reads the same total. No pagination: the guild roster
 // is small enough to send in one response. ?q=<character name search>.
 export async function GET(request: Request) {
   const auth = await requireOfficerApiKey(request);
@@ -27,6 +27,7 @@ export async function GET(request: Request) {
         charType: characters.charType,
         status: characters.status,
         mainCharacterId: characters.mainCharacterId,
+        playerId: characters.playerId,
       })
       .from(characters)
       .where(term ? like(characters.name, `%${term}%`) : undefined)
@@ -36,10 +37,10 @@ export async function GET(request: Request) {
 
   const nameById = new Map(rows.map((r) => [r.id, r.name]));
 
+  // computeEpgpTotals groups by player_id (PLAN.md §11 Phase 3 task 3.11).
   const result = rows.map((r) => {
     const isAlt = r.charType === "alt" && r.mainCharacterId !== null;
-    const priorityCharacterId = isAlt ? (r.mainCharacterId as number) : r.id;
-    const total = totals.get(priorityCharacterId) ?? (isAlt ? totals.get(r.id) : undefined);
+    const total = r.playerId !== null ? totals.get(r.playerId) : undefined;
     return {
       id: r.id,
       name: r.name,

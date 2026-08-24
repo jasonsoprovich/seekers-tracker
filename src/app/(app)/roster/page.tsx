@@ -33,6 +33,7 @@ export default async function RosterPage() {
         charType: characters.charType,
         status: characters.status,
         mainCharacterId: characters.mainCharacterId,
+        playerId: characters.playerId,
         ownerUsername: users.username,
         ownerRole: users.role,
       })
@@ -42,13 +43,11 @@ export default async function RosterPage() {
     getCachedEpgpTotals(db),
   ]);
 
-  // Alts don't carry their own EP/GP — loot priority is tracked per main,
-  // so an alt displays whatever its main's ledger totals to.
+  // computeEpgpTotals groups by player_id (PLAN.md §11 Phase 3 task 3.11) —
+  // every character sharing a player (main, alt, mule) reads the same
+  // total, so there's no alt→main resolution to do here anymore.
   function totalsFor(r: (typeof rows)[number]) {
-    if (r.charType === "alt" && r.mainCharacterId !== null) {
-      return totals.get(r.mainCharacterId) ?? totals.get(r.id);
-    }
-    return totals.get(r.id);
+    return r.playerId !== null ? totals.get(r.playerId) : undefined;
   }
 
   const rosterRows: RosterRow[] = rows.map((r) => {

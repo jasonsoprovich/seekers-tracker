@@ -346,10 +346,20 @@ async function main() {
     20: "EP Points",
     22: "Points Earned",
   });
-  type EpRow = { name: string; cycleNumber: number | null; occurredAt: Date; activity: string; points: number; note: string | null };
+  type EpRow = {
+    name: string | null; // null only when orphaned (see below)
+    cycleNumber: number | null;
+    occurredAt: Date;
+    activity: string;
+    points: number;
+    nominalPoints: number;
+    note: string | null;
+    orphaned: boolean;
+  };
   const epRows: EpRow[] = [];
   let epSkipped = 0;
   let epNameSkipped = 0;
+  let epOrphaned = 0;
   // Every EP Log row also carries the character's class at that point in
   // time (col 16) — usually their real class, but "ANON" when that player
   // had privacy mode on for that entry. Totals!D (what seeds `characters`
@@ -366,10 +376,9 @@ async function main() {
     if (rowNumber < 2) return;
     const rawName = cellTextRaw(row.getCell(15));
     const trimmedName = rawName.trim();
-    if (!trimmedName) return;
     const date = cellDate(row.getCell(14));
 
-    if (date) {
+    if (date && trimmedName) {
       const classId = resolveClassId(cellText(row.getCell(16)));
       if (classId !== UNKNOWN_CLASS_ID) {
         const key = trimmedName.toLowerCase();
@@ -379,7 +388,32 @@ async function main() {
     }
 
     const activity = cellText(row.getCell(18));
-    const points = cellNumber(row.getCell(22)); // "Points Earned" — cap already applied, see plan §Findings 3
+    const points = cellNumber(row.getCell(22)); // "Points Earned" (V) — awarded, cap already applied
+    const nominalPoints = cellNumber(row.getCell(20)); // "EP Points" (T) — nominal, pre-cap (§2)
+    const cycleNumber = cellNumber(row.getCell(13));
+    const note = cellText(row.getCell(23)) || null;
+
+    if (!trimmedName) {
+      // Name stripped in the sheet before this site existed (§1e). Once the
+      // name is blank, the "Points Earned" formula's dependency chain
+      // breaks and the sheet has no cached numeric result for it at all
+      // (verified directly: every one of the real 1,637 cases has date +
+      // activity but a null Points Earned) — matching §1e's "Awarded value
+      // computes to 0" finding exactly. Requires a real date + activity to
+      // count as one of these rows at all, not one of the sheet's many
+      // blank trailing template rows. Row is kept (orphaned), not dropped,
+      // for audit completeness; contributes to no one's total
+      // (character_id/player_id both NULL).
+      if (!date || !activity) {
+        epSkipped++;
+        return;
+      }
+      epOrphaned++;
+      const awarded = points ?? 0;
+      epRows.push({ name: null, cycleNumber, occurredAt: date, activity, points: awarded, nominalPoints: nominalPoints ?? awarded, note, orphaned: true });
+      return;
+    }
+
     if (!date || !activity || points === null) {
       epSkipped++;
       return;
@@ -389,9 +423,7 @@ async function main() {
       epNameSkipped++;
       return;
     }
-    const cycleNumber = cellNumber(row.getCell(13));
-    const note = cellText(row.getCell(23)) || null;
-    epRows.push({ name: canonical, cycleNumber, occurredAt: date, activity, points, note });
+    epRows.push({ name: canonical, cycleNumber, occurredAt: date, activity, points, nominalPoints: nominalPoints ?? points, note, orphaned: false });
   });
   let classBackfilled = 0;
   for (const [key, record] of characters) {
@@ -404,7 +436,7 @@ async function main() {
   }
   console.log(`Class backfill: ${classBackfilled} character(s) resolved from an older EP Log row (Totals shows ANON/blank for them right now).`);
   console.log(
-    `EP Log: ${epRows.length} rows parsed, ${epSkipped} skipped (missing date/activity/points), ${epNameSkipped} skipped (whitespace name typo, doesn't match the sheet's SUMIF).`,
+    `EP Log: ${epRows.length} rows parsed (${epOrphaned} orphaned — blank name, §1e), ${epSkipped} skipped (missing date/activity/points), ${epNameSkipped} skipped (whitespace name typo, doesn't match the sheet's SUMIF).`,
   );
 
   // --- GP Log ---
@@ -471,7 +503,8 @@ async function main() {
   const preEp = new Map<string, number>();
   const curEp = new Map<string, number>();
   for (const r of epRows) {
-    const key = r.name.toLowerCase();
+    if (r.orphaned) continue; // §1e — contributes to no one's total, nothing to reconcile against
+    const key = r.name!.toLowerCase();
     const bucket = r.occurredAt < currentCycleStart ? preEp : curEp;
     bucket.set(key, (bucket.get(key) ?? 0) + r.points);
   }
@@ -586,11 +619,16 @@ async function main() {
     const values = batch
       .map((r) => {
         const cycleIdExpr = r.cycleNumber !== null ? `(SELECT id FROM cycles WHERE cycle_number = ${r.cycleNumber})` : "NULL";
-        const charIdExpr = `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)})`;
-        return `(${charIdExpr}, ${cycleIdExpr}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.activity)}, ${sqlNum(r.points)}, ${sqlStr(r.note)}, 'import')`;
+        // Orphaned (§1e): name was stripped in the sheet, unattributable —
+        // character_id/player_id both NULL rather than guessed.
+        const charIdExpr = r.orphaned ? "NULL" : `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)})`;
+        const capApplied = r.nominalPoints !== r.points ? 1 : 0;
+        return `(${charIdExpr}, ${cycleIdExpr}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.activity)}, ${sqlNum(r.points)}, ${sqlNum(r.nominalPoints)}, ${sqlNum(r.points)}, ${capApplied}, ${sqlNum(Number(SETTINGS.ep_cap_per_cycle))}, ${r.orphaned ? 1 : 0}, ${sqlStr(r.note)}, 'import')`;
       })
       .join(",\n");
-    out.push(`INSERT INTO ep_ledger (character_id, cycle_id, occurred_at, activity, points, note, source) VALUES\n${values};`);
+    out.push(
+      `INSERT INTO ep_ledger (character_id, cycle_id, occurred_at, activity, points, points_nominal, points_awarded, cap_applied, cap_at_entry, orphaned, note, source) VALUES\n${values};`,
+    );
   }
 
   out.push("\n-- gp_ledger");
@@ -601,11 +639,13 @@ async function main() {
         const cycleNum = cycleForDate(r.occurredAt);
         const cycleIdExpr = cycleNum !== null ? `(SELECT id FROM cycles WHERE cycle_number = ${cycleNum})` : "NULL";
         const charIdExpr = `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)})`;
-        return `(${charIdExpr}, ${cycleIdExpr}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.itemName)}, ${sqlStr(r.tier)}, ${sqlNum(r.points)}, ${r.duplicateFlag ? 1 : 0}, 'import')`;
+        // GP has no per-cycle cap (§2 is EP-only) — nominal/awarded always
+        // mirror `points`, cap_applied always false, cap_at_entry always NULL.
+        return `(${charIdExpr}, ${cycleIdExpr}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.itemName)}, ${sqlStr(r.tier)}, ${sqlNum(r.points)}, ${sqlNum(r.points)}, ${sqlNum(r.points)}, 0, NULL, 0, ${r.duplicateFlag ? 1 : 0}, 'import')`;
       })
       .join(",\n");
     out.push(
-      `INSERT INTO gp_ledger (character_id, cycle_id, occurred_at, item_name, tier, points, duplicate_flag, source) VALUES\n${values};`,
+      `INSERT INTO gp_ledger (character_id, cycle_id, occurred_at, item_name, tier, points, points_nominal, points_awarded, cap_applied, cap_at_entry, orphaned, duplicate_flag, source) VALUES\n${values};`,
     );
   }
 

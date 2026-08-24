@@ -23,7 +23,7 @@ export interface DashboardBundle {
   classPopRows: ClassPopRow[];
 }
 
-// Both scopes ("active only" vs "include retired+removed") are precomputed
+// Both scopes ("active only" vs "include inactive+removed") are precomputed
 // server-side — same "toggle is a pure client-side switch, no round trip"
 // approach GuildPopMeter's own Mains/Alts toggle already uses. The two
 // toggles are independent axes (roster status vs main/alt), so they compose
@@ -40,7 +40,7 @@ export function DashboardBody({ all, activeOnly }: { all: DashboardBundle; activ
           onChange={(v) => setScope(v as "active" | "all")}
           options={[
             { value: "active", label: "Active only" },
-            { value: "all", label: "Include retired+removed" },
+            { value: "all", label: "Include inactive+removed" },
           ]}
         />
       </div>

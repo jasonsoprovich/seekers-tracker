@@ -267,7 +267,7 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
             <option value="active">Active only</option>
             <option value="all">All statuses</option>
-            <option value="retired">{characterStatusLabel("retired")}</option>
+            <option value="inactive">{characterStatusLabel("inactive")}</option>
             <option value="removed">{characterStatusLabel("removed")}</option>
           </select>
         </label>

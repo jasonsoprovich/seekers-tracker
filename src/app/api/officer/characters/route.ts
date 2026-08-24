@@ -11,11 +11,11 @@ import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
 // own validate-before-submit flow) before it ever calls
 // /api/officer/manual-entry, /attendance, or /bids.
 //
-// mainCharacterName + priorityRating are resolved the same way Roster's
-// own totalsFor does: an alt has no ledger rows of its own going forward
-// (see insertLedgerEntry's redirect-to-main), so its priority is its
-// main's — the app's Bids/Attendance tables show both columns so an
-// officer can see at a glance whose priority actually applies to a bid.
+// mainCharacterName + priorityRating are resolved the same way Roster's own
+// totalsFor does: computeEpgpTotals groups by player_id (PLAN.md §11 Phase 3
+// task 3.11), so every character sharing a player reads the same priority —
+// the app's Bids/Attendance tables show both columns so an officer can see
+// at a glance whose priority actually applies to a bid.
 export async function GET(request: Request) {
   const auth = await requireOfficerApiKey(request);
   if ("error" in auth) {
@@ -31,6 +31,7 @@ export async function GET(request: Request) {
         charType: characters.charType,
         mainCharacterId: characters.mainCharacterId,
         status: characters.status,
+        playerId: characters.playerId,
       })
       .from(characters)
       .orderBy(asc(characters.name)),
@@ -41,8 +42,7 @@ export async function GET(request: Request) {
 
   const result = rows.map((r) => {
     const isAlt = r.charType === "alt" && r.mainCharacterId !== null;
-    const priorityCharacterId = isAlt ? (r.mainCharacterId as number) : r.id;
-    const total = totals.get(priorityCharacterId) ?? (isAlt ? totals.get(r.id) : undefined);
+    const total = r.playerId !== null ? totals.get(r.playerId) : undefined;
     return {
       id: r.id,
       name: r.name,

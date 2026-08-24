@@ -11,7 +11,7 @@ import { getSession } from "@/lib/session";
 type Character = typeof characters.$inferSelect;
 type FlagRow = { flagId: string; done: boolean; source: "manual" | "seer" | "import" };
 
-// Both dashboard scopes ("active only" vs "include retired+removed") run
+// Both dashboard scopes ("active only" vs "include inactive+removed") run
 // this same aggregation, once each — see DashboardBody's comment for why
 // that's precomputed server-side rather than filtered client-side.
 function aggregate(chars: Character[], flagsByCharacter: Map<number, FlagRow[]>): DashboardBundle {

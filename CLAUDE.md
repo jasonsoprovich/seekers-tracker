@@ -241,14 +241,76 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 3 (players + ledger re-attribution) —
-tasks 3.1-3.6 shipped 2026-08-23 (Toryn's dump arrived and was imported +
-derived); 3.7-3.12 (ledger `player_id`/`points_nominal`/`orphaned`, repointing
-`computeEpgpTotals`) remain.** Phases 0, 1, and 2 are complete as of
-2026-08-21, ahead of the 2026-09-30 expansion-decay deadline. Global decay
-cutover deadline: 2026-10-17.
+**Current focus: PLAN.md §11 Phase 3 (players + ledger re-attribution) is
+COMPLETE as of 2026-08-24 (all tasks 3.1-3.12).** Next up: Phase 4
+(attendance minimum). Phases 0, 1, and 2 are complete as of 2026-08-21, ahead
+of the 2026-09-30 expansion-decay deadline. Global decay cutover deadline:
+2026-10-17.
 
 **Shipped:**
+- **Phase 3 tasks 3.7-3.12 — ledger schema, orphaned rows, status model,
+  `computeEpgpTotals` repointed to `player_id`, 2026-08-24 (migrations
+  0018-0019)**: `ep_ledger`/`gp_ledger` gain `player_id`, `points_nominal`,
+  `points_awarded`, `cap_applied`, `cap_at_entry`, `orphaned`; `character_id`
+  made nullable for orphaned rows. **Watch out**: `drizzle-kit generate`'s
+  output for this migration was silently wrong — its `INSERT INTO
+  __new_ep_ledger(...) SELECT ...` copied the brand-new columns from the OLD
+  table too (which doesn't have them), and SQLite treated the unresolvable
+  double-quoted column names as string literals instead of erroring
+  (`"player_id"` landed as the literal text `player_id` in every row) rather
+  than failing loud — caught only because a FK constraint happened to reject
+  one of the garbage strings. **Any migration that adds columns AND rebuilds
+  the same table in one `generate` call needs hand review before applying**:
+  the INSERT/SELECT column lists should only include columns that existed on
+  the old table; new columns get their default/NULL automatically, same as a
+  plain `ALTER TABLE ADD COLUMN`. `scripts/import-epgp.ts` now populates
+  `points_nominal` (sheet column T)/`points_awarded` (column V, was already
+  `points`)/`cap_applied`/`cap_at_entry` (900, constant since Phase 1) on
+  every emitted row directly — no separate backfill script, so a fresh
+  production seed (Phase 7) gets this for free. It also now imports the
+  1,637 orphaned EP rows (§1e) it previously silently skipped: turned out
+  their "Points Earned" formula has no cached numeric result once the name's
+  blank (not literally 0 — genuinely unresolvable), which is why the
+  existing "missing date/activity/points" skip check was swallowing them
+  before they ever reached the name check. `player_id` backfilled onto every
+  ledger row via one correlated-subquery `UPDATE` per table (100% coverage,
+  38,574 EP + 5,055 GP rows) — full local pipeline re-run (wipe + reimport +
+  re-link decay events + backfill) to pick all of this up.
+  `characters.status` enum renamed `retired`→`inactive` per §4j (zero data
+  risk, no character had that status yet); `players`/`characters` both gain
+  `status_changed_at` (+ `status_changed_by` on players). `computeEpgpTotals`
+  (`src/lib/epgp/totals.ts`) now groups directly on
+  `ep_ledger.player_id`/`gp_ledger.player_id` (no join — 3.9 already
+  backfilled it) instead of `character_id`; `EpgpTotal.characterId` renamed
+  to `playerId` (confirmed via search: no external code read that field, only
+  the Map key mattered). All 4 consumers (`roster/page.tsx`,
+  `api/officer/{bids,totals,characters}/route.ts`) and
+  `scripts/verify-harness.ts` updated — each used to do its own manual
+  alt→main resolution to work around character-keyed totals
+  (`isAlt ? mainCharacterId : id`, with a `?? totals.get(r.id)` fallback);
+  all replaced with a direct `totals.get(character.playerId)`, since every
+  character sharing a player now reads the same total by construction.
+  `insertLedgerEntry`'s alt→main character_id redirect at write time is now
+  redundant but harmless, left alone. Verify harness 13/13 (one fixture
+  added — see below); `npm run verify:expansion-decay` and `npm run build`
+  both unaffected (decay.ts stays character-keyed on purpose, doc comment
+  already explains why).
+  **One legitimate fixture swap, not a bug**: Beguilez had been the
+  `departed-gp-only` fixture (expected 75 GP, her own solo GP Log row), but
+  Toryn's dump revealed she's a real alt of Khrathak alongside Valerion (100
+  GP) — grouped by player, her total correctly becomes 140 (175 combined,
+  20% pre-cycle decay). Confirmed by hand-tracing the arithmetic before
+  touching anything. Swapped in Droctulft (identical 75-GP/no-decay profile,
+  genuinely a single-character player) to keep that category testing what it
+  always tested, and turned Beguilez's case into a new, real `main-alt-pair`
+  fixture — resolving that category out of `DEFERRED_FIXTURES` with actual
+  production data rather than an invented example.
+  **New gap noticed, not fixed here** (documented in PLAN.md §16): characters
+  created through the site's own flow (`characters/new`, claim approval)
+  don't get `player_id` set — `computeEpgpTotals` excludes them safely
+  (same as an orphaned row) rather than crashing, but their EP/GP wouldn't
+  show up anywhere until claimed/linked. Likely Phase 11's problem to fix
+  properly, since character claiming rework touches the same code path.
 - **Phase 3 tasks 3.1/3.4-3.6 — Toryn's dump imported and derived into
   players/characters, 2026-08-23**: the real dump turned out to be a full
   `mysqldump` of `sos_bot`, not just `characters` — Toryn had started a

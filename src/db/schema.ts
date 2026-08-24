@@ -64,7 +64,12 @@ export const players = sqliteTable("players", {
     .default("active"),
   joinedAt: integer("joined_at", { mode: "timestamp" }),
   departedAt: integer("departed_at", { mode: "timestamp" }),
+  // §4j's "status_note" — reused as this table's general free-text note
+  // (also used by scripts/derive-players-from-sos-bot.ts for provenance),
+  // not a second dedicated column.
   note: text("note"),
+  statusChangedBy: text("status_changed_by").references(() => users.id),
+  statusChangedAt: integer("status_changed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -108,14 +113,20 @@ export const characters = sqliteTable("characters", {
   charType: text("char_type", { enum: ["main", "alt", "mule"] })
     .notNull()
     .default("main"),
-  // Non-destructive roster housekeeping: "retired"/"removed" hide the
+  // Non-destructive roster housekeeping: "inactive"/"removed" hide the
   // character from the guild-wide read views (Roster/EPGP/Progression/
   // Dashboard) by default without touching its EP/GP history or deleting
   // it — see src/lib/character-status.ts. Settable by the owner or any
-  // officer/leader/admin, same gate as every other edit-form field.
-  status: text("status", { enum: ["active", "retired", "removed"] })
+  // officer/leader/admin, same gate as every other edit-form field. Renamed
+  // from "retired" to "inactive" in Phase 3 (§4j), for parity with
+  // players.status — a character can be removed (deleted in-game,
+  // transferred away) while its player stays active, and vice versa.
+  status: text("status", { enum: ["active", "inactive", "removed"] })
     .notNull()
     .default("active"),
+  // When `status` last changed (§4j) — nullable, since every pre-Phase-3
+  // character predates this column and its true change date is unknown.
+  statusChangedAt: integer("status_changed_at", { mode: "timestamp" }),
   // Which main character this alt belongs to (admin/officer- or
   // owner-assignable), so alts can be tracked back to a main even when the
   // guild's EPGP sheet has no player/account column of its own — see §10.
@@ -237,13 +248,42 @@ export const epLedger = sqliteTable(
   "ep_ledger",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    characterId: integer("character_id")
-      .notNull()
-      .references(() => characters.id),
+    // Nullable as of Phase 3 (§4d/§1e) — an orphaned row (see `orphaned`
+    // below) has no character to attribute to at all, its name having been
+    // stripped in the sheet before this site existed.
+    characterId: integer("character_id").references(() => characters.id),
+    // The account this row's points belong to (§4a) — the aggregation key
+    // `computeEpgpTotals` uses from Phase 3 task 3.11 on, replacing raw
+    // `character_id` grouping. NULL on an orphaned row: it contributes to
+    // no one's total, which is the entire point of orphaning it rather than
+    // guessing an attribution.
+    playerId: integer("player_id").references(() => players.id),
     cycleId: integer("cycle_id").references(() => cycles.id),
     occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
     activity: text("activity").notNull(),
     points: real("points").notNull(),
+    // §2: the sheet's "EP Points" (T) vs. "Points Earned" (V) columns —
+    // nominal is what the activity is worth before the per-cycle cap,
+    // awarded is what actually landed (`points` above mirrors awarded,
+    // kept as-is so no existing reader needs to change). Nullable only
+    // because pre-Phase-3 rows are backfilled after the fact (task 3.8);
+    // every row written from Phase 3 on sets both.
+    pointsNominal: real("points_nominal"),
+    pointsAwarded: real("points_awarded"),
+    // True when this row's nominal points exceeded what was awarded — i.e.
+    // the 900 EP/cycle cap (§2) actually bit. Never true for a decay row
+    // (nominal == awarded by construction, §2's "never clamp a negative").
+    capApplied: integer("cap_applied", { mode: "boolean" }).notNull().default(false),
+    // The EP cap value in force when this row was written (via
+    // getSettingAt, §4i) — without this, a later leader change to the cap
+    // makes historical awards unexplainable. NULL on a gp_ledger row (GP has
+    // no cap) and on any ep_ledger row written before this column existed.
+    capAtEntry: real("cap_at_entry"),
+    // True for one of the 1,637 EP Log rows whose character name was
+    // stripped before this site existed (§1e) — unattributable, contributes
+    // to no one's total (player_id/character_id both NULL), but the row and
+    // its point value are kept for audit completeness rather than dropped.
+    orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
     note: text("note"),
     enteredBy: text("entered_by").references(() => users.id),
     source: text("source", { enum: ["import", "manual", "parse"] })
@@ -259,6 +299,7 @@ export const epLedger = sqliteTable(
   },
   (table) => [
     index("ep_ledger_character_id_idx").on(table.characterId),
+    index("ep_ledger_player_id_idx").on(table.playerId),
     index("ep_ledger_occurred_at_idx").on(table.occurredAt),
     index("ep_ledger_decay_event_id_idx").on(table.decayEventId),
   ],
@@ -272,14 +313,28 @@ export const gpLedger = sqliteTable(
   "gp_ledger",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    characterId: integer("character_id")
-      .notNull()
-      .references(() => characters.id),
+    // Nullable as of Phase 3 (§4d) — GP Log has zero blank names (§1e), so
+    // this is never actually null in practice; kept nullable only for shape
+    // parity with ep_ledger.
+    characterId: integer("character_id").references(() => characters.id),
+    // See epLedger.playerId's comment — same aggregation-key role.
+    playerId: integer("player_id").references(() => players.id),
     cycleId: integer("cycle_id").references(() => cycles.id),
     occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
     itemName: text("item_name"),
     tier: text("tier").notNull(),
     points: real("points").notNull(),
+    // §4d's shared ep_ledger/gp_ledger shape — GP has no per-cycle cap
+    // (§2 is EP-only), so pointsNominal/pointsAwarded always equal `points`,
+    // capApplied is always false, and capAtEntry is always NULL here. Kept
+    // for schema symmetry, not because GP needs the distinction.
+    pointsNominal: real("points_nominal"),
+    pointsAwarded: real("points_awarded"),
+    capApplied: integer("cap_applied", { mode: "boolean" }).notNull().default(false),
+    capAtEntry: real("cap_at_entry"),
+    // GP Log has zero blank-name rows (§1e verified) — always false here,
+    // kept only for shape parity with ep_ledger.
+    orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
     note: text("note"),
     duplicateFlag: integer("duplicate_flag", { mode: "boolean" }).notNull().default(false),
     enteredBy: text("entered_by").references(() => users.id),
@@ -294,6 +349,7 @@ export const gpLedger = sqliteTable(
   },
   (table) => [
     index("gp_ledger_character_id_idx").on(table.characterId),
+    index("gp_ledger_player_id_idx").on(table.playerId),
     index("gp_ledger_occurred_at_idx").on(table.occurredAt),
     index("gp_ledger_decay_event_id_idx").on(table.decayEventId),
   ],

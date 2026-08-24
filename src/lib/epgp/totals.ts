@@ -6,7 +6,7 @@ import { cycles, epLedger, gpLedger } from "@/db";
 import { getSettingsAt } from "./settings";
 
 export type EpgpTotal = {
-  characterId: number;
+  playerId: number;
   ep: number;
   gp: number;
   epDecay: number;
@@ -46,6 +46,17 @@ export async function getEpgpSettings(db: ReturnType<typeof drizzle>): Promise<R
 //   epDecay = rawEp < base_ep ? 0 : (points before current cycle start) * ep_decay
 //   ep = rawEp - epDecay        (same for gp/gpDecay)
 //   priority = (ep + base_ep) / (gp + base_gp)
+//
+// PLAN.md §11 Phase 3 task 3.11: grouped by player_id, not character_id —
+// EP/GP earned on any of a player's characters (main, alt, or a
+// pre-Phase-3 row still keyed to an alt's own id) now rolls up under one
+// account, so a leader-approved main swap (players.main_character_id) no
+// longer needs the old "always redirect an alt's write to its main's
+// character_id" trick to keep totals correct (insertLedgerEntry still does
+// it — harmless now, not load-bearing). Every ep_ledger/gp_ledger row
+// already carries its own player_id (backfilled from characters.player_id
+// at import time, task 3.9), so this groups directly off the ledger rows
+// with no join back through characters.
 export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise<Map<number, EpgpTotal>> {
   const settings = await getEpgpSettings(db);
 
@@ -67,40 +78,46 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
 
   const [prePointsEp, curPointsEp, prePointsGp, curPointsGp] = await Promise.all([
     db
-      .select({ characterId: epLedger.characterId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
+      .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
       .from(epLedger)
       .where(lt(epLedger.occurredAt, cycleStart))
-      .groupBy(epLedger.characterId),
+      .groupBy(epLedger.playerId),
     db
-      .select({ characterId: epLedger.characterId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
+      .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
       .from(epLedger)
       .where(gte(epLedger.occurredAt, cycleStart))
-      .groupBy(epLedger.characterId),
+      .groupBy(epLedger.playerId),
     db
-      .select({ characterId: gpLedger.characterId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
+      .select({ playerId: gpLedger.playerId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
       .from(gpLedger)
       .where(lt(gpLedger.occurredAt, cycleStart))
-      .groupBy(gpLedger.characterId),
+      .groupBy(gpLedger.playerId),
     db
-      .select({ characterId: gpLedger.characterId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
+      .select({ playerId: gpLedger.playerId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
       .from(gpLedger)
       .where(gte(gpLedger.occurredAt, cycleStart))
-      .groupBy(gpLedger.characterId),
+      .groupBy(gpLedger.playerId),
   ]);
 
-  const preEp = new Map(prePointsEp.map((r) => [r.characterId, r.sum]));
-  const curEp = new Map(curPointsEp.map((r) => [r.characterId, r.sum]));
-  const preGp = new Map(prePointsGp.map((r) => [r.characterId, r.sum]));
-  const curGp = new Map(curPointsGp.map((r) => [r.characterId, r.sum]));
+  // An orphaned row (§1e/§4d), or any row whose character has no player_id
+  // yet (shouldn't happen post-Phase-3-backfill, but a future creation path
+  // that forgets to set it would otherwise silently vanish into a phantom
+  // "null" player rather than surfacing) — excluded here, same as
+  // decay.ts's balance queries.
+  const hasPlayer = <T extends { playerId: number | null }>(r: T) => r.playerId !== null;
+  const preEp = new Map(prePointsEp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const curEp = new Map(curPointsEp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const preGp = new Map(prePointsGp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const curGp = new Map(curPointsGp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
 
-  const characterIds = new Set([...preEp.keys(), ...curEp.keys(), ...preGp.keys(), ...curGp.keys()]);
+  const playerIds = new Set([...preEp.keys(), ...curEp.keys(), ...preGp.keys(), ...curGp.keys()]);
 
   const totals = new Map<number, EpgpTotal>();
-  for (const characterId of characterIds) {
-    const preEpAmt = preEp.get(characterId) ?? 0;
-    const curEpAmt = curEp.get(characterId) ?? 0;
-    const preGpAmt = preGp.get(characterId) ?? 0;
-    const curGpAmt = curGp.get(characterId) ?? 0;
+  for (const playerId of playerIds) {
+    const preEpAmt = preEp.get(playerId) ?? 0;
+    const curEpAmt = curEp.get(playerId) ?? 0;
+    const preGpAmt = preGp.get(playerId) ?? 0;
+    const curGpAmt = curGp.get(playerId) ?? 0;
     const rawEp = preEpAmt + curEpAmt;
     const rawGp = preGpAmt + curGpAmt;
 
@@ -109,7 +126,7 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
     const ep = rawEp - epDecay;
     const gp = rawGp - gpDecay;
     const priorityRating = (ep + settings.base_ep) / (gp + settings.base_gp);
-    totals.set(characterId, { characterId, ep, gp, epDecay, gpDecay, priorityRating });
+    totals.set(playerId, { playerId, ep, gp, epDecay, gpDecay, priorityRating });
   }
 
   return totals;

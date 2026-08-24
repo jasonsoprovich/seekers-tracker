@@ -78,16 +78,14 @@ export async function POST(request: Request) {
   const db = await getDb();
 
   const [allCharacters, totals] = await Promise.all([
-    db
-      .select({ id: characters.id, name: characters.name, charType: characters.charType, mainCharacterId: characters.mainCharacterId })
-      .from(characters),
+    db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
     getCachedEpgpTotals(db),
   ]);
   const byLowerName = new Map(allCharacters.map((c) => [c.name.toLowerCase(), c]));
 
+  // computeEpgpTotals groups by player_id (PLAN.md §11 Phase 3 task 3.11).
   function priorityFor(c: (typeof allCharacters)[number]): number | null {
-    const pid = c.charType === "alt" && c.mainCharacterId !== null ? c.mainCharacterId : c.id;
-    return totals.get(pid)?.priorityRating ?? totals.get(c.id)?.priorityRating ?? null;
+    return c.playerId !== null ? (totals.get(c.playerId)?.priorityRating ?? null) : null;
   }
 
   // Every winner must resolve (name + tier) before anything is written —

@@ -45,7 +45,10 @@ async function balancesAt(
     .from(ledger)
     .where(lt(ledger.occurredAt, effectiveDate))
     .groupBy(ledger.characterId);
-  return new Map(rows.map((r) => [r.characterId, r.sum]));
+  // An orphaned row (§1e/§4d) has a NULL character_id and belongs to no
+  // one — excluded here rather than decayed against a phantom "null"
+  // character.
+  return new Map(rows.filter((r) => r.characterId !== null).map((r) => [r.characterId as number, r.sum]));
 }
 
 // Same shape as balancesAt but with no date cutoff — the departure wipe
@@ -56,7 +59,7 @@ async function totalBalances(db: ReturnType<typeof drizzle>, ledger: typeof epLe
     .select({ characterId: ledger.characterId, sum: sql<number>`coalesce(sum(${ledger.points}), 0)` })
     .from(ledger)
     .groupBy(ledger.characterId);
-  return new Map(rows.map((r) => [r.characterId, r.sum]));
+  return new Map(rows.filter((r) => r.characterId !== null).map((r) => [r.characterId as number, r.sum]));
 }
 
 // Last EP-earning activity per character — a "Decay"/"Departure" row is
@@ -70,7 +73,7 @@ async function lastPositiveEpActivity(db: ReturnType<typeof drizzle>): Promise<M
     .from(epLedger)
     .where(gt(epLedger.points, 0))
     .groupBy(epLedger.characterId);
-  return new Map(rows.map((r) => [r.characterId, new Date(Number(r.last) * 1000)]));
+  return new Map(rows.filter((r) => r.characterId !== null).map((r) => [r.characterId as number, new Date(Number(r.last) * 1000)]));
 }
 
 // Every character with a positive EP or GP balance as of `effectiveDate`,

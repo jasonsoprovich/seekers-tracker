@@ -46,9 +46,16 @@ async function main() {
         failures++;
         continue;
       }
-      const t = totals.get(char.id);
+      // computeEpgpTotals groups by player_id, not character_id (PLAN.md
+      // §11 Phase 3 task 3.11).
+      if (char.playerId === null) {
+        console.log(`FAIL  ${fixture.name.padEnd(12)} — character id ${char.id} has no player_id`);
+        failures++;
+        continue;
+      }
+      const t = totals.get(char.playerId);
       if (!t) {
-        console.log(`FAIL  ${fixture.name.padEnd(12)} — computeEpgpTotals returned nothing for character id ${char.id}`);
+        console.log(`FAIL  ${fixture.name.padEnd(12)} — computeEpgpTotals returned nothing for player id ${char.playerId}`);
         failures++;
         continue;
       }

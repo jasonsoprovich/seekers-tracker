@@ -140,7 +140,7 @@ export function CharacterForm({
             ))}
           </select>
           <span className="text-xs text-neutral-500">
-            Retired/removed characters drop off the guild-wide roster views by default — nothing is deleted.
+            Inactive/removed characters drop off the guild-wide roster views by default — nothing is deleted.
           </span>
         </label>
       )}

@@ -1,10 +1,10 @@
-export const CHARACTER_STATUSES = ["active", "retired", "removed"] as const;
+export const CHARACTER_STATUSES = ["active", "inactive", "removed"] as const;
 
 export type CharacterStatus = (typeof CHARACTER_STATUSES)[number];
 
 const LABELS: Record<CharacterStatus, string> = {
   active: "Active",
-  retired: "Retired",
+  inactive: "Inactive",
   removed: "Removed",
 };
 
