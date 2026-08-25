@@ -95,3 +95,20 @@ export function isDeniedRole(roleIds: string[]): boolean {
   if (denied.size === 0) return false;
   return roleIds.some((id) => denied.has(id));
 }
+
+// The same gate `(app)/layout.tsx` applies ahead of every page — pure, so
+// the layout can apply it to the one combined row it already fetches
+// (username/avatarUrl/role/discordVerified/discordRoleIds in one query)
+// without a second D1 round-trip on every navigation.
+export function isMemberAllowed(me: { discordVerified: boolean; discordRoleIds: string | null } | undefined): boolean {
+  return !!me?.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
+}
+
+// DB-fetching wrapper for a caller with no row of its own — custom-
+// worker.ts's WebSocket handler for /api/live-bids/ws (PLAN.md §15) can't
+// use next/headers, so it can't go through getSession()/the layout at all,
+// and has nothing pre-fetched to hand isMemberAllowed above.
+export async function fetchIsMemberAllowed(db: ReturnType<typeof drizzle>, userId: string): Promise<boolean> {
+  const [me] = await db.select({ discordVerified: users.discordVerified, discordRoleIds: users.discordRoleIds }).from(users).where(eq(users.id, userId));
+  return isMemberAllowed(me);
+}

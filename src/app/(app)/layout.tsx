@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/shell/AppShell";
 import { users } from "@/db";
-import { isDeniedRole, parseDiscordRoleIds } from "@/lib/discord-verify";
+import { isMemberAllowed } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // everything under (app) — every page here, including bootstrap-leader —
   // regardless of site `role`, which stays a separate admin-panel-driven
   // axis (task 6.4).
-  if (!me?.discordVerified || isDeniedRole(parseDiscordRoleIds(me.discordRoleIds))) {
+  if (!isMemberAllowed(me)) {
     redirect("/access-denied");
   }
 

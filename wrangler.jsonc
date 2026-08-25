@@ -9,7 +9,9 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "seekers-tracker",
-	"main": ".open-next/worker.js",
+	// Wraps .open-next/worker.js (regenerated every build) to also export
+	// LiveAuctionSession — see custom-worker.ts's own comment.
+	"main": "custom-worker.ts",
 	"compatibility_date": "2026-08-16",
 	"compatibility_flags": [
 		"global_fetch_strictly_public"
@@ -52,6 +54,16 @@
 			"binding": "IMPORT_ARCHIVE",
 			"bucket_name": "seekers-of-souls-imports"
 		}
+	],
+	// Live bid session (PLAN.md §15 / Phase 12): in-memory only, no D1 on
+	// this path — see live-auction-session.ts's own comment for why.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "LIVE_AUCTION_SESSION", "class_name": "LiveAuctionSession" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["LiveAuctionSession"] }
 	],
 	"observability": {
 		"enabled": true

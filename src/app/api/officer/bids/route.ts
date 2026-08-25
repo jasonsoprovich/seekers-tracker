@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { getCachedEpgpTotals } from "@/lib/epgp/totals";
+import { getLiveAuctionSessionStub } from "@/lib/live-bids/session";
 
 type BidEntryBody = { characterName?: unknown; tier?: unknown; occurredAt?: unknown; isWinner?: unknown };
 type BidsRequestBody = { itemName?: unknown; entries?: unknown; note?: unknown };
@@ -153,6 +154,18 @@ export async function POST(request: Request) {
     if (!gpResult.ok) {
       return Response.json({ error: `Recorded the bids, but couldn't charge GP for ${w.characterName}: ${gpResult.error}` }, { status: 422 });
     }
+  }
+
+  // PLAN.md §15 / Phase 12 task 12.5. This route stays the unchanged
+  // source of truth — the DO clear is just tidying up the live view now
+  // that the real record exists. Best-effort: a clear failure (or the DO
+  // being unreachable) must never fail a finalize that already committed
+  // real ledger rows above.
+  try {
+    const stub = await getLiveAuctionSessionStub();
+    await stub.fetch("https://live-auction-session/clear", { method: "POST" });
+  } catch {
+    // ignore
   }
 
   return Response.json({ lootEventId: lootEvent.id, inserted, unmatched, invalidTiers }, { status: 201 });

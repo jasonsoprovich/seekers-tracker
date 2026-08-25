@@ -261,9 +261,12 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 11 (quest flags) is COMPLETE as of
-2026-08-24, and deployed to production the same day** (Worker version
-`ad6f4eca-587e-4583-aa8f-d09f9da3d8df`) — see below for the writeup, and
+**Current focus: PLAN.md §11 Phase 12 (live bids) in progress as of
+2026-08-24** — tasks 12.1/12.2/12.4/12.5 (this repo) done; 12.3
+(`../seekers-epgp-parser` pushing bid tells live) still open. See below for
+the writeup. Phase 11 (quest flags) is COMPLETE as of 2026-08-24, and
+deployed to production the same day (Worker version
+`ad6f4eca-587e-4583-aa8f-d09f9da3d8df`) — see below for that writeup, and
 the Webpack-build entry above "Commands" for why a deploy had actually been
 silently broken since before Phase 5. Phase 10 (character claiming rework)
 is also complete, same date. Phase 9 (Discord bot, `../seekers-bot`) tasks
@@ -272,6 +275,73 @@ there — see that repo's own `CLAUDE.md`. Phases 0-6 are complete (4.2b
 deliberately not implemented — see below and PLAN.md §16). Both hard
 deadlines so far (expansion decay 9/30, global decay cutover 10/17) already
 met, by Phase 2 and Phase 5 respectively.
+
+**Phase 12 tasks 12.1/12.2/12.4/12.5 — live bid Durable Object +
+WebSocket, 2026-08-24**: `src/durable-objects/live-auction-session.ts`
+(`LiveAuctionSession`, single guild-wide instance via a fixed
+`idFromName`) holds in-flight bids purely in memory — no `ctx.storage`,
+no D1, on this path at all (PLAN.md §15), which is what makes constant
+live-viewing free-tier-safe. Uses the WebSocket Hibernation API
+(`ctx.acceptWebSocket`) so idle viewers don't keep it billed as active.
+`POST /api/officer/live-bids/push` (task 12.2, existing
+`requireOfficerApiKey`) resolves the bidder's current priority the same
+way `/api/officer/bids` already does per-entry, then forwards to the DO;
+`POST /api/officer/bids` (task 12.5) clears the DO on finalize,
+best-effort, after its own inserts succeed — that route is still the
+unchanged source of truth. New `/live-bids` page (task 12.4, every role —
+same transparency call as `/roster`/`/bank`/`/keys`), a client component
+opening a WebSocket and rendering bids ranked the same way the parser
+app's own "Determine Winner" would (tier first, then priority).
+
+**Real architectural finding, not just a design choice**: a Next.js Route
+Handler cannot itself return the WebSocket upgrade. OpenNext bridges API
+routes through a Node-`http.ServerResponse`-style shim (for Node-API
+compatibility) that rejects any response status outside 200-599 — the 101
+Switching Protocols a WebSocket upgrade needs never reaches the real
+Workers runtime, it 500s inside that shim first. Confirmed by hand: a
+first attempt at `src/app/api/live-bids/ws/route.ts` crashed exactly this
+way under a real local `wrangler dev --local` run. Fixed by moving the
+`/api/live-bids/ws` handling into `custom-worker.ts` — a hand-written
+entrypoint (`main` in `wrangler.jsonc`/`wrangler.dev.jsonc`) that wraps
+the OpenNext-generated `.open-next/worker.js` (regenerated every build,
+which is why this wrapper — not that file — is what's committed) and also
+exports `LiveAuctionSession` so wrangler can find it. It intercepts that
+one path *before* Next's router (and the shim) ever sees the request;
+every other route, including the JSON-only `POST
+/api/officer/live-bids/push`, still goes through Next exactly as before.
+Session auth for the WS path can't reuse `next/headers`' `headers()`
+outside a Next request context either, so `custom-worker.ts` calls
+`createAuth(env, cf).api.getSession({ headers: request.headers })`
+directly — same underlying call `src/lib/session.ts`'s `getSession()`
+makes, just without the Next-specific header helper. The guild-membership/
+deny-list gate itself (`isMemberAllowed`) was pulled out of
+`(app)/layout.tsx` into `src/lib/discord-verify.ts` as a pure function
+over an already-fetched row (`fetchIsMemberAllowed` wraps it with the one
+extra query a caller with nothing pre-fetched, like this one, needs) —
+deliberately *not* a single shared DB-fetching helper, since that would
+have added a second D1 round-trip to the layout's existing one-query gate
+on every single page navigation just to save a few lines in a path that
+runs once per WebSocket connection, not once per request.
+
+**Verified live against a real local `wrangler dev --local` run**, not
+just `tsc`/build: unauthenticated push → 401, unauthenticated WS upgrade
+attempt → 401 (not the 500 above), a WS upgrade with a temporary
+query-param bypass (session cookies can't be forged without reverse-
+engineering better-auth's HMAC signing, and there's still no real Discord
+OAuth in this environment — same gap as every other session-gated route
+built this session) completing the full 101 handshake and receiving both
+the initial `{type:"state"}` snapshot and a live broadcast pushed mid-
+connection, and a real finalize through `POST /api/officer/bids` writing
+the actual `loot_events`/`bids`/`gp_ledger` rows (then deleted, along with
+a throwaway officer API key, to leave local D1 clean). The bypass was
+reverted before committing — the shipped code always requires a real
+session. `npm run build` (webpack) and a full `npx opennextjs-cloudflare
+build` + `wrangler dev --local` smoke pass both clean; `/` and unauth
+`/roster`/`/live-bids` still 200/307 as expected, no regression.
+**Not yet applied to remote** — no D1 migration needed (the DO has no
+storage), but this hasn't been deployed to production yet, and 12.3 (the
+parser app actually pushing tells) is still open, so there's nothing live
+to watch yet regardless.
 
 **Found while starting Phase 11**: the guild's real `SoS - EPGP.xlsx` is
 sitting in `~/Downloads` on this machine — the same file
