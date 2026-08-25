@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 
 import { commitDecayAction, previewDecayAction } from "@/app/(app)/epgp/decay/actions";
 import { Button } from "@/components/ui/Button";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import type { DecayPreviewRow } from "@/lib/epgp/decay";
 
@@ -20,6 +21,7 @@ function todayIso(): string {
 // only the explicit "Confirm & commit" step calls commitDecayAction.
 export function ExpansionDecayForm() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [rate, setRate] = useState("0.85");
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
   const [label, setLabel] = useState("");
@@ -45,9 +47,13 @@ export function ExpansionDecayForm() {
 
   async function onCommit() {
     if (!preview) return;
-    if (!confirm(`Apply ${(Number(rate) * 100).toFixed(0)}% expansion decay to ${preview.rows.length} character(s) as of ${effectiveDate}? This writes ledger rows immediately.`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Apply expansion decay?",
+      message: `Apply ${(Number(rate) * 100).toFixed(0)}% expansion decay to ${preview.rows.length} character(s) as of ${effectiveDate}? This writes ledger rows immediately.`,
+      confirmLabel: "Apply decay",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const outcome = await commitDecayAction(rate, effectiveDate, label);

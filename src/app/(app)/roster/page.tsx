@@ -1,11 +1,9 @@
 import { eq } from "drizzle-orm";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, users } from "@/db";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getCachedEpgpTotals } from "@/lib/epgp/totals";
@@ -15,11 +13,18 @@ import { getSession } from "@/lib/session";
 // of the whole guild's roster, mains and alts, owned and unclaimed alike.
 // Doubles as the guild's EPGP standings (the old /epgp page was dropped —
 // same character set, same search/filters, so it was pure duplication).
+//
+// No header actions here on purpose (2026-08-25): Ledger/SQL Sandbox/App Key
+// used to live in this page's PageHeader actions slot, visible on a page
+// every member can reach — App Key in particular let anyone who found this
+// link get to the officer API-key page, even though that page's own gate
+// (canManageEpgp) blocked non-officers once there. Ledger moves to the main
+// nav; SQL Sandbox and App Key move to /admin, which already requires
+// officer+ to reach at all.
 export default async function RosterPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
   const db = await getDb();
   const [rows, totals] = await Promise.all([
     db
@@ -78,23 +83,6 @@ export default async function RosterPage() {
       <PageHeader
         title="Guild Roster"
         subtitle="Every character in the guild, mains and alts, with current EPGP standing. Search, sort, and filter below."
-        actions={
-          <>
-            <Link href="/epgp/ledger" className="text-emerald-400 hover:text-emerald-300">
-              Ledger
-            </Link>
-            {canManageEpgp(role) && (
-              <Link href="/epgp/sql" className="text-emerald-400 hover:text-emerald-300">
-                SQL Sandbox
-              </Link>
-            )}
-            {canManageEpgp(role) && (
-              <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
-                App Key
-              </Link>
-            )}
-          </>
-        }
       />
       <RosterTable rows={rosterRows} />
     </div>

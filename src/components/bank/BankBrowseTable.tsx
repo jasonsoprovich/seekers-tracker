@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { addManualHoldingAction, deleteHoldingAction, updateHoldingAction, type AddHoldingInput } from "@/app/(app)/bank/actions";
 import { Button } from "@/components/ui/Button";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
 
@@ -48,6 +49,7 @@ const emptyAddForm: AddHoldingInput = {
 
 export function BankBrowseTable({ holdings, canManage }: { holdings: BankHoldingRow[]; canManage: boolean }) {
   const router = useRouter();
+  const confirm = useConfirm();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -147,7 +149,13 @@ export function BankBrowseTable({ holdings, canManage }: { holdings: BankHolding
   }
 
   async function onDelete(row: BankHoldingRow) {
-    if (!confirm(`Remove "${row.itemName}" from ${row.holderName}'s manual entries?`)) return;
+    const ok = await confirm({
+      title: "Remove holding?",
+      message: `Remove "${row.itemName}" from ${row.holderName}'s manual entries?`,
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     const outcome = await deleteHoldingAction(row.id);
     setPending(false);

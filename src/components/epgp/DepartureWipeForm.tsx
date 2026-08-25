@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 
 import { commitDepartureAction, previewDepartureAction } from "@/app/(app)/epgp/decay/actions";
 import { Button } from "@/components/ui/Button";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import type { DeparturePreviewRow } from "@/lib/epgp/decay";
 
@@ -16,6 +17,7 @@ type Result = { decayEventId: number; epRows: number };
 // GP is never touched or shown as affected here (§1e's asymmetry).
 export function DepartureWipeForm() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [names, setNames] = useState("");
   const [inactiveSince, setInactiveSince] = useState("");
   const [label, setLabel] = useState("");
@@ -49,7 +51,13 @@ export function DepartureWipeForm() {
 
   async function onCommit() {
     if (!preview) return;
-    if (!confirm(`Zero the EP of ${preview.rows.length} character(s)? GP is not affected. This writes ledger rows immediately.`)) return;
+    const ok = await confirm({
+      title: "Zero EP for departure?",
+      message: `Zero the EP of ${preview.rows.length} character(s)? GP is not affected. This writes ledger rows immediately.`,
+      confirmLabel: "Zero EP",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const outcome = await commitDepartureAction(names, inactiveSince, label);

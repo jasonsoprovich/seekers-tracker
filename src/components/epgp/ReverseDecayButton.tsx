@@ -4,14 +4,22 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { reverseDecayAction } from "@/app/(app)/epgp/decay/actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 export function ReverseDecayButton({ decayEventId, label }: { decayEventId: number; label: string }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onClick() {
-    if (!confirm(`Reverse "${label}"? This deletes every ledger row it wrote. Can't be undone.`)) return;
+    const ok = await confirm({
+      title: "Reverse decay?",
+      message: `Reverse "${label}"? This deletes every ledger row it wrote. Can't be undone.`,
+      confirmLabel: "Reverse",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const result = await reverseDecayAction(decayEventId);

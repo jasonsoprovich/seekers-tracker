@@ -6,7 +6,7 @@ import { runEpgpQuery, type SqlQueryResult } from "@/app/(app)/epgp/sql/actions"
 import { Button } from "@/components/ui/Button";
 import { fieldClasses } from "@/components/ui/Field";
 
-const EXAMPLE = "SELECT name, class, level FROM characters ORDER BY level DESC LIMIT 20";
+const EXAMPLE = "SELECT name, class, level FROM v_characters ORDER BY level DESC LIMIT 20";
 
 export function SqlSandboxForm() {
   const [state, formAction, pending] = useActionState<SqlQueryResult, FormData>(runEpgpQuery, {});
@@ -26,7 +26,7 @@ export function SqlSandboxForm() {
           <Button type="submit" size="md" disabled={pending}>
             {pending ? "Running…" : "Run query"}
           </Button>
-          <span className="text-xs text-neutral-500">Read-only SELECT, capped at 200 rows.</span>
+          <span className="text-xs text-neutral-500">Read-only SELECT against the v_-prefixed EPGP views, capped at 200 rows.</span>
         </div>
       </form>
 

@@ -19,7 +19,7 @@ export default async function EpgpSqlPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         title="EPGP SQL Sandbox"
-        subtitle="Read-only SELECT queries against the live database, for testing and debugging. Writes are rejected."
+        subtitle="Read-only SELECT queries against the EPGP-only v_-prefixed views (v_characters, v_ep_ledger, v_gp_ledger, ...), for testing and debugging. Writes are rejected, and account/session tables are out of scope."
       />
       <SqlSandboxForm />
     </div>

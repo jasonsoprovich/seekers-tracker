@@ -4,14 +4,22 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { revokeAppKey } from "@/app/(app)/epgp/app-key/actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 export function RevokeAppKeyButton({ keyId, name }: { keyId: string; name: string }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onClick() {
-    if (!confirm(`Revoke "${name}"? Any app using this key will stop working immediately.`)) return;
+    const ok = await confirm({
+      title: "Revoke API key?",
+      message: `Revoke "${name}"? Any app using this key will stop working immediately.`,
+      confirmLabel: "Revoke",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const result = await revokeAppKey(keyId);

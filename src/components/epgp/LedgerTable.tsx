@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 
 export type EpRow = {
@@ -39,6 +40,7 @@ type Draft = { activityOrTier: string; itemName: string; points: string; occurre
 
 export function LedgerTable(props: Props) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +101,13 @@ export function LedgerTable(props: Props) {
 
   async function onDelete(id: number, characterName: string) {
     const label = props.type === "ep" ? "EP" : "GP";
-    if (!confirm(`Delete this ${label} entry for ${characterName}? This can't be undone.`)) return;
+    const ok = await confirm({
+      title: "Delete ledger entry?",
+      message: `Delete this ${label} entry for ${characterName}? This can't be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const result = await deleteLedgerEntry(props.type, id);

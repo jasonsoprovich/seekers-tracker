@@ -7,7 +7,7 @@ import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, players, users } from "@/db";
-import { canManageAnyCharacter, canManageEpgpConfig, canManageRoles, getUserRole } from "@/lib/authz";
+import { canManageAnyCharacter, canManageEpgp, canManageEpgpConfig, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -128,9 +128,16 @@ export default async function AdminPage() {
             <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
               Import Audit Trail
             </Link>
-            <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
-              App Key
-            </Link>
+            {canManageEpgp(role) && (
+              <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
+                App Key
+              </Link>
+            )}
+            {canManageEpgp(role) && (
+              <Link href="/epgp/sql" className="text-emerald-400 hover:text-emerald-300">
+                SQL Sandbox
+              </Link>
+            )}
             {canManageEpgpConfig(role) && (
               <Link href="/epgp/settings" className="text-emerald-400 hover:text-emerald-300">
                 EPGP Settings

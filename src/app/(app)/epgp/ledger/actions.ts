@@ -8,6 +8,7 @@ import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
+import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 import { getSession } from "@/lib/session";
 
 export type LedgerActionResult = { error?: string };
@@ -66,7 +67,14 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     if (!before) return { error: "Ledger row not found." };
     const [after] = await db
       .update(epLedger)
-      .set({ activity: activityOrTier, points: input.points, occurredAt, note: input.note.trim() || null })
+      .set({
+        activity: activityOrTier,
+        points: input.points,
+        pointsNominal: input.points,
+        pointsAwarded: input.points,
+        occurredAt,
+        note: input.note.trim() || null,
+      })
       .where(eq(epLedger.id, input.id))
       .returning();
     await recordLedgerChange(db, "ep", input.id, "update", before, after, session.user.id);
@@ -75,11 +83,25 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     if (!before) return { error: "Ledger row not found." };
     const [after] = await db
       .update(gpLedger)
-      .set({ tier: activityOrTier, itemName: input.itemName.trim() || null, points: input.points, occurredAt, note: input.note.trim() || null })
+      .set({
+        tier: activityOrTier,
+        itemName: input.itemName.trim() || null,
+        points: input.points,
+        pointsNominal: input.points,
+        pointsAwarded: input.points,
+        occurredAt,
+        note: input.note.trim() || null,
+      })
       .where(eq(gpLedger.id, input.id))
       .returning();
     await recordLedgerChange(db, "gp", input.id, "update", before, after, session.user.id);
   }
+
+  // Every other EPGP-affecting write path invalidates this cache
+  // (insertLedgerEntry, every decay commit) — this one and delete's below
+  // didn't, which left /roster showing stale EP/GP after an officer edited
+  // or deleted a row. Found auditing this file, 2026-08-25.
+  await invalidateEpgpTotalsCache();
 
   return {};
 }
@@ -105,6 +127,8 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
     await db.delete(gpLedger).where(eq(gpLedger.id, id));
     await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
   }
+
+  await invalidateEpgpTotalsCache();
 
   return {};
 }

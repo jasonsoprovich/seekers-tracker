@@ -4,15 +4,28 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { approveClaim, denyClaim } from "@/app/(app)/admin/claims/actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
+// Approve fired immediately with no confirmation of any kind until
+// 2026-08-25 — the only mutation of the 8-site confirmation audit that had
+// none at all (Deny already has its own two-step reveal-a-reason-field
+// flow below, so it's left as-is). Approving hands the requester ownership
+// of the character immediately.
 export function ClaimReviewButtons({ claimId }: { claimId: number }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [denying, setDenying] = useState(false);
   const [note, setNote] = useState("");
 
   async function onApprove() {
+    const ok = await confirm({
+      title: "Approve claim?",
+      message: "Approve this claim? The requester becomes the owner of this character immediately.",
+      confirmLabel: "Approve",
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const result = await approveClaim(claimId);

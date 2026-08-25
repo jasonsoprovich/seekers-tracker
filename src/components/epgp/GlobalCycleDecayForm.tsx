@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 
 import { commitGlobalCycleDecayAction, previewDecayAction } from "@/app/(app)/epgp/decay/actions";
 import { Button } from "@/components/ui/Button";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import type { DecayPreviewRow } from "@/lib/epgp/decay";
 
@@ -24,6 +25,7 @@ function todayIso(): string {
 // input is free text, not a fixed control, same as expansion decay's.
 export function GlobalCycleDecayForm() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [rate, setRate] = useState("0.10");
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
   const [label, setLabel] = useState("");
@@ -49,13 +51,13 @@ export function GlobalCycleDecayForm() {
 
   async function onCommit() {
     if (!preview) return;
-    if (
-      !confirm(
-        `Apply ${(Number(rate) * 100).toFixed(0)}% cycle decay to ${preview.rows.length} character(s) as of ${effectiveDate}? This compounds on top of every prior cycle decay and writes ledger rows immediately.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Apply cycle decay?",
+      message: `Apply ${(Number(rate) * 100).toFixed(0)}% cycle decay to ${preview.rows.length} character(s) as of ${effectiveDate}? This compounds on top of every prior cycle decay and writes ledger rows immediately.`,
+      confirmLabel: "Apply decay",
+      danger: true,
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const outcome = await commitGlobalCycleDecayAction(rate, effectiveDate, label);
