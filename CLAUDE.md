@@ -425,16 +425,62 @@ for the eventual Phase 14 (dry-run `seed-from-xlsx`/harness against a
 current sheet export, a go-live runbook) can happen anytime without
 freezing the live sheet or touching a fresh remote D1.
 
-**Phase 8 (guild bank) in progress as of 2026-08-24** — 8.1 (migration), 8.3
-(parser, `seekers-epgp-parser/internal/bankexport`), 8.5 (browse/search) and
-8.6 (manual add/edit) done; only 8.2 (migrate the sheet's own Bank tabs) and
-8.4 (the real import endpoint) still need real inputs this session doesn't
-have — 8.2 needs the guild's downloaded `.xlsx` (same file
-`scripts/import-epgp.ts` already knows how to read), 8.4 needs real mule
-exports (`data/imports/bank/`). **8.5/8.6 shipped in commit `f420b79` but
-weren't checked off in `PLAN.md`/recorded here at the time** — caught and
-fixed while starting Phase 9, see `PLAN.md`'s own 8.5/8.6 entries for what
-they cover.
+**Phase 8 (guild bank) in progress as of 2026-08-24** — 8.1 (migration), 8.2
+(sheet-tab migration), 8.3 (parser, `seekers-epgp-parser/internal/
+bankexport`), 8.5 (browse/search) and 8.6 (manual add/edit) done; only 8.4
+(the real per-mule import endpoint) still needs an input this session
+doesn't have — real mule Zeal exports (`data/imports/bank/`). **8.5/8.6
+shipped in commit `f420b79` but weren't checked off in `PLAN.md`/recorded
+here at the time** — caught and fixed while starting Phase 9, see
+`PLAN.md`'s own 8.5/8.6 entries for what they cover.
+
+**Phase 8 task 8.2 — sheet Bank tabs migrated into `bank_holdings`,
+2026-08-24**: turned out not to actually be blocked — the note above (and
+Phase 11's own writeup) had already found the real `SoS - EPGP.xlsx`
+sitting in `~/Downloads` on this machine, just hadn't circled back to use
+it for this task yet. `scripts/import-bank-tabs.ts` (same SQL-emitting,
+non-destructive shape as `import-epgp.ts`/`import-quest-flags.ts`) parses
+the "Spell Bank" and "Item Bank" tabs — "Sky Bank" was already split out
+into its own tables by Phase 11, so only these two feed `bank_holdings`
+now, not three. Splits each row's comma-joined `Notes` location list
+(`"General6-Slot5, Bank1-Slot3, ..."`) via the same `BAG_SLOT_RE`/
+`BAG_CONTAINER_RE` shape as the sibling `pq-companion` repo's
+`inventoryLocations.ts` (a bare `"Bank20"` with no `-SlotN` means the item
+occupies the bag's own top-level slot — `slotIndex 0`, per the schema's own
+comment). Verified against the real data *before* writing the split logic:
+every row's location-token count either equals its QTY exactly (one
+non-stacking item per slot — true for all 283 Spell Bank rows with any
+locations at all) or is exactly 1 (one stack holding the full QTY) — except
+two Item Bank rows (Flawless Diamond, Pristine Emerald, both qty 21 across
+2 locations) that fit neither pattern, given a documented heuristic
+(stack-cap 20, remainder on the last slot) rather than silently guessed at
+in code, and called out in the script's own console output on every run.
+Result: 968 physical-stack `bank_holdings` rows (888 spell, 80 item) from
+283 Spell Bank + 78 Item Bank sheet rows. 12 distinct mule/holder names
+found; 6 already existed as `characters` rows (Darkclaw, Darkseller, Luna,
+Punk, Sandrian, Darkspeed), 6 didn't (Lunamule, Intspelzone, Intspelztwo,
+Wiszpellz, Veliousmule, Sosbanker) — created as new `char_type='mule'`
+characters (§4c), owned by whichever real character the sheet's "Officer"
+column paired them with (Luna → Lunamule; Aransur → Intspelzone/
+Intspelztwo/Wiszpellz/Veliousmule; Avenn → Sosbanker) — confirmed each
+holder name maps to exactly one officer across the whole sheet before
+relying on that, not assumed. Idempotent by the schema's own delete-and-
+replace-per-holder design (§3/§4f), scoped to `source = 'import' AND
+import_id IS NULL` so a later real Zeal-export import (task 8.4) can never
+be clobbered by a re-run of this sheet migration, and vice versa.
+**Verified live against local D1** (snapshotted first via `npm run
+snapshot -- save pre-bank-tabs-import`): zero unique-constraint
+`(holder_character_id, container, slot_index)` collisions across the full
+parsed set; re-running the script and reapplying the emitted SQL produced
+byte-identical totals (968 rows, same per-category/per-holder counts) and
+did not create a duplicate mule character, confirming idempotency; a
+throwaway script called `listBankHoldings` (the `/bank` page's own query,
+task 8.5) directly against local D1 and got back all 968 rows correctly
+joined to their holder with zero code changes needed; `npm run verify`
+stayed 13/13 (no regression — this only touches `characters`/
+`bank_holdings`, neither read by the harness). **Not verified in an actual
+browser** — same Discord-OAuth-credential gap as every other page built
+this session; the query layer itself was proven directly instead.
 
 **Shipped:**
 - **Phase 12 — live bids, 2026-08-24**: `LiveAuctionSession` Durable

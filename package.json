@@ -14,6 +14,7 @@
     "import:epgp": "tsx scripts/import-epgp.ts",
     "import:sos-bot-dump": "tsx scripts/import-sos-bot-dump.ts",
     "import:quest-flags": "tsx scripts/import-quest-flags.ts",
+    "import:bank-tabs": "tsx scripts/import-bank-tabs.ts",
     "derive:players": "tsx scripts/derive-players-from-sos-bot.ts",
     "snapshot": "scripts/snapshot.sh",
     "verify": "tsx scripts/verify-harness.ts",
