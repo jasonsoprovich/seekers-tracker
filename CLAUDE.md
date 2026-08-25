@@ -67,6 +67,26 @@ npx tsc --noEmit -p tsconfig.json                       # typecheck only (fast)
 issue, unrelated to any specific change) — don't chase it, it's a known
 pre-existing gap, not something you broke.
 
+**`build` uses `next build --webpack`, deliberately — do not "clean up" this
+flag back to plain `next build`.** Found 2026-08-24: Next 16's Turbopack
+disables nested chunking for server-side output (confirmed in Next's own
+docs), which meant every new route added its own ~570 KB duplicate copy of
+shared vendor code (Next's bundled `@opentelemetry/api`, mainly) into the
+Worker script instead of sharing one. By the time Phase 11 shipped, the
+compiled Worker was 3110 KiB gzipped — over the Workers **Free plan's 3 MiB
+(3072 KiB) cap** — and bisecting past commits showed it had already crossed
+that line during Phase 6, two days earlier; **no deploy had actually
+succeeded since 2026-08-22**, despite Phases 5-11 all being marked shipped
+here. Switching the production build to Webpack (still officially
+supported — Next's own upgrade guide documents `next build --webpack` as
+the way to keep Turbopack for `next dev` but not `next build`) properly
+deduplicates that shared code: 2040 KiB gzipped, comfortably under the cap
+again with real headroom for future phases. `next dev` is untouched (still
+Turbopack, unaffected). Verified this isn't just smaller-but-broken: a real
+local `wrangler dev --local` run against the webpack-built `.open-next/`
+served `/`, `/login`, `/roster` correctly and redirected `/keys` to
+`/login` when unauthenticated, no errors in the log.
+
 ## Local-first testing (PLAN.md §5) — important
 
 **Develop and test against local D1, not remote.** `wrangler dev --local` and
