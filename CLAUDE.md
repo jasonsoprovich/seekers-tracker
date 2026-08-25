@@ -261,6 +261,75 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Nav/security restructure, 2026-08-25 — committed locally, NOT yet
+deployed to production.** Outside PLAN.md's own numbered phases (this was
+a leader-requested security audit + follow-on UX restructure, not a
+PLAN.md §11 task) — "Phase A/B/C/D" below is that separate work's own
+internal naming, not a PLAN.md phase number. Six commits, `git log` has
+the full detail; summary:
+- **Phase A (security)**: `/epgp/sql` (the officer SQL sandbox) validated
+  query *text* but ran against the whole D1 database, including
+  better-auth's own `sessions`/`accounts`/`apikeys` tables — an officer
+  could `SELECT token FROM sessions` or pull another member's plaintext
+  Discord OAuth tokens straight out (why they're plaintext: see
+  `src/auth/index.ts`'s comment). Migration 0023 adds `v_`-prefixed
+  read-only views over exactly the EPGP tables (none over the auth
+  tables); the sandbox's validator now tokenizes the query and requires
+  every FROM/JOIN target to be a view or a query-local CTE — a naive regex
+  version of this was tried first and confirmed, against local D1, to miss
+  an aliased comma-join (`FROM v_characters c, accounts a`), which also
+  defeats a query-plan-based check (`EXPLAIN QUERY PLAN` reports the
+  alias, not the real table name) — worth remembering if this validator is
+  ever touched again. App Key / SQL Sandbox links moved off Roster (every
+  member could see them) onto `/admin` (already officer+-gated). All 8
+  `window.confirm()` call sites migrated to a new `ConfirmDialog` (real
+  `<dialog>`, focus trap, Escape-to-close); claim approval, which had no
+  confirmation at all, gained one too. Fixed two ledger bugs found during
+  the audit: `updateLedgerEntry`/`deleteLedgerEntry` never invalidated the
+  EPGP totals cache (stale `/roster` after an edit/delete), and
+  `updateLedgerEntry` didn't sync `pointsNominal`/`pointsAwarded`.
+- **Phase B**: top `NavBar` replaced with a left `Sidebar` (logo pinned
+  top, links scrollable middle, account block pinned bottom); nav links
+  gained a declarative `roles` field instead of one ad-hoc ternary.
+- **Phase C1**: `/epgp/ledger` grew from 2 tabs (EP/GP) to 4 — added Bids
+  History (net-new: `bids` had been write-only since Phase 12, nothing had
+  ever read it back) and folded in Audit Trail (was its own unlinked
+  `/epgp/ledger/audit` route, now removed). Promoted to a top-level
+  sidebar entry. Extracted the page's and `/api/officer/ledger`'s
+  identical duplicated query into `listLedgerRows`
+  (`src/lib/epgp/ledger-list.ts`).
+- **Phase C2**: Sky Bank merged into `/bank` as a second tab
+  (`sky_bank_rewards`/`sky_bank_stock` share no columns with
+  `bank_holdings`, so kept as its own tab rather than forced into that
+  shape). `/keys` deliberately left as-is — `character_key_flags` (the
+  EmpVT/ST half) has no other reader, so Sky Bank content is duplicated
+  onto `/bank`, not moved.
+- **Phase D**: the live-bids Durable Object had no notion of time at
+  all — an open WebSocket against a round that ended hours ago still
+  showed a green "Live" pill. Added `lastSeenAt`/`pusherUserId` +
+  `status: "live"|"idle"` (90s TTL via `ctx.storage.setAlarm()` — a timer
+  schedule, not a data write, so this doesn't reintroduce the per-push
+  storage cost the DO's original design deliberately avoided), a
+  `POST /heartbeat` (parser app's poller sends this on a quiet tick
+  instead of going silent) and `GET /state` (backs a new Refresh button —
+  previously the DO had no plain read path at all). Also fixed a real bug:
+  `POST /api/officer/bids`'s GP-charge loop returned before ever reaching
+  the DO clear on a per-winner failure, even though `loot_events`/`bids`
+  were already durably committed by that point — wrapped in `finally`.
+  Companion parser-app change (`../seekers-epgp-parser`) sends the
+  heartbeat and an explicit clear on quit.
+
+Every phase verified against a real local server (`wrangler dev --local`
+or `opennextjs-cloudflare preview -c wrangler.dev.jsonc`, whichever
+actually resolves the `LiveAuctionSession` DO binding — a raw `wrangler
+dev --local` invocation left it unresolved) with real signed better-auth
+session cookies and a real minted officer API key (same
+mint-directly-against-local-D1-then-sign-with-the-real-local-secret
+technique, not a bypass), not just `tsc`/`build`. **Migration 0023 has NOT
+been applied to remote D1 and nothing here has been deployed** — do that
+(local → verify → remote → deploy, per "Commands" above) before the next
+session assumes any of this is live.
+
 **Current focus: PLAN.md §11 Phase 12 (live bids) is COMPLETE as of
 2026-08-24 and deployed to production the same day** (Worker version
 `ce4c9c51-988e-4386-8ae8-7b9034b24304`). See below for the writeup.
