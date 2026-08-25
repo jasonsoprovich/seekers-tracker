@@ -261,11 +261,10 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Current focus: PLAN.md §11 Phase 12 (live bids) in progress as of
-2026-08-24** — tasks 12.1/12.2/12.4/12.5 (this repo) done; 12.3
-(`../seekers-epgp-parser` pushing bid tells live) still open. See below for
-the writeup. Phase 11 (quest flags) is COMPLETE as of 2026-08-24, and
-deployed to production the same day (Worker version
+**Current focus: PLAN.md §11 Phase 12 (live bids) is COMPLETE as of
+2026-08-24**, not yet deployed to production. See below for the writeup.
+Phase 11 (quest flags) is COMPLETE as of 2026-08-24, and deployed to
+production the same day (Worker version
 `ad6f4eca-587e-4583-aa8f-d09f9da3d8df`) — see below for that writeup, and
 the Webpack-build entry above "Commands" for why a deploy had actually been
 silently broken since before Phase 5. Phase 10 (character claiming rework)
@@ -339,9 +338,51 @@ session. `npm run build` (webpack) and a full `npx opennextjs-cloudflare
 build` + `wrangler dev --local` smoke pass both clean; `/` and unauth
 `/roster`/`/live-bids` still 200/307 as expected, no regression.
 **Not yet applied to remote** — no D1 migration needed (the DO has no
-storage), but this hasn't been deployed to production yet, and 12.3 (the
-parser app actually pushing tells) is still open, so there's nothing live
-to watch yet regardless.
+storage), but this hasn't been deployed to production yet.
+
+**Phase 12 task 12.3 — parser app pushes bid tells live,
+2026-08-24** (`seekers-epgp-parser`): `App.startLiveBidPush` (`app.go`)
+polls the log every 5s for tells newly detected since the last poll
+within the same `[startAt, now)` window `CaptureBids` itself scans, and
+pushes each new one via a new `officerapi.Client.PushLiveBid` (`POST
+/api/officer/live-bids/push`). Diffing is a plain count comparison
+against the previous tick's `len(candidates)`, not a value-based diff —
+correct because `parse.CaptureBids` re-scanning the same `startAt` against
+a strictly-growing log file always reproduces the previous tick's result
+as an exact prefix, new tells only ever appended at the end. Wired in at
+the two natural lifecycle points: `CaptureBids` starts (or restarts) the
+poller — a new item name implies the previous round is over, same
+reasoning the DO's own `/push` handler uses server-side to reset — and a
+successful `SubmitBids` stops it (the finalize route already clears the
+DO's state; this just stops the Go side from continuing to poll into a
+round that's already done). `App.liveBidsCancel` is guarded by a mutex
+since Capture and Submit are both Wails-bound methods JS can call
+back-to-back. Best-effort throughout, same as the app's other background
+calls (`FetchKnownItems`, the startup settings fetch): a push failure is
+silently skipped, `CaptureBids`/`SubmitBids` stay the real record
+regardless of whether this side channel works. No exported `App` method
+signature changed, so no `wails generate module` was needed — confirmed by
+a full `wails build` producing zero binding diff.
+
+**Verified live**, not just `go build`/`go vet`/`go test`: a throwaway
+`app_manual_test.go` (this repo's own established pattern for anything
+touching `app.go`) ran the real `CaptureBids`/`startLiveBidPush` against a
+synthetic log file and a real local `wrangler dev` instance (temporarily
+pointing `officerapi.ServerURL` at `localhost:8787` instead of production
+— reverted immediately after, confirmed by diff — since this app has no
+env-based server override, by design, per that constant's own comment).
+Two tells 7 seconds apart (one present at the initial capture, one
+appended mid-poll to simulate a live tell arriving) produced exactly two
+`POST /api/officer/live-bids/push 200`s in the tracker's dev log — proves
+both the initial push and the append-diff detection, not just that the
+endpoint can be hit once. This machine already had a real production
+config.json (a real officer's API key) sitting in
+`~/Library/Application Support/seekers-epgp-parser/` from earlier use —
+backed up, swapped for a throwaway local-only key for the test, and
+restored byte-for-byte afterward (diffed against the backup to confirm);
+the throwaway key was deleted from local D1 when done. **Not verified
+against a real Discord login or real in-game "send tells" tells** — same
+constraint as every session-gated/live-capture path built this session.
 
 **Found while starting Phase 11**: the guild's real `SoS - EPGP.xlsx` is
 sitting in `~/Downloads` on this machine — the same file
@@ -374,6 +415,11 @@ fixed while starting Phase 9, see `PLAN.md`'s own 8.5/8.6 entries for what
 they cover.
 
 **Shipped:**
+- **Phase 12 — live bids, 2026-08-24**: `LiveAuctionSession` Durable
+  Object + WebSocket fan-out, the officer-app push endpoint, the parser
+  app's own live-push polling, the website's `/live-bids` view, and
+  clear-on-finalize — see the full writeup above "Current focus", not
+  repeated here. Not yet deployed to production.
 - **Phase 11 — quest flags, 2026-08-24** (migration 0022): resolves task
   11.1's open question (PLAN.md §16) — `character_pop_flags` stays
   untouched, three new tables instead. `character_key_flags`
