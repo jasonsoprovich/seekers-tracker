@@ -262,13 +262,16 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Current focus: PLAN.md §11 Phase 11 (quest flags) is COMPLETE as of
-2026-08-24** — see below for the writeup. Phase 10 (character claiming
-rework) is also complete, same date. Phase 9 (Discord bot,
-`../seekers-bot`) tasks 9.1-9.4 are also done, only 9.5 (a leadership
-decision, not code) open there — see that repo's own `CLAUDE.md`. Phases
-0-6 are complete (4.2b deliberately not implemented — see below and PLAN.md
-§16). Both hard deadlines so far (expansion decay 9/30, global decay
-cutover 10/17) already met, by Phase 2 and Phase 5 respectively.
+2026-08-24, and deployed to production the same day** (Worker version
+`ad6f4eca-587e-4583-aa8f-d09f9da3d8df`) — see below for the writeup, and
+the Webpack-build entry above "Commands" for why a deploy had actually been
+silently broken since before Phase 5. Phase 10 (character claiming rework)
+is also complete, same date. Phase 9 (Discord bot, `../seekers-bot`) tasks
+9.1-9.4 are also done, only 9.5 (a leadership decision, not code) open
+there — see that repo's own `CLAUDE.md`. Phases 0-6 are complete (4.2b
+deliberately not implemented — see below and PLAN.md §16). Both hard
+deadlines so far (expansion decay 9/30, global decay cutover 10/17) already
+met, by Phase 2 and Phase 5 respectively.
 
 **Found while starting Phase 11**: the guild's real `SoS - EPGP.xlsx` is
 sitting in `~/Downloads` on this machine — the same file
@@ -341,9 +344,15 @@ they cover.
   throwaway script against the same DB, not just `tsc`/`next build`).
   **Not verified in an actual browser** — same Discord-OAuth-credential
   gap as every other leader/member page built this session.
-  **Not yet applied to remote D1** — migration 0022 is local-only pending
-  the same "confirm before touching production" gate every prior phase's
-  remote migration has had. Manual add/edit for these flags (mirroring
+  **Applied to remote D1 and deployed to production, 2026-08-24**
+  (migration 0022; Worker version `ad6f4eca-587e-4583-aa8f-d09f9da3d8df`,
+  live at seekers.fetchinglogic.com — confirmed both `/` and `/login`
+  respond 200 post-deploy). This deploy also surfaced and fixed an
+  unrelated, pre-existing blocker — see the Webpack-build note above
+  "Commands": the compiled Worker had quietly been over the Free plan's
+  3 MiB size cap since Phase 6, and no deploy had gone out since
+  2026-08-22, so Phases 5-11's changes only went live together, today,
+  once that was fixed. Manual add/edit for these flags (mirroring
   Phase 8's 8.6) wasn't in this phase's literal task list — left as a
   follow-up.
 - **Phase 10 — character claiming rework, 2026-08-24** (migration 0021):
