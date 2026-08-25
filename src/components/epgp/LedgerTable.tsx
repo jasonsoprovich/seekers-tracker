@@ -6,29 +6,9 @@ import { useState } from "react";
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
+import type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
-export type EpRow = {
-  id: number;
-  characterName: string;
-  occurredAt: Date;
-  activity: string;
-  points: number;
-  note: string | null;
-  source: "import" | "manual" | "parse";
-  enteredByName: string | null;
-};
-
-export type GpRow = {
-  id: number;
-  characterName: string;
-  occurredAt: Date;
-  itemName: string | null;
-  tier: string;
-  points: number;
-  note: string | null;
-  source: "import" | "manual" | "parse";
-  enteredByName: string | null;
-};
+export type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
 type Props = { type: "ep"; rows: EpRow[]; canManage: boolean } | { type: "gp"; rows: GpRow[]; canManage: boolean };
 

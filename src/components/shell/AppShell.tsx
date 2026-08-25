@@ -34,6 +34,7 @@ export async function AppShell({
   const allLinks: NavLinkDef[] = [
     { href: "/characters", label: "Characters" },
     { href: "/roster", label: "Roster" },
+    { href: "/epgp/ledger", label: "EPGP Ledger" },
     { href: "/bank", label: "Bank" },
     { href: "/progression", label: "Pop Progression" },
     { href: "/keys", label: "Keys & Sky Bank" },
