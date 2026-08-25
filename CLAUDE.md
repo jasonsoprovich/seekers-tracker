@@ -262,9 +262,10 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Current focus: PLAN.md §11 Phase 12 (live bids) is COMPLETE as of
-2026-08-24**, not yet deployed to production. See below for the writeup.
-Phase 11 (quest flags) is COMPLETE as of 2026-08-24, and deployed to
-production the same day (Worker version
+2026-08-24 and deployed to production the same day** (Worker version
+`ce4c9c51-988e-4386-8ae8-7b9034b24304`). See below for the writeup.
+Phase 11 (quest flags) is also COMPLETE and deployed to production, same
+day (Worker version
 `ad6f4eca-587e-4583-aa8f-d09f9da3d8df`) — see below for that writeup, and
 the Webpack-build entry above "Commands" for why a deploy had actually been
 silently broken since before Phase 5. Phase 10 (character claiming rework)
@@ -337,8 +338,29 @@ reverted before committing — the shipped code always requires a real
 session. `npm run build` (webpack) and a full `npx opennextjs-cloudflare
 build` + `wrangler dev --local` smoke pass both clean; `/` and unauth
 `/roster`/`/live-bids` still 200/307 as expected, no regression.
-**Not yet applied to remote** — no D1 migration needed (the DO has no
-storage), but this hasn't been deployed to production yet.
+No D1 migration needed (the DO has no storage). **Deployed to production
+2026-08-24** — Worker version `ce4c9c51-988e-4386-8ae8-7b9034b24304`.
+Before deploying, checked the real bundled size via `wrangler deploy
+--dry-run` rather than trusting the un-bundled `.open-next/worker.js`
+template file's own size (a red herring — it's just an entrypoint with
+relative imports wrangler's own bundler resolves at deploy time, not the
+final artifact): 2529.93 KiB gzipped, comfortably under the Free plan's
+3072 KiB cap with ~540 KiB headroom, and the dry run's own binding list
+confirmed `LIVE_AUCTION_SESSION` resolved correctly. The real deploy
+produced the same "class not exported" warning seen locally during
+`getPlatformProxy` use — from OpenNext's own internal cache-population
+pre-step checking against the bare `.open-next/worker.js`, not the actual
+deployed artifact; the deploy's own final binding list confirmed
+`LIVE_AUCTION_SESSION (LiveAuctionSession)` resolved correctly, same as
+the dry run. Verified live against the real production domain: `/` and
+`/login` 200, unauthenticated `/roster`/`/live-bids` 307 to `/login`,
+`GET /api/live-bids/ws` with no `Upgrade` header 426, unauthenticated
+`POST /api/officer/live-bids/push` 401 — no regression, every new Phase 12
+route gated exactly as designed. **Not yet verified with a real WebSocket
+connection or a real officer push against production** — same
+Discord-OAuth-credential gap as everywhere else; the full WS
+handshake-plus-broadcast path was proven locally instead (see above), and
+production auth was never bypassed to re-prove it live.
 
 **Phase 12 task 12.3 — parser app pushes bid tells live,
 2026-08-24** (`seekers-epgp-parser`): `App.startLiveBidPush` (`app.go`)
@@ -419,7 +441,9 @@ they cover.
   Object + WebSocket fan-out, the officer-app push endpoint, the parser
   app's own live-push polling, the website's `/live-bids` view, and
   clear-on-finalize — see the full writeup above "Current focus", not
-  repeated here. Not yet deployed to production.
+  repeated here. **Deployed to production 2026-08-24** (Worker version
+  `ce4c9c51-988e-4386-8ae8-7b9034b24304`), confirmed live at
+  seekers.fetchinglogic.com.
 - **Phase 11 — quest flags, 2026-08-24** (migration 0022): resolves task
   11.1's open question (PLAN.md §16) — `character_pop_flags` stays
   untouched, three new tables instead. `character_key_flags`
