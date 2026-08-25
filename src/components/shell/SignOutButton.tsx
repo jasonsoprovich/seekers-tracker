@@ -5,11 +5,12 @@ import { useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
-export function SignOutButton({ className = "" }: { className?: string }) {
+export function SignOutButton({ className = "", onClick: onClickExtra }: { className?: string; onClick?: () => void }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
   async function onClick() {
+    onClickExtra?.();
     setPending(true);
     await authClient.signOut();
     router.push("/");

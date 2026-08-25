@@ -5,7 +5,12 @@ import { characterClaims } from "@/db";
 import { getDb } from "@/lib/db";
 import { canManageAnyCharacter, type Role } from "@/lib/authz";
 
-import { NavBar } from "./NavBar";
+import { Sidebar } from "./Sidebar";
+
+// roles: undefined means every role sees the link; otherwise the current
+// role must be in the list. Filtered server-side below, so a member's
+// client bundle never even receives an officer-only href.
+type NavLinkDef = { href: string; label: string; badge?: number; roles?: Role[] };
 
 export async function AppShell({
   username,
@@ -26,7 +31,7 @@ export async function AppShell({
     pendingClaimCount = rows.length;
   }
 
-  const links = [
+  const allLinks: NavLinkDef[] = [
     { href: "/characters", label: "Characters" },
     { href: "/roster", label: "Roster" },
     { href: "/bank", label: "Bank" },
@@ -34,13 +39,14 @@ export async function AppShell({
     { href: "/keys", label: "Keys & Sky Bank" },
     { href: "/live-bids", label: "Live Bids" },
     { href: "/dashboard", label: "Dashboard" },
-    ...(isManager ? [{ href: "/admin", label: "Admin", badge: pendingClaimCount || undefined }] : []),
+    { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, roles: ["officer", "leader", "admin"] },
   ];
+  const links = allLinks.filter((l) => !l.roles || l.roles.includes(role as Role));
 
   return (
-    <div className="min-h-screen bg-surface text-neutral-100">
-      <NavBar links={links} username={username} avatarUrl={avatarUrl} />
-      <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+    <div className="flex min-h-screen bg-surface text-neutral-100">
+      <Sidebar links={links} username={username} avatarUrl={avatarUrl} />
+      <main className="min-w-0 flex-1 px-6 py-8">{children}</main>
     </div>
   );
 }
