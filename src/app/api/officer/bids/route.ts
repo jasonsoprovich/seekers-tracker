@@ -140,32 +140,40 @@ export async function POST(request: Request) {
     await db.update(lootEvents).set({ winningBidId }).where(eq(lootEvents.id, lootEvent.id));
   }
 
-  for (const w of winners) {
-    const character = byLowerName.get(w.characterName.trim().toLowerCase());
-    if (!character) continue;
-    const points = await getActivePointValue(db, "gp", w.tier);
-    if (points === null) continue;
-    const gpResult = await insertLedgerEntry(
-      db,
-      { kind: "gp", characterId: character.id, tier: w.tier, itemName, points, occurredAt: w.occurredAt, note: note ?? "" },
-      auth.userId,
-      "parse",
-    );
-    if (!gpResult.ok) {
-      return Response.json({ error: `Recorded the bids, but couldn't charge GP for ${w.characterName}: ${gpResult.error}` }, { status: 422 });
-    }
-  }
-
   // PLAN.md §15 / Phase 12 task 12.5. This route stays the unchanged
   // source of truth — the DO clear is just tidying up the live view now
-  // that the real record exists. Best-effort: a clear failure (or the DO
-  // being unreachable) must never fail a finalize that already committed
-  // real ledger rows above.
+  // that the real record (loot_events/bids, already committed above)
+  // exists. Best-effort: a clear failure (or the DO being unreachable)
+  // must never fail a finalize that already committed real rows. Wrapped
+  // in `finally` (fixed 2026-08-25) — a GP-charge failure below used to
+  // `return` before ever reaching the clear, leaving the live view showing
+  // a round that had, from the ledger's perspective, already finished;
+  // the clear now runs regardless of whether every winner's charge
+  // succeeded, since loot_events/bids are durable either way by this
+  // point.
   try {
-    const stub = await getLiveAuctionSessionStub();
-    await stub.fetch("https://live-auction-session/clear", { method: "POST" });
-  } catch {
-    // ignore
+    for (const w of winners) {
+      const character = byLowerName.get(w.characterName.trim().toLowerCase());
+      if (!character) continue;
+      const points = await getActivePointValue(db, "gp", w.tier);
+      if (points === null) continue;
+      const gpResult = await insertLedgerEntry(
+        db,
+        { kind: "gp", characterId: character.id, tier: w.tier, itemName, points, occurredAt: w.occurredAt, note: note ?? "" },
+        auth.userId,
+        "parse",
+      );
+      if (!gpResult.ok) {
+        return Response.json({ error: `Recorded the bids, but couldn't charge GP for ${w.characterName}: ${gpResult.error}` }, { status: 422 });
+      }
+    }
+  } finally {
+    try {
+      const stub = await getLiveAuctionSessionStub();
+      await stub.fetch("https://live-auction-session/clear", { method: "POST" });
+    } catch {
+      // ignore — best-effort, see comment above
+    }
   }
 
   return Response.json({ lootEventId: lootEvent.id, inserted, unmatched, invalidTiers }, { status: 201 });

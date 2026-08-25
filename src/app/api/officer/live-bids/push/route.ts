@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       tier: body.tier.trim(),
       occurredAt: body.occurredAt,
       priorityRating,
+      pusherUserId: auth.userId,
     }),
   });
 
