@@ -261,8 +261,20 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Nav/security restructure, 2026-08-25 — committed locally, NOT yet
-deployed to production.** Outside PLAN.md's own numbered phases (this was
+**Nav/security restructure, 2026-08-25 — migration 0023 applied to remote
+D1 and deployed to production the same day** (Worker version
+`a01142ce-a512-4bb0-abc9-f2034b4a56c4`, live at
+seekers.fetchinglogic.com). Bundle was 2531.40 KiB gzipped
+(`wrangler deploy --dry-run`), comfortably under the Free plan's 3072 KiB
+cap. Verified live against the real production domain: `/` and `/login`
+200; unauthenticated `/roster`/`/admin`/`/epgp/sql`/`/epgp/ledger`/`/bank`/
+`/keys`/`/live-bids` all 307 to `/login`; unauthenticated
+`GET /api/live-bids/state` and `POST /api/officer/live-bids/heartbeat`
+both 401; `GET /api/live-bids/ws` with no `Upgrade` header 426 (the
+custom-worker interception still correct); `SELECT ... FROM v_characters`
+against remote D1 returned real character rows, and no `v_sessions`/
+`v_accounts`/`v_apikeys` view exists. Outside PLAN.md's own numbered
+phases (this was
 a leader-requested security audit + follow-on UX restructure, not a
 PLAN.md §11 task) — "Phase A/B/C/D" below is that separate work's own
 internal naming, not a PLAN.md phase number. Six commits, `git log` has
@@ -325,10 +337,9 @@ actually resolves the `LiveAuctionSession` DO binding — a raw `wrangler
 dev --local` invocation left it unresolved) with real signed better-auth
 session cookies and a real minted officer API key (same
 mint-directly-against-local-D1-then-sign-with-the-real-local-secret
-technique, not a bypass), not just `tsc`/`build`. **Migration 0023 has NOT
-been applied to remote D1 and nothing here has been deployed** — do that
-(local → verify → remote → deploy, per "Commands" above) before the next
-session assumes any of this is live.
+technique, not a bypass), not just `tsc`/`build`. **Migration 0023 applied
+to remote D1 and deployed to production 2026-08-25** — see the live-domain
+verification above.
 
 **Current focus: PLAN.md §11 Phase 12 (live bids) is COMPLETE as of
 2026-08-24 and deployed to production the same day** (Worker version
