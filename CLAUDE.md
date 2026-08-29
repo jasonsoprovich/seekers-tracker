@@ -261,6 +261,32 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Alt→main roster grouping fix, 2026-08-29 (local only — no migration, no
+deploy)**: on local dev the roster showed alts as loose top-level rows even
+though their `char_type`/`player_id` were correct. Root cause:
+`scripts/derive-players-from-sos-bot.ts` set `players.main_character_id` (the
+account-level pointer) but never `characters.main_character_id` — and
+`RosterTable` nests an alt under its main strictly via
+`characters.main_character_id` (`src/components/roster/RosterTable.tsx`, the
+`groups` memo), not `player_id`. Confirmed against local D1: 446 alts, 445
+with `main_character_id` NULL. Toryn's dump carries the link implicitly —
+characters grouped by `discord_id`, one `char_type='Main'` per clean group —
+so the derive script now backfills `characters.main_character_id` for every
+`alt` row from its group's resolved main. Runs **independently of the
+`player_id` guard** (so a re-run repairs an already-derived DB), only writes
+when the column is NULL (never clobbers a leader's manual link or a
+`swapMainCharacter`), and mirrors that function's invariant — a main keeps
+`main_character_id` NULL, mules aren't nested. Ambiguous groups (0 or 2+
+mains — 27 of 243) stay NULL, same as `players.main_character_id` already
+does there, already flagged in `players.note` for leader review. Dry-run
+report gained an `Alt→main links to backfill` line. Applied to local D1
+(`--commit`): alts with NULL main 445 → 41 (all 41 in ambiguous/noted
+groups, zero in clean groups); every backfilled alt points to a real `main`
+in the same player. `npm run verify` 13/13 and
+`npm run verify:player-reconciliation` 697/697 unchanged — no EPGP impact
+(`computeEpgpTotals` groups by `player_id`, untouched). Script-only change;
+production D1 is re-derived by re-running this script, no migration.
+
 **Nav/security restructure, 2026-08-25 — migration 0023 applied to remote
 D1 and deployed to production the same day** (Worker version
 `a01142ce-a512-4bb0-abc9-f2034b4a56c4`, live at

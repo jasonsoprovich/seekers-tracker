@@ -57,7 +57,7 @@ function resolveRaceId(raw: string | null): number {
 }
 
 type StagingRow = typeof sosBotStaging.$inferSelect;
-type ExistingCharacter = { id: number; name: string; playerId: number | null };
+type ExistingCharacter = { id: number; name: string; playerId: number | null; mainCharacterId: number | null };
 
 async function main() {
   const commit = process.argv.includes("--commit");
@@ -73,12 +73,19 @@ async function main() {
     }
 
     const existingCharacters: ExistingCharacter[] = await db
-      .select({ id: characters.id, name: characters.name, playerId: characters.playerId })
+      .select({ id: characters.id, name: characters.name, playerId: characters.playerId, mainCharacterId: characters.mainCharacterId })
       .from(characters);
     const byNameLower = new Map(existingCharacters.map((c) => [c.name.toLowerCase(), c]));
 
-    const existingPlayers = await db.select({ id: players.id, discordId: players.discordId }).from(players);
+    const existingPlayers = await db
+      .select({ id: players.id, discordId: players.discordId, mainCharacterId: players.mainCharacterId })
+      .from(players);
     const playerIdByDiscordId = new Map(existingPlayers.filter((p) => p.discordId).map((p) => [p.discordId as string, p.id]));
+    // A main already recorded on an existing player row wins over the dump's
+    // own — a leader may have set or swapped it since the dump was taken.
+    const existingMainByDiscordId = new Map(
+      existingPlayers.filter((p) => p.discordId && p.mainCharacterId != null).map((p) => [p.discordId as string, p.mainCharacterId as number]),
+    );
 
     // ---------- resolve every staging row to a characters.id, creating new
     // rows for ones with no existing match ----------
@@ -119,6 +126,36 @@ async function main() {
     const dumpNamesLower = new Set(staging.map((r) => r.charName.toLowerCase()));
     const sheetOnly = existingCharacters.filter((c) => !dumpNamesLower.has(c.name.toLowerCase()) && c.playerId === null);
 
+    // ---------- alt→main reverse pointer (characters.main_character_id) ----------
+    // The roster (RosterTable) nests alts under their main by
+    // characters.main_character_id, NOT players.main_character_id — so an alt
+    // whose char_type/player_id are both correct still renders as its own
+    // top-level row while that column is NULL. The dump carries the link
+    // implicitly: every alt in a clean single-main discord_id group belongs to
+    // that group's one main. 0-/2+-main groups stay NULL, same as
+    // players.main_character_id — never guessed.
+    function resolveGroupMainId(discordId: string, rows: StagingRow[]): number | null {
+      const mains = rows.filter((r) => r.charType === "main");
+      const dumpMainId = mains.length === 1 ? (byNameLower.get(mains[0].charName.toLowerCase())?.id ?? null) : null;
+      return existingMainByDiscordId.get(discordId) ?? dumpMainId;
+    }
+    let altLinksToBackfill = 0;
+    for (const [discordId, rows] of groups) {
+      const groupMainId = resolveGroupMainId(discordId, rows);
+      if (groupMainId == null) continue;
+      for (const row of rows) {
+        if (row.charType !== "alt") continue;
+        const char = byNameLower.get(row.charName.toLowerCase());
+        // A not-yet-created alt (in toCreateCharacters) is inserted with a
+        // NULL main_character_id too, so it also needs the backfill.
+        if (!char) {
+          altLinksToBackfill++;
+          continue;
+        }
+        if (char.id !== groupMainId && char.mainCharacterId == null) altLinksToBackfill++;
+      }
+    }
+
     // ---------- report ----------
     console.log(`sos_bot_staging: ${staging.length} rows, ${groups.size} distinct discord_id.`);
     console.log(`Existing players already covering a discord_id: ${groups.size - newPlayersForGroups.length}.`);
@@ -128,6 +165,7 @@ async function main() {
     console.log(`Dump rows linking to an existing characters row: ${staging.length - toCreateCharacters.length}.`);
     console.log();
     console.log(`Clean single-main groups: ${cleanMainGroups.length}.`);
+    console.log(`Alt→main links to backfill (characters.main_character_id): ${altLinksToBackfill}.`);
     console.log(`Ambiguous groups (main_character_id will be left NULL): ${ambiguousGroups.length}`);
     for (const g of ambiguousGroups) {
       console.log(`  discord_id ${g.discordId} — ${g.reason}: ${g.names.join(", ")}`);
@@ -159,11 +197,13 @@ async function main() {
           playerId: null, // set below, once the owning player exists
         })
         .returning({ id: characters.id, name: characters.name });
-      byNameLower.set(created.name.toLowerCase(), { id: created.id, name: created.name, playerId: null });
+      byNameLower.set(created.name.toLowerCase(), { id: created.id, name: created.name, playerId: null, mainCharacterId: null });
     }
 
     // ---------- commit: create players for discord_id groups, backfill characters ----------
     for (const [discordId, rows] of groups) {
+      const groupMainId = resolveGroupMainId(discordId, rows);
+
       let playerId = playerIdByDiscordId.get(discordId);
       if (playerId === undefined) {
         const mains = rows.filter((r) => r.charType === "main");
@@ -174,7 +214,6 @@ async function main() {
         // NULL below, never guessed.
         const fallback = [...rows].sort((a, b) => (a.charPriority ?? 99) - (b.charPriority ?? 99) || a.charName.localeCompare(b.charName))[0];
         const displayName = mains.length === 1 ? mains[0].charName : fallback.charName;
-        const mainCharacter = mains.length === 1 ? byNameLower.get(mains[0].charName.toLowerCase()) : null;
 
         const [created] = await db
           .insert(players)
@@ -182,7 +221,7 @@ async function main() {
             discordId,
             userId: null,
             displayName,
-            mainCharacterId: mainCharacter?.id ?? null,
+            mainCharacterId: groupMainId,
             status: "active",
             note: ambiguous ? `Seeded from Toryn's bot dump — ${mains.length === 0 ? "no character flagged main" : `${mains.length} characters flagged main`}; needs leader review.` : null,
           })
@@ -194,12 +233,28 @@ async function main() {
       for (const row of rows) {
         const char = byNameLower.get(row.charName.toLowerCase());
         if (!char) continue; // shouldn't happen — every row was resolved or created above
-        if (char.playerId !== null) continue; // don't clobber an existing link
-        await db
-          .update(characters)
-          .set({ playerId, charType: (row.charType as "main" | "alt" | "mule" | null) ?? undefined, charPriority: row.charPriority ?? undefined })
-          .where(and(eq(characters.id, char.id), isNull(characters.playerId)));
-        char.playerId = playerId;
+
+        if (char.playerId === null) {
+          await db
+            .update(characters)
+            .set({ playerId, charType: (row.charType as "main" | "alt" | "mule" | null) ?? undefined, charPriority: row.charPriority ?? undefined })
+            .where(and(eq(characters.id, char.id), isNull(characters.playerId)));
+          char.playerId = playerId;
+        }
+
+        // Alt→main reverse pointer for the roster's display grouping — set
+        // independently of the player_id link above, so a re-run against a DB
+        // where alts already have player_id (everything derived before this
+        // 2026-08-29 fix) still backfills it. Alts only, only when NULL:
+        // mirrors swapMainCharacter's invariant — a main keeps
+        // main_character_id NULL, mules are never nested under a main.
+        if (row.charType === "alt" && groupMainId != null && char.id !== groupMainId && char.mainCharacterId == null) {
+          await db
+            .update(characters)
+            .set({ mainCharacterId: groupMainId })
+            .where(and(eq(characters.id, char.id), isNull(characters.mainCharacterId)));
+          char.mainCharacterId = groupMainId;
+        }
       }
     }
 
