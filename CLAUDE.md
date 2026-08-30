@@ -286,6 +286,24 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Parser: auto-start bid rounds from "send tells", 2026-08-30
+(`../seekers-epgp-parser`, released as v0.1.1).** The Bids tab needed the
+officer to type the item name and click Capture. Now a background log
+watcher (`app.go` `startAnnouncementWatch`, 4s poll) detects the officer's
+OWN `<item> send tells` line via `parse.DetectAnnouncement` +
+`extractItemName`, emits a `bids:announcement` Wails event, and
+`BidsPanel.tsx` auto-runs the existing capture + live push with the item
+name pre-filled/editable. Only `ownChatRe` lines count, so another
+officer's concurrent announcement in the same channel never triggers it.
+Mid-round detections show a Switch/Ignore banner rather than clobbering.
+Manual Capture button kept; Determine Winner unchanged (non-destructive —
+live push runs until Submit, per the leader's call). `config.Settings.
+AutoDetectBids *bool` (nil ⇒ on) + a Settings checkbox + `SetAutoDetectBids`
+bound method. Unit-tested against the real `bids_sample.txt`; the
+watcher→event→auto-capture integration is **not** verified against a live
+in-game session (same gap every live-capture change here has). Needs a
+`wails3 generate bindings` — done, committed.
+
 **Live bids: multi-officer / multi-item rework, 2026-08-30 (no migration —
 the DO has no stored schema; needs a deploy + a parser release).** The
 `LiveAuctionSession` DO held ONE `itemName` + `bids[]`, so a second officer
