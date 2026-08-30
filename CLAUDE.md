@@ -223,6 +223,32 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Hard-won gotchas (don't rediscover these)
 
+- **The live-bids Durable Object can't take a sustained poll under
+  `wrangler dev` / `npm run preview` (local).** Investigated 2026-08-30
+  while testing the parser app's live-bid push loop against local: once the
+  parser polls `POST /api/officer/live-bids/{heartbeat,push}` at its normal
+  5s rate during an active bid round, `wrangler dev` dies within ~15s with
+  `Error: Network connection lost.` in `ProxyController.emitErrorEvent`
+  (stack bottoms out in miniflare's `#handleLoopbackCustomFetchService`) and
+  exits. Cause: calling an app-defined DO from Next.js server code is a
+  double hop under OpenNext local dev — workerd → the Node loopback that
+  runs the Next server → back to workerd for the DO RPC — and that loopback
+  connection can't sustain the repeated round trips; wrangler treats the
+  dropped connection as fatal. **Not our bug and not a regression** — it
+  works in production (one workerd, no Node loopback), and the DO code is
+  unchanged since Phase 12. Ruled out this session: upgrading wrangler
+  4.123→4.127.1 (identical crash), debouncing the DO's `ctx.storage.setAlarm`
+  churn, try/catch around the stub fetch. What *is* fine locally: sparse
+  heartbeats, normal browsing (including `/live-bids` itself), and the
+  finalize path `POST /api/officer/bids` (writes `loot_events`/`bids`/
+  `gp_ledger` — no DO on the hot path). So to test bid *writes* locally,
+  capture + "Submit to site" in the parser works; to test the live *push*
+  stream, use a deployed preview or accept that `wrangler dev` will drop
+  after a bit. If this needs a real local fix later, the direction is to
+  stop routing the DO call through the Next loopback — handle
+  `/api/officer/live-bids/*` in `custom-worker.ts` directly (like the WS
+  upgrade already is), so the DO RPC stays inside workerd.
+
 - **better-auth schema changes need their data backfilled, not just
   migrated.** Upgrading the `better-auth`/`@better-auth/*` version can add
   required columns (e.g. 1.7 added `accounts.issuer`, looked up as a
