@@ -1,7 +1,11 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 
 import { createAuth } from "@/auth";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
+import * as schema from "@/db";
+import { users } from "@/db";
+import { canManageEpgp, type Role } from "@/lib/authz";
 
 // Auth for /api/officer/* routes, called by the standalone EPGP parser app
 // (seekers-epgp-parser) instead of a browser session. Deliberately does its
@@ -15,11 +19,25 @@ export type OfficerApiAuth = { userId: string } | { error: string; status: numbe
 
 const EPGP_WRITE_PERMISSION = { epgp: ["write"] };
 
+// Entry point for Next route handlers — resolves the Cloudflare context
+// itself, then defers to verifyOfficerApiKey.
 export async function requireOfficerApiKey(request: Request): Promise<OfficerApiAuth> {
+  const { env, cf } = await getCloudflareContext({ async: true });
+  return verifyOfficerApiKey(request, env, cf);
+}
+
+// Same check, but with the Cloudflare context passed in — so it can also
+// run from custom-worker.ts (the live-bids endpoints, PLAN.md §15), which
+// is outside Next and can't call getCloudflareContext(). Everything the
+// Next path used getUserRole()/getDb() for is done here off `env` directly.
+export async function verifyOfficerApiKey(
+  request: Request,
+  env: CloudflareEnv,
+  cf?: Parameters<typeof createAuth>[1],
+): Promise<OfficerApiAuth> {
   const key = request.headers.get("x-api-key");
   if (!key) return { error: "Missing x-api-key header.", status: 401 };
 
-  const { env, cf } = await getCloudflareContext({ async: true });
   const auth = createAuth(env, cf);
 
   const result = await auth.api.verifyApiKey({ body: { key, permissions: EPGP_WRITE_PERMISSION } });
@@ -34,8 +52,9 @@ export async function requireOfficerApiKey(request: Request): Promise<OfficerApi
     return { error: message ?? "Invalid or expired API key.", status: 401 };
   }
 
-  const role = await getUserRole(result.key.referenceId);
-  if (!canManageEpgp(role)) {
+  const db = drizzle(env.DATABASE, { schema });
+  const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, result.key.referenceId));
+  if (!canManageEpgp((row?.role ?? null) as Role | null)) {
     return { error: "This key's owner is no longer an officer, leader, or admin.", status: 403 };
   }
 

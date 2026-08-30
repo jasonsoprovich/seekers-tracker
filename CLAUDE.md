@@ -223,31 +223,30 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Hard-won gotchas (don't rediscover these)
 
-- **The live-bids Durable Object can't take a sustained poll under
-  `wrangler dev` / `npm run preview` (local).** Investigated 2026-08-30
-  while testing the parser app's live-bid push loop against local: once the
-  parser polls `POST /api/officer/live-bids/{heartbeat,push}` at its normal
-  5s rate during an active bid round, `wrangler dev` dies within ~15s with
-  `Error: Network connection lost.` in `ProxyController.emitErrorEvent`
-  (stack bottoms out in miniflare's `#handleLoopbackCustomFetchService`) and
-  exits. Cause: calling an app-defined DO from Next.js server code is a
-  double hop under OpenNext local dev — workerd → the Node loopback that
-  runs the Next server → back to workerd for the DO RPC — and that loopback
-  connection can't sustain the repeated round trips; wrangler treats the
-  dropped connection as fatal. **Not our bug and not a regression** — it
-  works in production (one workerd, no Node loopback), and the DO code is
-  unchanged since Phase 12. Ruled out this session: upgrading wrangler
-  4.123→4.127.1 (identical crash), debouncing the DO's `ctx.storage.setAlarm`
-  churn, try/catch around the stub fetch. What *is* fine locally: sparse
-  heartbeats, normal browsing (including `/live-bids` itself), and the
-  finalize path `POST /api/officer/bids` (writes `loot_events`/`bids`/
-  `gp_ledger` — no DO on the hot path). So to test bid *writes* locally,
-  capture + "Submit to site" in the parser works; to test the live *push*
-  stream, use a deployed preview or accept that `wrangler dev` will drop
-  after a bit. If this needs a real local fix later, the direction is to
-  stop routing the DO call through the Next loopback — handle
-  `/api/officer/live-bids/*` in `custom-worker.ts` directly (like the WS
-  upgrade already is), so the DO RPC stays inside workerd.
+- **Never call an app-defined Durable Object from a Next.js Route Handler
+  under OpenNext — route it through `custom-worker.ts` instead.** Found
+  2026-08-30: the parser app's live-bid poll (`POST
+  /api/officer/live-bids/{push,heartbeat}` every ~5s during a round) took
+  `wrangler dev` / `npm run preview` down within ~15s every time —
+  `Error: Network connection lost.` in `ProxyController.emitErrorEvent`,
+  stack bottoming out in miniflare's `#handleLoopbackCustomFetchService`,
+  process exits. Cause: a Route Handler runs inside OpenNext's Node
+  loopback, so a DO call from there is a double hop (workerd → Node
+  loopback → back to workerd for the DO RPC), and that loopback can't
+  sustain the repeated round trips. Ruled out: wrangler 4.123→4.127.1
+  (identical), `ctx.storage.setAlarm` debounce, stub-fetch try/catch —
+  none helped; only removing the loopback hop did. **Fix shipped same day**
+  (PLAN.md §15 multi-officer rework): `/api/live-bids/state` and
+  `/api/officer/live-bids/{push,heartbeat,clear}` are now handled directly
+  in `custom-worker.ts` (where the WS upgrade already was), so the DO RPC
+  never leaves workerd. Verified: 3 simulated officers pushing different
+  items every 2s for 2 min (129 requests) with the server staying up the
+  whole time. `api-key-auth.ts` gained `verifyOfficerApiKey(request, env,
+  cf)` for callers outside Next (it can't use `getCloudflareContext()`).
+  The one DO call still made from a Next route — `POST /api/officer/bids`'s
+  finalize clear — is fine: one call per round, not a loop. If you add
+  another DO-touching endpoint, put it in `custom-worker.ts`, not a route
+  handler.
 
 - **better-auth schema changes need their data backfilled, not just
   migrated.** Upgrading the `better-auth`/`@better-auth/*` version can add
@@ -286,6 +285,48 @@ contents, and never print raw Discord IDs into logs or commit messages.
   awarded values as-is; never recompute them from nominal. PLAN.md §2.
 
 ## Roadmap / status (update this section as things ship or change)
+
+**Live bids: multi-officer / multi-item rework, 2026-08-30 (no migration —
+the DO has no stored schema; needs a deploy + a parser release).** The
+`LiveAuctionSession` DO held ONE `itemName` + `bids[]`, so a second officer
+pushing a different item wiped the first. Real raids run 1-10 officers,
+each on their own API key, collecting different items in parallel
+(confirmed with Luna). Now:
+- DO holds `rounds: Map<itemKey, Round>` (keyed by lowercased item name;
+  two officers never collect the same item at once). Each round carries the
+  officer's name, its bids, `lastSeenAt`, per-round `live`/`idle`. `live`
+  for 90s after the last signal, then `idle`; hard-removed after 5 min so a
+  brief parser blip doesn't lose collected bids. Alarm sweep is debounced
+  (`ALARM_DEBOUNCE_MS`). Protocol is now `{type:"state", rounds:
+  RoundView[]}` (dropped the single-round shape and the `cleared` message).
+- **`/api/live-bids/state` + `/api/officer/live-bids/{push,heartbeat,clear}`
+  moved into `custom-worker.ts`** — see the gotcha above; this is what
+  fixes the local-dev crash (DO RPC no longer crosses the Next loopback)
+  and also drops a hop in prod. `verifyOfficerApiKey(request, env, cf)`
+  added to `api-key-auth.ts` for the out-of-Next caller. The four Next
+  route files under `src/app/api/{live-bids,officer/live-bids}/` were
+  deleted. `POST /api/officer/bids`'s finalize clear stays a Next route
+  (one call, not a loop) but now passes `{itemName}` so it only clears its
+  own round.
+- `LiveBidsView.tsx` stacks all open rounds, each headed by item + officer.
+- Parser (`../seekers-epgp-parser`): `HeartbeatLiveBids`/`ClearLiveBids`
+  now take an `itemName`; idle heartbeat backs off from every 5s to every
+  ~20s (`heartbeatEveryNIdleTicks`), new tells still push immediately — keeps
+  per-key request volume low with many officers polling at once. No `App`
+  method signature changed, so no `wails3 generate bindings` needed.
+- **Free-tier load:** SQLite-backed DO (already `new_sqlite_classes`); no
+  `ctx.storage` data writes on the hot path; broadcasts are in-memory
+  fan-out (50 viewers cost the same as 5); worst case ~21k DO requests on a
+  raid night, under the 100k/day free limit, and the heartbeat backoff cuts
+  it further. WebSocket Hibernation keeps idle viewers unbilled.
+- **Not** using a Postgres sync engine (Zero/Electric/PowerSync) — all need
+  Postgres + an always-on sync server, which breaks the Workers/D1
+  free-tier model. Durable Objects *are* the Cloudflare-native answer here.
+- Verified: full build clean; 3 simulated officers × different items ×
+  push every 2s for 2 min (129 requests) with the preview server staying
+  up throughout (it died in <15s under this load before); push/heartbeat/
+  clear/validation/401/403/426/429 all return correct codes. **Not**
+  browser-verified (no Discord OAuth in this env) and not yet deployed.
 
 **Roster readability + leader-initiated guild removal, 2026-08-29 (local
 only — no migration, no deploy)**: three unrelated tweaks in one pass.

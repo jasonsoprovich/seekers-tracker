@@ -169,8 +169,14 @@ export async function POST(request: Request) {
     }
   } finally {
     try {
+      // Clear only THIS item's live round — other officers may have their
+      // own concurrent rounds open (PLAN.md §15, multi-officer raids).
       const stub = await getLiveAuctionSessionStub();
-      await stub.fetch("https://live-auction-session/clear", { method: "POST" });
+      await stub.fetch("https://live-auction-session/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemName }),
+      });
     } catch {
       // ignore — best-effort, see comment above
     }
