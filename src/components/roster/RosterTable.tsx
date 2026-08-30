@@ -15,7 +15,6 @@ export type RosterRow = {
   name: string;
   ownerUsername: string | null;
   ownerRole: Role | null;
-  isClaimed: boolean;
   classId: number;
   className: string;
   raceId: number;
@@ -36,9 +35,11 @@ export type RosterRow = {
 type SortKey = "name" | "ownerUsername" | "ownerRole" | "className" | "level" | "charType" | "ep" | "gp" | "priorityRating";
 type SortDir = "asc" | "desc";
 
+// Owner sits last on purpose: it doubles as the old "Claimed" column (a
+// name here == claimed, "Unclaimed" == not), so it reads as a trailing
+// status rather than a primary identifier.
 const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "name", label: "Name" },
-  { key: "ownerUsername", label: "Owner" },
   { key: "ownerRole", label: "Role" },
   { key: "charType", label: "Type" },
   { key: "className", label: "Class" },
@@ -46,6 +47,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "ep", label: "EP" },
   { key: "gp", label: "GP" },
   { key: "priorityRating", label: "Priority" },
+  { key: "ownerUsername", label: "Owner" },
 ];
 
 function compare(a: RosterRow, b: RosterRow, key: SortKey): number {
@@ -159,12 +161,16 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   }
 
   function renderRow(r: RosterRow, opts: { toggle?: { open: boolean; onClick: () => void } } = {}) {
+    // Alts render as a shaded band directly under their main, with a left
+    // accent rule and a deeper name indent, so a main's group of alts reads
+    // as one visual unit rather than blending into the next main's row.
+    const isAlt = r.charType === "alt";
     return (
-      <tr key={r.id} className="hover:bg-neutral-900/40">
-        <td className="px-3 py-2 font-medium">
+      <tr key={r.id} className={isAlt ? "bg-neutral-900/40 hover:bg-neutral-900/60" : "hover:bg-neutral-900/40"}>
+        <td className={`py-2 font-medium ${isAlt ? "border-l-2 border-l-emerald-700/50 pr-3 pl-6" : "px-3"}`}>
           <span className="inline-flex items-center gap-1.5">
             <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-              {opts.toggle && (
+              {opts.toggle ? (
                 <button
                   type="button"
                   onClick={opts.toggle.onClick}
@@ -173,6 +179,12 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                 >
                   {opts.toggle.open ? "▾" : "▸"}
                 </button>
+              ) : (
+                isAlt && (
+                  <span className="text-neutral-600" aria-hidden="true">
+                    ↳
+                  </span>
+                )
               )}
             </span>
             <Link href={`/characters/${r.id}`} className="hover:text-emerald-400">
@@ -181,7 +193,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             <CharacterStatusBadge status={r.status} />
           </span>
         </td>
-        <td className="px-3 py-2 text-neutral-400">{r.ownerUsername ?? "N/A"}</td>
         <td className="px-3 py-2">
           <RoleBadge role={r.ownerRole ?? "member"} />
         </td>
@@ -201,7 +212,9 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           {!!r.gpDecay && <div className="text-xs text-neutral-600">-{Math.round(r.gpDecay)} next decay</div>}
         </td>
         <td className="px-3 py-2 font-semibold text-emerald-400">{r.priorityRating?.toFixed(2) ?? "—"}</td>
-        <td className="px-3 py-2 text-center">{r.isClaimed && <span className="text-emerald-400">✓</span>}</td>
+        <td className="px-3 py-2 text-neutral-400">
+          {r.ownerUsername ?? <span className="text-neutral-600">Unclaimed</span>}
+        </td>
       </tr>
     );
   }
@@ -326,7 +339,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                   </button>
                 </th>
               ))}
-              <th className="px-3 py-2 text-center font-medium">Claimed</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -342,7 +354,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             })}
             {visibleGroups.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length + 1} className="px-3 py-6 text-center text-neutral-500">
+                <td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-neutral-500">
                   No characters match these filters.
                 </td>
               </tr>

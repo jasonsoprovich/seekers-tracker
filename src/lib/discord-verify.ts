@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { users } from "@/db";
+import { players, users } from "@/db";
 
 // Confirms a Discord access token belongs to a member of the guild
 // (SEEKERS_DISCORD_GUILD_ID) and stamps users.discordVerified accordingly.
@@ -98,10 +98,21 @@ export function isDeniedRole(roleIds: string[]): boolean {
 
 // The same gate `(app)/layout.tsx` applies ahead of every page — pure, so
 // the layout can apply it to the one combined row it already fetches
-// (username/avatarUrl/role/discordVerified/discordRoleIds in one query)
-// without a second D1 round-trip on every navigation.
-export function isMemberAllowed(me: { discordVerified: boolean; discordRoleIds: string | null } | undefined): boolean {
-  return !!me?.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
+// (username/avatarUrl/role/discordVerified/discordRoleIds + the joined
+// players.status in one query) without a second D1 round-trip on every
+// navigation.
+//
+// `playerStatus === "departed"` is a leader-initiated removal (admin
+// action removeMemberFromGuild), independent of Discord: someone still in
+// the Discord server but removed from the guild here is denied all the
+// same. A NULL playerStatus (no players row yet — a user who hasn't logged
+// in since Phase 10) is not a denial: fall through to the Discord check.
+export function isMemberAllowed(
+  me: { discordVerified: boolean; discordRoleIds: string | null; playerStatus?: string | null } | undefined,
+): boolean {
+  if (!me) return false;
+  if (me.playerStatus === "departed") return false;
+  return !!me.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
 }
 
 // DB-fetching wrapper for a caller with no row of its own — custom-
@@ -109,6 +120,14 @@ export function isMemberAllowed(me: { discordVerified: boolean; discordRoleIds: 
 // use next/headers, so it can't go through getSession()/the layout at all,
 // and has nothing pre-fetched to hand isMemberAllowed above.
 export async function fetchIsMemberAllowed(db: ReturnType<typeof drizzle>, userId: string): Promise<boolean> {
-  const [me] = await db.select({ discordVerified: users.discordVerified, discordRoleIds: users.discordRoleIds }).from(users).where(eq(users.id, userId));
+  const [me] = await db
+    .select({
+      discordVerified: users.discordVerified,
+      discordRoleIds: users.discordRoleIds,
+      playerStatus: players.status,
+    })
+    .from(users)
+    .leftJoin(players, eq(players.userId, users.id))
+    .where(eq(users.id, userId));
   return isMemberAllowed(me);
 }

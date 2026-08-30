@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characterGear, characterPopFlags, characterStats, characters, importLog, users } from "@/db";
+import { characterGear, characterPopFlags, characterStats, characters, importLog, players, users } from "@/db";
 import { canManageAnyCharacter, canManageRoles, getUserRole, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { swapMainCharacter, type SwapMainResult } from "@/lib/players";
@@ -12,6 +12,8 @@ import { getSession } from "@/lib/session";
 export type SetRoleResult = { error?: string };
 
 export type DeleteCharacterResult = { error?: string };
+
+export type MemberGuildStatusResult = { error?: string };
 
 export type { SwapMainResult };
 
@@ -101,4 +103,72 @@ export async function setPlayerMainCharacter(playerId: number, characterId: numb
 
   const db = await getDb();
   return swapMainCharacter(db, playerId, characterId, session.user.id);
+}
+
+// Leader/admin action (canManageRoles). "Removed from the guild" is a
+// player-level state, deliberately distinct from a character's own
+// `removed` status (which stays pure in-game/roster housekeeping — deleted,
+// transferred, etc. — and never affects a person's access on its own,
+// confirmed with the leader 2026-08-29). It drops the person's site role to
+// `member` and flips their players.status to `departed`, which
+// (app)/layout.tsx's gate treats the same as a failed Discord membership
+// check: no page access, bounced to /access-denied. EP/GP history and
+// character records are untouched. Reversible via reinstateMember — the
+// role is NOT auto-restored there, a leader re-grants it deliberately.
+export async function removeMemberFromGuild(userId: string): Promise<MemberGuildStatusResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const actingRole = await getUserRole(session.user.id);
+  if (!canManageRoles(actingRole)) {
+    return { error: "Only leaders can remove a member from the guild." };
+  }
+  if (userId === session.user.id) {
+    return { error: "You can't remove yourself — sign out instead." };
+  }
+
+  const db = await getDb();
+  const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
+  if (!target) return { error: "Member not found." };
+
+  // Same last-leader guard as setUserRole: removing a leader strips their
+  // role, so the guild must not be left with zero leaders.
+  if (target.role === "leader") {
+    const leaders = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
+    if (leaders.length <= 1) {
+      return { error: "Can't remove the only leader — promote someone else first." };
+    }
+  }
+
+  const now = new Date();
+  await db.update(users).set({ role: "member", updatedAt: now }).where(eq(users.id, userId));
+  // A user who has never logged in since Phase 10 may have no players row
+  // yet; this updates 0 rows in that case and their next login creates the
+  // row as `active`. Acceptable — every active member has logged in since
+  // Phase 10 shipped (2026-08-24).
+  await db
+    .update(players)
+    .set({ status: "departed", statusChangedBy: session.user.id, statusChangedAt: now, updatedAt: now })
+    .where(eq(players.userId, userId));
+
+  return {};
+}
+
+export async function reinstateMember(userId: string): Promise<MemberGuildStatusResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const actingRole = await getUserRole(session.user.id);
+  if (!canManageRoles(actingRole)) {
+    return { error: "Only leaders can reinstate a member." };
+  }
+
+  const db = await getDb();
+  const now = new Date();
+  await db
+    .update(players)
+    .set({ status: "active", statusChangedBy: session.user.id, statusChangedAt: now, updatedAt: now })
+    .where(eq(players.userId, userId));
+
+  return {};
 }

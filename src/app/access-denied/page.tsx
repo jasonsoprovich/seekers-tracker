@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { SignOutButton } from "@/components/shell/SignOutButton";
-import { users } from "@/db";
+import { players, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { isDeniedRole, parseDiscordRoleIds } from "@/lib/discord-verify";
 import { getSession } from "@/lib/session";
@@ -17,19 +17,28 @@ export default async function AccessDeniedPage() {
 
   const db = await getDb();
   const [me] = await db
-    .select({ discordVerified: users.discordVerified, discordRoleIds: users.discordRoleIds })
+    .select({
+      discordVerified: users.discordVerified,
+      discordRoleIds: users.discordRoleIds,
+      playerStatus: players.status,
+    })
     .from(users)
+    .leftJoin(players, eq(players.userId, users.id))
     .where(eq(users.id, session.user.id));
+
+  const removedByLeader = me?.playerStatus === "departed";
 
   // Someone who's already clear of the gate landing here directly (stale
   // tab, back button after a role change took effect) has nothing to see.
-  if (me?.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds))) {
+  if (!removedByLeader && me?.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds))) {
     redirect("/characters");
   }
 
-  const reason = !me?.discordVerified
-    ? "not currently showing as a member of the Seekers of Souls Discord server"
-    : "in the Discord server, but as an applicant (Orc Pawn) or Guest";
+  const reason = removedByLeader
+    ? "no longer an active member of the guild — a leader has removed your access"
+    : !me?.discordVerified
+      ? "not currently showing as a member of the Seekers of Souls Discord server"
+      : "in the Discord server, but as an applicant (Orc Pawn) or Guest";
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-center text-neutral-100">
@@ -40,11 +49,17 @@ export default async function AccessDeniedPage() {
         ← Back to site
       </Link>
       <div className="max-w-md">
-        <h1 className="text-2xl font-bold">No site access yet</h1>
+        <h1 className="text-2xl font-bold">{removedByLeader ? "Access removed" : "No site access yet"}</h1>
         <p className="mt-2 text-neutral-400">
-          Your Discord account is {reason}. The roster tracker is limited to Seekers members past
-          that stage — once your role changes in Discord, signing in again picks it up
-          automatically.
+          {removedByLeader ? (
+            <>Your account is {reason}. If you think this is a mistake, reach out to a guild leader.</>
+          ) : (
+            <>
+              Your Discord account is {reason}. The roster tracker is limited to Seekers members past
+              that stage — once your role changes in Discord, signing in again picks it up
+              automatically.
+            </>
+          )}
         </p>
       </div>
       <SignOutButton className="inline-flex items-center justify-center gap-2 rounded-full bg-neutral-800 px-6 py-3 font-semibold text-neutral-100 transition-colors hover:bg-neutral-700" />

@@ -62,7 +62,6 @@ export default async function RosterPage() {
       name: r.name,
       ownerUsername: r.ownerUsername,
       ownerRole: r.ownerRole,
-      isClaimed: r.ownerId !== null,
       classId: r.classId,
       className: charClassLabel(r.classId),
       raceId: r.raceId,

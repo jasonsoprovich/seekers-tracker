@@ -261,6 +261,55 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Roster readability + leader-initiated guild removal, 2026-08-29 (local
+only — no migration, no deploy)**: three unrelated tweaks in one pass.
+- **Roster alt rows** (`src/components/roster/RosterTable.tsx`): alts now
+  render as a shaded band (`bg-neutral-900/40`) directly under their main
+  with an emerald left-accent rule, a deeper name indent, and a `↳` marker,
+  so a main's alt group reads as one unit instead of blending into the next
+  main's row. The `Claimed` ✓ column was removed and `Owner` moved to the
+  last column (it carries the same signal — a name == claimed, dim
+  "Unclaimed" == not). Dead `isClaimed` field dropped from `RosterRow` and
+  `roster/page.tsx`.
+- **"Remove from guild"** — a player-level access action, deliberately
+  distinct from a character's own `removed` status (which stays pure
+  in-game/roster housekeeping and never affects a person's access on its
+  own, confirmed with the leader). New leader-only (`canManageRoles`)
+  `removeMemberFromGuild`/`reinstateMember` server actions
+  (`src/app/(app)/admin/actions.ts`) + `RemoveMemberButton`
+  (`ConfirmDialog`, can't remove self, last-leader guard) in `/admin`'s
+  Members & Roles list. Removal sets `players.status = 'departed'` and drops
+  `users.role` to `member`; reinstate flips status back to `active` but does
+  NOT restore the role (a leader re-grants deliberately). Enforcement:
+  `isMemberAllowed` (`src/lib/discord-verify.ts`) now also rejects
+  `playerStatus === 'departed'`, checked via a `players` left-join in
+  `(app)/layout.tsx`'s existing one-query gate and in `fetchIsMemberAllowed`
+  (the WS path). A departed member is bounced to `/access-denied`, which now
+  shows an "Access removed — contact a leader" variant. `players.status`
+  `'inactive'` does NOT block access — only `'departed'` does. A NULL
+  playerStatus (no players row) is not a denial — falls through to the
+  Discord check.
+- **Discord-removal access cutoff** stays login-time (the existing Phase 6
+  `session.create.after` re-verification) — leader confirmed per-login is
+  enough, no per-request/periodic re-check added. Only verified
+  `/access-denied`'s "you're actually fine" early-redirect doesn't fire for
+  a departed player.
+`tsc` clean; `isMemberAllowed` re-checked against hand cases (departed →
+false even with a valid role + discordVerified; inactive/null → allowed).
+`npm run build` + preview serve `/roster`/`/admin`/`/access-denied`
+correctly (307 unauthenticated). **Not browser-verified** — same
+Discord-OAuth gap as every prior leader/member-page change here.
+**`npm run verify` shows 5 veteran fixtures failing as of 2026-08-30, and
+it is NOT this change** (confirmed by stashing everything and re-running —
+identical failures): UTC crossed into 2026-08-30, moving
+`computeEpgpTotals`'s current cycle 66→67 (the local seed's `cycles` table
+has a 1-day calendar gap at 08-29→08-30), so `cycleStart` jumped 2026-08-16
+→ 2026-08-30 and ~2 weeks of EP shifted into the legacy pre-cycle decay
+basis for the veteran-decay fixtures. `rawEp` is unchanged; only the
+net/decay split moved. `golden-fixtures.ts` was baselined in the cycle-66
+window and needs re-baselining against a fresh sheet export — a separate
+housekeeping task, tracked here so it isn't mistaken for a regression.
+
 **Alt→main roster grouping fix, 2026-08-29 (local only — no migration, no
 deploy)**: on local dev the roster showed alts as loose top-level rows even
 though their `char_type`/`player_id` were correct. Root cause:

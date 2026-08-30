@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/AdminCharacterList";
+import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
 import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -92,8 +93,12 @@ export default async function AdminPage() {
           role: users.role,
           discordVerified: users.discordVerified,
           createdAt: users.createdAt,
+          // 'departed' == removed from the guild by a leader (blocks all
+          // site access) — see RemoveMemberButton / removeMemberFromGuild.
+          playerStatus: players.status,
         })
         .from(users)
+        .leftJoin(players, eq(players.userId, users.id))
         .orderBy(users.username)
     : [];
 
@@ -177,18 +182,30 @@ export default async function AdminPage() {
       {canEditRoles && (
         <section className="mt-10">
           <h2 className="text-lg font-semibold">Members &amp; Roles</h2>
-          <p className="mt-1 text-sm text-neutral-400">Promote or demote members. Only leaders can change roles.</p>
+          <p className="mt-1 text-sm text-neutral-400">
+            Promote or demote members, or remove someone from the guild (strips their role and blocks
+            all site access until reinstated — characters and EP/GP history are untouched). Only leaders
+            can do either.
+          </p>
           <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
             {members.map((m) => (
-              <li key={m.id} className="flex items-center justify-between px-4 py-3">
-                <div>
+              <li key={m.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
                   <p className="font-medium">{m.username ?? "(no username)"}</p>
                   <p className="text-sm text-neutral-500">
                     {m.discordVerified ? "Discord verified" : "Not Discord-verified"} · joined{" "}
                     {m.createdAt.toLocaleDateString()}
                   </p>
                 </div>
-                <RoleSelect userId={m.id} role={m.role} isSelf={m.id === session.user.id} />
+                <div className="flex shrink-0 items-center gap-3">
+                  <RemoveMemberButton
+                    userId={m.id}
+                    username={m.username ?? "this member"}
+                    departed={m.playerStatus === "departed"}
+                    isSelf={m.id === session.user.id}
+                  />
+                  <RoleSelect userId={m.id} role={m.role} isSelf={m.id === session.user.id} />
+                </div>
               </li>
             ))}
           </ul>

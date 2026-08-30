@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/shell/AppShell";
-import { users } from "@/db";
+import { players, users } from "@/db";
 import { isMemberAllowed } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -20,8 +20,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       role: users.role,
       discordVerified: users.discordVerified,
       discordRoleIds: users.discordRoleIds,
+      // Joined so isMemberAllowed can also reject a leader-initiated guild
+      // removal (players.status 'departed') in the same query — see
+      // src/app/(app)/admin/actions.ts removeMemberFromGuild.
+      playerStatus: players.status,
     })
     .from(users)
+    .leftJoin(players, eq(players.userId, users.id))
     .where(eq(users.id, session.user.id));
 
   // PLAN.md §4b / Phase 6 task 6.2: deny-list gate, cached on the user row
