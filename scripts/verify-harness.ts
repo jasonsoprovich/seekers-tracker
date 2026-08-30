@@ -23,7 +23,7 @@ import { getPlatformProxy } from "wrangler";
 import * as schema from "../src/db";
 import { characters } from "../src/db/schema";
 import { computeEpgpTotals } from "../src/lib/epgp/totals";
-import { DEFERRED_FIXTURES, GOLDEN_FIXTURES, TOLERANCE } from "./golden-fixtures";
+import { DEFERRED_FIXTURES, FIXTURES_AS_OF, GOLDEN_FIXTURES, TOLERANCE } from "./golden-fixtures";
 
 function close(a: number, b: number): boolean {
   return Math.abs(a - b) <= TOLERANCE;
@@ -34,7 +34,11 @@ async function main() {
   try {
     const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
 
-    const totals = await computeEpgpTotals(db);
+    // Pinned date, not real "now" — see FIXTURES_AS_OF's comment. The
+    // fixtures assert the decay math against the sheet's 2026-08-21 cached
+    // values; letting the wall clock advance the "current cycle" would
+    // drift the veteran-decay fixtures with no code change.
+    const totals = await computeEpgpTotals(db, { asOf: FIXTURES_AS_OF });
     const allCharacters = await db.select().from(characters);
     const charByName = new Map(allCharacters.map((c) => [c.name.toLowerCase(), c]));
 

@@ -299,16 +299,31 @@ false even with a valid role + discordVerified; inactive/null → allowed).
 `npm run build` + preview serve `/roster`/`/admin`/`/access-denied`
 correctly (307 unauthenticated). **Not browser-verified** — same
 Discord-OAuth gap as every prior leader/member-page change here.
-**`npm run verify` shows 5 veteran fixtures failing as of 2026-08-30, and
-it is NOT this change** (confirmed by stashing everything and re-running —
-identical failures): UTC crossed into 2026-08-30, moving
-`computeEpgpTotals`'s current cycle 66→67 (the local seed's `cycles` table
-has a 1-day calendar gap at 08-29→08-30), so `cycleStart` jumped 2026-08-16
-→ 2026-08-30 and ~2 weeks of EP shifted into the legacy pre-cycle decay
-basis for the veteran-decay fixtures. `rawEp` is unchanged; only the
-net/decay split moved. `golden-fixtures.ts` was baselined in the cycle-66
-window and needs re-baselining against a fresh sheet export — a separate
-housekeeping task, tracked here so it isn't mistaken for a regression.
+**`npm run verify` fixture failures seen 2026-08-30 — root-caused, NOT this
+change, and partly hardened.** Two independent things were stacked on top of
+each other, which is why the first read of it (wall-clock cycle rollover
+alone) was incomplete:
+  1. **Wall-clock drift** — `computeEpgpTotals` resolved the "current cycle"
+     from real `new Date()`. UTC crossing into 2026-08-30 moved the current
+     cycle 66→67 (the local seed's `cycles` has a 1-day gap 08-29→08-30), so
+     `cycleStart` jumped 2026-08-16 → 2026-08-30 and ~2 weeks of veteran EP
+     fell under the legacy §1a 20% haircut — `rawEp` unchanged, ep/epDecay
+     split moved. **Fixed:** `computeEpgpTotals(db, { asOf })` (default real
+     now; every production caller uses the default) + `getEpgpSettings(db,
+     asOf)`; the harness now pins `FIXTURES_AS_OF = 2026-08-21T12:00Z`
+     (`scripts/golden-fixtures.ts`), the date the `expected` values were read
+     off the sheet, so it tests the decay *math* deterministically instead
+     of drifting every cycle boundary.
+  2. **The remaining 5 failures after the pin are local test data, not a
+     bug** — 42 `ep_ledger` rows (`source='parse'`, `Raid - End`, 50 EP each,
+     `created_at 2026-08-30 03:43:40`) from a real attendance capture
+     submitted through the parser app during live testing this session. The
+     5 that "fail" (Aransur/Ammaru/Takkisina/Luna/Kaalos) are exactly the
+     golden-fixture characters that were in that `/who` capture — each +50
+     raw EP, decay unchanged. Aazimoku (also a veteran-decay fixture) wasn't
+     in the capture and still passes. `npm run snapshot -- restore
+     before-test` clears it; on a clean seed the harness is 13/13 with the
+     pin.
 
 **Alt→main roster grouping fix, 2026-08-29 (local only — no migration, no
 deploy)**: on local dev the roster showed alts as loose top-level rows even

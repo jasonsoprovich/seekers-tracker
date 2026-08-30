@@ -50,6 +50,20 @@ export type GoldenFixture = {
 // full float precision. This absorbs that, not real drift.
 export const TOLERANCE = 0.05;
 
+// The harness pins computeEpgpTotals to this date instead of real "now".
+// The `expected` values below were read off the sheet on 2026-08-21, when
+// the guild's current cycle was 66 (2026-08-16 → 2026-08-29) — so the
+// sheet's cached "EP Decay"/"GP Decay" columns reflect a cycle start of
+// 2026-08-16. Without pinning, `computeEpgpTotals` uses the real clock, and
+// every time wall-time crosses a cycle boundary another ~2 weeks of a
+// veteran's EP rolls behind the current-cycle line and picks up the legacy
+// §1a 20% haircut — the ep/epDecay split moves, `rawEp` doesn't, and the
+// veteran-decay fixtures "fail" against numbers that were only ever valid
+// in the cycle-66 window. Pinning makes the harness test the decay *math*,
+// deterministically, forever. Re-point this (and re-baseline `expected`
+// from a fresh sheet export) only as a deliberate act, not to chase drift.
+export const FIXTURES_AS_OF = new Date("2026-08-21T12:00:00Z");
+
 export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
     name: "Aazimoku",

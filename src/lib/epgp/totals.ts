@@ -14,13 +14,17 @@ export type EpgpTotal = {
   priorityRating: number;
 };
 
-// Totals are always computed "as of now" — this predates the effective-
-// dated settings table (PLAN.md §4i, Phase 1) and stays that way until a
-// later phase actually needs a rate to apply differently to old vs new
-// ledger rows (the mutable cap in §2, the decay-model cutover in §1c).
-// Until then, "now" is the only date any caller needs.
-export async function getEpgpSettings(db: ReturnType<typeof drizzle>): Promise<Record<string, number>> {
-  const raw = await getSettingsAt(db, new Date());
+// Settings and the "current cycle" are resolved as of `asOf` (default: real
+// now). Every production caller uses the default — the parameter exists so
+// the verification harness (scripts/verify-harness.ts) can pin a fixed date
+// and test the decay *math* deterministically, instead of the veteran-decay
+// fixtures drifting every time the wall clock crosses a cycle boundary and
+// more pre-cycle EP falls under the legacy §1a haircut.
+export async function getEpgpSettings(
+  db: ReturnType<typeof drizzle>,
+  asOf: Date = new Date(),
+): Promise<Record<string, number>> {
+  const raw = await getSettingsAt(db, asOf);
   const settings: Record<string, number> = {};
   for (const [key, value] of Object.entries(raw)) {
     const num = Number(value);
@@ -57,8 +61,12 @@ export async function getEpgpSettings(db: ReturnType<typeof drizzle>): Promise<R
 // already carries its own player_id (backfilled from characters.player_id
 // at import time, task 3.9), so this groups directly off the ledger rows
 // with no join back through characters.
-export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise<Map<number, EpgpTotal>> {
-  const settings = await getEpgpSettings(db);
+export async function computeEpgpTotals(
+  db: ReturnType<typeof drizzle>,
+  opts: { asOf?: Date } = {},
+): Promise<Map<number, EpgpTotal>> {
+  const asOf = opts.asOf ?? new Date();
+  const settings = await getEpgpSettings(db, asOf);
   // PLAN.md §11 Phase 5 task 5.2 / §1c — which cycle-decay model is in
   // force right now. "legacy" derives the 20% pre-cycle haircut below
   // (§1a); "global" trusts the raw ledger sums as-is, because 10%
@@ -68,7 +76,7 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
   // construction: pre-cutover ledger rows never change, so switching this
   // setting only changes how *this function* reads them, never the rows
   // themselves.
-  const decayModel = (await getSettingAt(db, "decay_model", new Date())) ?? DEFAULT_SETTINGS.decay_model;
+  const decayModel = (await getSettingAt(db, "decay_model", asOf)) ?? DEFAULT_SETTINGS.decay_model;
 
   // The sheet's Cycles tab is pre-populated with future cycles (observed
   // 2026-08-18: rows exist through cycle 72 / mid-November), so "most
@@ -77,10 +85,9 @@ export async function computeEpgpTotals(db: ReturnType<typeof drizzle>): Promise
   // *started* cycle if the calendar ever has a gap (a raid week not yet
   // added), so points earned after the last known cycle still count as
   // "current" rather than vanishing into a mismatch.
-  const now = new Date();
   const allCycles = await db.select().from(cycles).orderBy(sql`${cycles.startDate} asc`);
-  const containingCycle = allCycles.find((c) => c.startDate <= now && now <= c.endDate);
-  const startedCycles = allCycles.filter((c) => c.startDate <= now);
+  const containingCycle = allCycles.find((c) => c.startDate <= asOf && asOf <= c.endDate);
+  const startedCycles = allCycles.filter((c) => c.startDate <= asOf);
   const currentCycle = containingCycle ?? startedCycles.at(-1);
   // No cycles seeded yet (fresh dev DB): treat everything as "current cycle"
   // rather than crashing — nothing to decay yet.
