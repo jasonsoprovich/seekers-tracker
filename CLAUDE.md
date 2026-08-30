@@ -326,7 +326,19 @@ each on their own API key, collecting different items in parallel
   push every 2s for 2 min (129 requests) with the preview server staying
   up throughout (it died in <15s under this load before); push/heartbeat/
   clear/validation/401/403/426/429 all return correct codes. **Not**
-  browser-verified (no Discord OAuth in this env) and not yet deployed.
+  browser-verified (no Discord OAuth in this env).
+- **Deployed to production 2026-08-30** — Worker version
+  `84be7bdf-c693-4f96-b6cd-738873c04fd7`, bundle 2537.99 KiB gzipped
+  (under the 3072 cap). Verified live at seekers.fetchinglogic.com: `/`
+  and `/login` 200; `/roster`/`/live-bids`/`/access-denied` 307;
+  `GET /api/live-bids/ws` (no Upgrade) 426 and `GET /api/live-bids/state`
+  401 (both proving custom-worker.ts intercepts them ahead of Next in
+  prod); `POST /api/officer/live-bids/{push,heartbeat}` 401 without a key;
+  `POST /api/officer/bids` 401 (Next routing still fine through the
+  custom-worker fallthrough). Parser side shipped as **v0.1.0** — the
+  repo's first tagged release
+  (github.com/jasonsoprovich/seekers-epgp-parser/releases/tag/v0.1.0),
+  `seekers-epgp-parser-windows-amd64.exe` + `SHA256SUMS`.
 
 **Roster readability + leader-initiated guild removal, 2026-08-29 (local
 only — no migration, no deploy)**: three unrelated tweaks in one pass.
