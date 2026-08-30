@@ -12,8 +12,16 @@ import { getSession } from "@/lib/session";
 const SETTING_META: Record<SettingKey, { label: string; description: string }> = {
   ep_decay: { label: "EP decay rate", description: "Legacy cycle decay: fraction of pre-cycle EP dropped each cycle (§1a)." },
   gp_decay: { label: "GP decay rate", description: "Legacy cycle decay: fraction of pre-cycle GP dropped each cycle (§1a)." },
-  base_ep: { label: "Base EP", description: "Lifetime EP floor below which decay doesn't apply at all." },
-  base_gp: { label: "Base GP", description: "Lifetime GP floor below which decay doesn't apply at all." },
+  base_ep: {
+    label: "Base EP",
+    description:
+      "Two roles, neither of them a floor decay stops at: (1) added to EP in the priority ratio, (ep + base_ep) / (gp + base_gp), so a zero balance never divides by zero; (2) legacy cycle decay (§1a) is skipped entirely for a character whose lifetime raw EP is still below this. A larger balance decays straight through it — expansion decay ignores it too.",
+  },
+  base_gp: {
+    label: "Base GP",
+    description:
+      "Two roles, neither a floor: (1) added to GP in the priority ratio, (ep + base_ep) / (gp + base_gp); (2) legacy cycle decay (§1a) is skipped for a character whose lifetime raw GP is below this. Decay is not clamped to stay above it.",
+  },
   ep_cap_per_cycle: { label: "EP cap per cycle", description: "Maximum EP a single character can earn in one cycle (§2)." },
   min_attendance: { label: "Minimum attendance", description: "Guild members required for an attendance capture to award EP (§4h). Not yet enforced — Phase 4." },
   decay_model: {
