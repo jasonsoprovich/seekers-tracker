@@ -243,10 +243,19 @@ contents, and never print raw Discord IDs into logs or commit messages.
   items every 2s for 2 min (129 requests) with the server staying up the
   whole time. `api-key-auth.ts` gained `verifyOfficerApiKey(request, env,
   cf)` for callers outside Next (it can't use `getCloudflareContext()`).
-  The one DO call still made from a Next route — `POST /api/officer/bids`'s
-  finalize clear — is fine: one call per round, not a loop. If you add
-  another DO-touching endpoint, put it in `custom-worker.ts`, not a route
-  handler.
+  **`POST /api/officer/bids` (a Next route) no longer touches the DO at
+  all** (2026-08-31). It used to clear the finalized round as
+  belt-and-suspenders — "one call per round, not a loop" was assumed safe
+  — but with a WebSocket viewer connected it still tipped `wrangler dev`
+  over the same way (surfaced while testing the Phase 15 live round view).
+  The parser app now clears its own round on "End Round & Review" and on
+  app-quit via `POST /api/officer/live-bids/clear` (served from
+  `custom-worker.ts`), and the DO's 5-min idle sweep covers anything that
+  slips through. **No app-defined DO call from any Next route handler,
+  period** — if you need one, it goes in `custom-worker.ts`.
+  `src/lib/live-bids/session.ts` (the old `getLiveAuctionSessionStub`
+  helper) is deleted; `custom-worker.ts`'s `liveAuctionStub` is the only
+  resolver now.
 
 - **better-auth schema changes need their data backfilled, not just
   migrated.** Upgrading the `better-auth`/`@better-auth/*` version can add

@@ -7,7 +7,8 @@ import { DurableObject } from "cloudflare:workers";
 // leader 2026-08-30). Keyed by item name (lowercased): two officers never
 // collect the same item at once, and "a new item name is a new round" is
 // already how the parser's capture flow works. `idFromName("global")` still
-// gives one instance for the whole guild — see getLiveAuctionSessionStub.
+// gives one instance for the whole guild — every caller resolves it that
+// way (see `liveAuctionStub` in custom-worker.ts).
 //
 // Deliberately in-memory only, no `ctx.storage` reads/writes of round data
 // on the hot path: every push/broadcast during a raid never touches billed
