@@ -295,6 +295,26 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Live bids: Phase 15 + 16, 2026-08-30 → 09-01 (no migration; needs a
+deploy + a parser release).** Phase 15 (parser, `../seekers-epgp-parser`):
+the Bids tab is a live round view (`CaptureBids` returns a `BidRound`, a
+poller re-emits `bids:round` as tells land, `EndBidRound` freezes it for
+review); PQ-Companion-style game-folder log auto-detect
+(`internal/eqlogs`, follows character swaps mid-raid); `cmd/simlog`
+replays a raid (bids + `/who`) into a throwaway EQ log for local testing.
+Also: `POST /api/officer/bids` no longer calls the DO at all — that was
+the last Next-route→DO loopback hop and it crashed `wrangler dev` under a
+live round (see "Hard-won gotchas"). Phase 16: `/live-bids` is a
+responsive card grid; a finalized round **lingers** as a dimmed `WON`
+card (`Round.state: "collecting" | "resolved"`) instead of vanishing —
+cleared by the same officer opening their next item (`/push` sweeps only
+*that* officer's resolved rounds), a ~20 min timer, or a member
+`POST /api/live-bids/dismiss`. New `POST /api/officer/live-bids/resolve`
+(officer key) drives it, called by the parser's `SubmitBids`. All
+verified via endpoint smoke against local `wrangler dev` (push / resolve /
+re-drop / new-item / clear / dismiss); the on-page behaviour needs a real
+browser session to eyeball (same gap as every live-capture change here).
+
 **Parser: auto-start bid rounds from "send tells", 2026-08-30
 (`../seekers-epgp-parser`, released as v0.1.1).** The Bids tab needed the
 officer to type the item name and click Capture. Now a background log
