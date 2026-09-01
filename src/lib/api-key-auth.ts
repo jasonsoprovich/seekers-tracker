@@ -40,7 +40,21 @@ export async function verifyOfficerApiKey(
 
   const auth = createAuth(env, cf);
 
-  const result = await auth.api.verifyApiKey({ body: { key, permissions: EPGP_WRITE_PERMISSION } });
+  // @better-auth/api-key's verifyApiKey normally reports a bad key as
+  // `{valid: false}`, but some conditions (a key row deleted mid-flight, an
+  // internal plugin error) make it *throw* an APIError instead. Uncaught,
+  // that propagates out of the custom-worker.ts live-bids handlers (which
+  // have no try/catch) and, when an officer app polls a stale key every few
+  // seconds, the repeated unhandled rejection has taken `wrangler dev`
+  // down. Treat a throw the same as an invalid key — a bad key from any
+  // officer must never be able to crash the site.
+  let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
+  try {
+    result = await auth.api.verifyApiKey({ body: { key, permissions: EPGP_WRITE_PERMISSION } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : undefined;
+    return { error: message ?? "Could not validate API key.", status: 401 };
+  }
   if (!result.valid || !result.key) {
     // Surface the real reason (e.g. RATE_LIMITED) instead of a blanket
     // "invalid or expired" — that blanket message is what made the
