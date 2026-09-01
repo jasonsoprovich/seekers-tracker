@@ -81,7 +81,32 @@ async function handleLiveBidsState(request: Request, env: CloudflareEnv): Promis
   return new Response(await resp.text(), { headers: { "Content-Type": "application/json" } });
 }
 
-// POST /api/officer/live-bids/{push,heartbeat,clear} — officer x-api-key.
+// POST /api/live-bids/dismiss — every member (same bar as /state). Phase 16:
+// lets a viewer clear a resolved round's card off the dashboard once
+// everyone's seen the winner.
+async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Promise<Response> {
+  const auth = createAuth(env, cfOf(request));
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return Response.json({ error: "Not signed in." }, { status: 401 });
+
+  const db = drizzle(env.DATABASE, { schema });
+  if (!(await fetchIsMemberAllowed(db, session.user.id))) {
+    return Response.json({ error: "Not allowed." }, { status: 403 });
+  }
+
+  let itemName: unknown;
+  try {
+    ({ itemName } = (await request.json()) as { itemName?: unknown });
+  } catch {
+    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (typeof itemName !== "string" || !itemName.trim()) {
+    return Response.json({ error: "`itemName` is required." }, { status: 400 });
+  }
+  return forwardToDO(env, "dismiss", { itemName: itemName.trim() });
+}
+
+// POST /api/officer/live-bids/{push,heartbeat,clear,resolve} — officer x-api-key.
 async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, action: string): Promise<Response> {
   const auth = await verifyOfficerApiKey(request, env, cfOf(request));
   if ("error" in auth) return Response.json({ error: auth.error }, { status: auth.status });
@@ -93,7 +118,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
-    if (action === "push") return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+    if (action === "push" || action === "resolve") return Response.json({ error: "Invalid JSON body." }, { status: 400 });
     // heartbeat/clear tolerate an empty body
   }
 
@@ -124,6 +149,33 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
       tier: (body.tier as string).trim(),
       occurredAt: body.occurredAt,
       priorityRating,
+      officerId: auth.userId,
+      officerName,
+    });
+  }
+
+  if (action === "resolve") {
+    if (typeof body.itemName !== "string" || !body.itemName.trim()) {
+      return Response.json({ error: "`itemName` is required." }, { status: 400 });
+    }
+    // Resolve each winner's current priority the same way /push does, so the
+    // resolved card shows the same number the officer's Determine Winner used.
+    const rawWinners = Array.isArray(body.winners) ? body.winners : [];
+    const totals = rawWinners.length ? await getCachedEpgpTotals(db) : null;
+    const winners = [];
+    for (const w of rawWinners) {
+      if (!w || typeof w !== "object") continue;
+      const cw = w as { characterName?: unknown; tier?: unknown };
+      if (typeof cw.characterName !== "string" || typeof cw.tier !== "string") continue;
+      const name = cw.characterName.trim();
+      let priorityRating: number | null = null;
+      const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.name, name));
+      if (character?.playerId != null && totals) priorityRating = totals.get(character.playerId)?.priorityRating ?? null;
+      winners.push({ characterName: name, tier: cw.tier.trim(), priorityRating });
+    }
+    return forwardToDO(env, "resolve", {
+      itemName: body.itemName.trim(),
+      winners,
       officerId: auth.userId,
       officerName,
     });
@@ -172,8 +224,9 @@ export default {
 
     if (url.pathname === "/api/live-bids/ws") return handleLiveBidsWebSocket(request, env);
     if (url.pathname === "/api/live-bids/state" && request.method === "GET") return handleLiveBidsState(request, env);
+    if (url.pathname === "/api/live-bids/dismiss" && request.method === "POST") return handleLiveBidsDismiss(request, env);
 
-    const officer = url.pathname.match(/^\/api\/officer\/live-bids\/(push|heartbeat|clear)$/);
+    const officer = url.pathname.match(/^\/api\/officer\/live-bids\/(push|heartbeat|clear|resolve)$/);
     if (officer && request.method === "POST") return handleOfficerLiveBids(request, env, officer[1]);
 
     return handler.fetch(request, env, ctx);

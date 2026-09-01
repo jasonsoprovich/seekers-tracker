@@ -11,10 +11,10 @@ export default async function LiveBidsPage() {
   if (!session) redirect("/login");
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Live Bids"
-        subtitle="Bids fill in as officers collect them, before the round is finalized. Preserves what watching the old sheet update live used to feel like."
+        subtitle="Every officer's round at once, filling in as tells arrive. Finalized rounds stay up with their winner for a while so you can see who bid what."
       />
       <LiveBidsView />
     </div>
