@@ -13,6 +13,7 @@ type AttendanceRequestBody = {
   occurredAt?: unknown;
   characterNames?: unknown;
   note?: unknown;
+  zone?: unknown;
 };
 
 // Bulk EP award from the officer app's Attendance capture (one "/who
@@ -49,6 +50,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "`characterNames` must be an array of strings." }, { status: 400 });
   }
   const note = typeof body.note === "string" ? body.note : "";
+  // The zone the `/who` was run in, straight off the capture's own "There
+  // are N players in <Zone>" line — says what this Raid-Start/Mid/End award
+  // was actually for. Optional: an older client, or a manual resubmit,
+  // won't send it.
+  const zone = typeof body.zone === "string" && body.zone.trim() ? body.zone.trim() : null;
   const activity = body.activity;
 
   const db = await getDb();
@@ -120,7 +126,7 @@ export async function POST(request: Request) {
     }
 
     seenPlayerKeys.add(playerKey);
-    const result = await insertLedgerEntry(db, { kind: "ep", characterId, activity, points, occurredAt: body.occurredAt, note }, auth.userId, "parse");
+    const result = await insertLedgerEntry(db, { kind: "ep", characterId, activity, points, occurredAt: body.occurredAt, note, zone }, auth.userId, "parse");
     if (result.ok) inserted++;
     else unmatched.push(name);
   }

@@ -16,7 +16,7 @@ export type LedgerActionResult = { error?: string };
 export type AddLedgerEntryInput = InsertLedgerEntryInput;
 
 export type UpdateLedgerEntryInput =
-  | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string }
+  | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string; zone: string }
   | { kind: "gp"; id: number; tier: string; itemName: string; points: number; occurredAt: string; note: string };
 
 function parseOccurredAt(raw: string): Date | null {
@@ -74,6 +74,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
         pointsAwarded: input.points,
         occurredAt,
         note: input.note.trim() || null,
+        zone: input.zone.trim() || null,
       })
       .where(eq(epLedger.id, input.id))
       .returning();

@@ -1,0 +1,1 @@
+ALTER TABLE `ep_ledger` ADD `zone` text;

@@ -158,24 +158,74 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
     if (typeof body.itemName !== "string" || !body.itemName.trim()) {
       return Response.json({ error: "`itemName` is required." }, { status: 400 });
     }
-    // Resolve each winner's current priority the same way /push does, so the
-    // resolved card shows the same number the officer's Determine Winner used.
+    // The parser sends the full final bid list (`bids`, every entry flagged
+    // isWinner or not) as of 2026-09-01 so the resolved card keeps showing
+    // every bidder + priority, not just the winner. Older clients send only
+    // `winners` — still supported.
+    const rawBids = Array.isArray(body.bids) ? body.bids : [];
     const rawWinners = Array.isArray(body.winners) ? body.winners : [];
-    const totals = rawWinners.length ? await getCachedEpgpTotals(db) : null;
-    const winners = [];
-    for (const w of rawWinners) {
-      if (!w || typeof w !== "object") continue;
-      const cw = w as { characterName?: unknown; tier?: unknown };
-      if (typeof cw.characterName !== "string" || typeof cw.tier !== "string") continue;
-      const name = cw.characterName.trim();
+    // One totals fetch, then resolve each name's current priority the same
+    // way /push does — so the card shows the same numbers the officer's
+    // Determine Winner used.
+    const totals = rawBids.length || rawWinners.length ? await getCachedEpgpTotals(db) : null;
+    const priorityCache = new Map<string, number | null>();
+    async function priorityFor(name: string): Promise<number | null> {
+      const cached = priorityCache.get(name.toLowerCase());
+      if (cached !== undefined) return cached;
       let priorityRating: number | null = null;
       const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.name, name));
       if (character?.playerId != null && totals) priorityRating = totals.get(character.playerId)?.priorityRating ?? null;
-      winners.push({ characterName: name, tier: cw.tier.trim(), priorityRating });
+      priorityCache.set(name.toLowerCase(), priorityRating);
+      return priorityRating;
     }
+
+    // One row per character, same as the live "collecting" card and the
+    // parser's own ResolveLatestPerCharacter: a winner row always wins the
+    // slot, otherwise the later entry does (the parser sends them in
+    // occurredAt order). Keeps a "changed my mind" / superseded bid from
+    // showing as a second row on the resolved card.
+    const byName = new Map<string, { characterName: string; tier: string; isWinner: boolean; occurredAt: string | undefined }>();
+    for (const b of rawBids) {
+      if (!b || typeof b !== "object") continue;
+      const cb = b as { characterName?: unknown; tier?: unknown; isWinner?: unknown; occurredAt?: unknown };
+      if (typeof cb.characterName !== "string" || typeof cb.tier !== "string") continue;
+      const name = cb.characterName.trim();
+      const isWinner = cb.isWinner === true;
+      const prev = byName.get(name.toLowerCase());
+      if (prev && prev.isWinner && !isWinner) continue;
+      byName.set(name.toLowerCase(), {
+        characterName: name,
+        tier: cb.tier.trim(),
+        isWinner,
+        occurredAt: typeof cb.occurredAt === "string" ? cb.occurredAt : undefined,
+      });
+    }
+
+    const bids = [];
+    const winnersFromBids = [];
+    for (const row of byName.values()) {
+      const priorityRating = await priorityFor(row.characterName);
+      bids.push({ characterName: row.characterName, tier: row.tier, priorityRating, occurredAt: row.occurredAt });
+      if (row.isWinner) winnersFromBids.push({ characterName: row.characterName, tier: row.tier, priorityRating });
+    }
+
+    // Winners: derived from the bid list's isWinner flags when present,
+    // otherwise the legacy explicit `winners` array.
+    let winners = winnersFromBids;
+    if (winners.length === 0 && rawWinners.length) {
+      for (const w of rawWinners) {
+        if (!w || typeof w !== "object") continue;
+        const cw = w as { characterName?: unknown; tier?: unknown };
+        if (typeof cw.characterName !== "string" || typeof cw.tier !== "string") continue;
+        const name = cw.characterName.trim();
+        winners.push({ characterName: name, tier: cw.tier.trim(), priorityRating: await priorityFor(name) });
+      }
+    }
+
     return forwardToDO(env, "resolve", {
       itemName: body.itemName.trim(),
       winners,
+      bids,
       officerId: auth.userId,
       officerName,
     });

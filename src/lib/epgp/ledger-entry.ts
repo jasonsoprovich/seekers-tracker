@@ -16,7 +16,7 @@ import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 export type LedgerEntrySource = "manual" | "parse";
 
 export type InsertLedgerEntryInput =
-  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string }
+  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null }
   | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string };
 
 export type InsertLedgerEntryResult = { ok: true } | { ok: false; error: string };
@@ -83,6 +83,7 @@ export async function insertLedgerEntry(
       capApplied: false,
       capAtEntry: capAtEntryRaw !== null ? Number(capAtEntryRaw) : null,
       note: input.note.trim() || null,
+      zone: input.zone?.trim() || null,
       enteredBy,
       source,
     });

@@ -365,6 +365,13 @@ export const epLedger = sqliteTable(
     // its point value are kept for audit completeness rather than dropped.
     orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
     note: text("note"),
+    // The in-game zone a `/who` attendance capture was taken in — the
+    // officer app's parser reads it from the capture's own "There are N
+    // players in <Zone>" line and sends it with the bulk award (PLAN.md
+    // §4h). Says what a "Raid - Start/Mid/End" row was actually *for*.
+    // NULL on manual entries, decay rows, imported rows, and anything
+    // written before this column existed.
+    zone: text("zone"),
     enteredBy: text("entered_by").references(() => users.id),
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()

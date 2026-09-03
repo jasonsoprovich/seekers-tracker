@@ -10,6 +10,7 @@ export type EpLedgerRow = {
   activity: string;
   points: number;
   note: string | null;
+  zone: string | null;
   source: "import" | "manual" | "parse";
   enteredByName: string | null;
 };
@@ -59,6 +60,7 @@ export async function listLedgerRows(
         activity: epLedger.activity,
         points: epLedger.points,
         note: epLedger.note,
+        zone: epLedger.zone,
         source: epLedger.source,
         enteredByName: users.username,
       })

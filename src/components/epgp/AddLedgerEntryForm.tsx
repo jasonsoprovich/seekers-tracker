@@ -38,12 +38,13 @@ export function AddLedgerEntryForm({
     const points = Number(formData.get("points"));
     const occurredAt = String(formData.get("occurredAt") ?? "");
     const note = String(formData.get("note") ?? "");
+    const zone = String(formData.get("zone") ?? "");
 
     setPending(true);
     setError(null);
     const result = await addLedgerEntry(
       type === "ep"
-        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note }
+        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone }
         : { kind: "gp", characterId, tier: activityOrTier, itemName, points, occurredAt, note },
     );
     setPending(false);
@@ -85,6 +86,13 @@ export function AddLedgerEntryForm({
               <option key={name} value={name} />
             ))}
           </datalist>
+        </Field>
+      )}
+
+      {type === "ep" && (
+        <Field className="w-40">
+          <span className="text-neutral-400">Zone</span>
+          <input name="zone" className={fieldClasses({ size: "sm" })} placeholder="Optional" />
         </Field>
       )}
 

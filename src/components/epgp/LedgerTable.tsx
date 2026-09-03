@@ -16,7 +16,7 @@ function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string };
+type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string };
 
 export function LedgerTable(props: Props) {
   const router = useRouter();
@@ -24,9 +24,11 @@ export function LedgerTable(props: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "" });
+  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "" });
 
-  const baseCols = props.type === "ep" ? 6 : 7;
+  // EP: Date, Character, Activity, Zone, Points, Source, Recorded by.
+  // GP: Date, Character, Item, Tier, Points, Source, Recorded by.
+  const baseCols = 7;
   const totalCols = props.canManage ? baseCols + 1 : baseCols;
 
   function startEdit(row: EpRow | GpRow) {
@@ -38,6 +40,7 @@ export function LedgerTable(props: Props) {
       points: String(row.points),
       occurredAt: toDateInputValue(row.occurredAt),
       note: row.note ?? "",
+      zone: props.type === "ep" ? ((row as EpRow).zone ?? "") : "",
     });
   }
 
@@ -60,7 +63,7 @@ export function LedgerTable(props: Props) {
     setError(null);
     const result =
       props.type === "ep"
-        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note })
+        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone })
         : await updateLedgerEntry({
             kind: "gp",
             id,
@@ -109,7 +112,10 @@ export function LedgerTable(props: Props) {
               <th className="px-3 py-2 font-medium">Date</th>
               <th className="px-3 py-2 font-medium">Character</th>
               {props.type === "ep" ? (
-                <th className="px-3 py-2 font-medium">Activity</th>
+                <>
+                  <th className="px-3 py-2 font-medium">Activity</th>
+                  <th className="px-3 py-2 font-medium">Zone</th>
+                </>
               ) : (
                 <>
                   <th className="px-3 py-2 font-medium">Item</th>
@@ -139,13 +145,23 @@ export function LedgerTable(props: Props) {
                       </td>
                       <td className="px-3 py-2 font-medium text-neutral-400">{r.characterName}</td>
                       {props.type === "ep" ? (
-                        <td className="px-3 py-2">
-                          <input
-                            value={draft.activityOrTier}
-                            onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
-                            className={fieldClasses({ size: "sm" })}
-                          />
-                        </td>
+                        <>
+                          <td className="px-3 py-2">
+                            <input
+                              value={draft.activityOrTier}
+                              onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
+                              className={fieldClasses({ size: "sm" })}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              value={draft.zone}
+                              onChange={(e) => setDraft((d) => ({ ...d, zone: e.target.value }))}
+                              className={fieldClasses({ size: "sm" })}
+                              placeholder="Zone"
+                            />
+                          </td>
+                        </>
                       ) : (
                         <>
                           <td className="px-3 py-2">
@@ -197,7 +213,10 @@ export function LedgerTable(props: Props) {
                       <td className="px-3 py-2 text-neutral-400">{r.occurredAt.toLocaleDateString()}</td>
                       <td className="px-3 py-2 font-medium">{r.characterName}</td>
                       {props.type === "ep" ? (
-                        <td className="px-3 py-2 text-neutral-400">{(r as EpRow).activity}</td>
+                        <>
+                          <td className="px-3 py-2 text-neutral-400">{(r as EpRow).activity}</td>
+                          <td className="px-3 py-2 text-neutral-400">{(r as EpRow).zone ?? "—"}</td>
+                        </>
                       ) : (
                         <>
                           <td className="px-3 py-2 text-neutral-400">{(r as GpRow).itemName ?? "—"}</td>

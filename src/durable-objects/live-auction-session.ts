@@ -98,7 +98,8 @@ type HeartbeatBody = { itemName?: unknown; officerId?: unknown; officerName?: un
 type ClearBody = { itemName?: unknown };
 type DismissBody = { itemName?: unknown };
 type ResolveWinnerBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown };
-type ResolveBody = { itemName?: unknown; winners?: unknown; officerId?: unknown; officerName?: unknown };
+type ResolveBidBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown; occurredAt?: unknown };
+type ResolveBody = { itemName?: unknown; winners?: unknown; bids?: unknown; officerId?: unknown; officerName?: unknown };
 
 function isPushBody(v: unknown): v is ValidPushBody {
   const b = v as PushBody;
@@ -252,7 +253,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       } catch {
         return Response.json({ error: "Invalid JSON body." }, { status: 400 });
       }
-      const { itemName, winners, officerId, officerName } = body as ResolveBody;
+      const { itemName, winners, bids, officerId, officerName } = body as ResolveBody;
       if (typeof itemName !== "string" || !itemName.trim()) {
         return Response.json({ error: "itemName is required." }, { status: 400 });
       }
@@ -286,6 +287,26 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
               occurredAt: new Date(now).toISOString(),
             }))
         : [];
+      // Phase 16 (2026-09-01): the parser sends the full final bid list on
+      // resolve — every character who bid, not just the winner(s) — so the
+      // dimmed card keeps showing who bid what and at what priority, rather
+      // than collapsing to winner-only. Replace whatever the live poller
+      // last left in `bids` (it may be stale, or empty if the round
+      // idle-expired before the officer finalized). Only replace when a
+      // non-empty list actually arrives, so an older parser that sends no
+      // `bids` still shows its last live-collected set.
+      const resolvedBids = Array.isArray(bids)
+        ? bids
+            .filter((b): b is ResolveBidBody => !!b && typeof b === "object")
+            .filter((b) => typeof b.characterName === "string" && typeof b.tier === "string")
+            .map((b) => ({
+              characterName: b.characterName as string,
+              tier: b.tier as string,
+              priorityRating: typeof b.priorityRating === "number" ? b.priorityRating : null,
+              occurredAt: typeof b.occurredAt === "string" ? b.occurredAt : new Date(now).toISOString(),
+            }))
+        : [];
+      if (resolvedBids.length > 0) round.bids = resolvedBids;
       round.state = "resolved";
       round.resolvedAt = now;
       round.lastSeenAt = now;

@@ -295,6 +295,42 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**EP-table zone + resolved live-bid cards keep every bid, 2026-09-01
+(migration 0024, LOCAL ONLY so far — needs `--remote` + a deploy + a
+parser release).** Two leader-requested tweaks in one pass:
+- **`ep_ledger.zone`** (migration `0024_ep_ledger_zone.sql` — a plain
+  nullable `ADD COLUMN`, applied `--local` only). The parser already
+  parsed the `/who` capture's zone (`AttendanceResult.Zone`) and showed it
+  in-app but never sent it. Now `SubmitAttendance` takes a `zone` arg
+  (Wails binding regenerated), `AttendanceRequest`/`POST
+  /api/officer/attendance` carry `zone`, `insertLedgerEntry`'s `ep` variant
+  writes it, and it's threaded through `listLedgerRows` →
+  `EpLedgerRow.zone` → a new **Zone** column on the EP Ledger tab
+  (`LedgerTable`, editable; `updateLedgerEntry` ep variant + a new optional
+  Zone field on `AddLedgerEntryForm` for manual EP rows). NULL on manual/
+  decay/imported/pre-column rows → shown as "—". Verified against local D1
+  (throwaway `getPlatformProxy` script: insert an `ep_ledger` row with a
+  zone, read it back through `listLedgerRows`, delete — PASS); `npm run
+  verify` still 13/13; `npm run build` + `tsc` clean.
+- **Resolved `/live-bids` cards keep the full bid list.** Before: the
+  parser's `ResolveLiveBids` sent only the winner(s), so a dimmed "WON"
+  card collapsed to winner-only (the DO's `round.bids` was whatever the
+  live poller last left, often already swept). Now `ResolveLiveBids` sends
+  the whole reviewed bid list (`ResolveLiveBidEntry[]`, each flagged
+  `isWinner`) — `custom-worker.ts`'s `/resolve` handler resolves each
+  name's current priority (one `getCachedEpgpTotals`, cached per name),
+  dedupes one-row-per-character (winner row wins the slot, else latest —
+  same as the collecting card and the parser's `ResolveLatestPerCharacter`),
+  derives `winners` from the `isWinner` flags, and forwards both `bids` and
+  `winners` to the DO. The DO's `/resolve` sets `round.bids` from the
+  incoming list when non-empty (older parser sending no `bids` keeps its
+  last live-collected set). `LiveBidsView.tsx` needed **no change** — it
+  already renders `round.bids` with a Prio column and winner highlighting
+  for resolved rounds. Card lifetime is unchanged (swept on the officer's
+  next item / ~20 min / member Dismiss). **Not browser-verified** — same
+  Discord-OAuth / DO-under-local-dev gap as every prior live-bids change;
+  build + `tsc` + `go build`/`go vet`/`go test` + binding regen all clean.
+
 **Live bids: Phase 15 + 16, 2026-08-30 → 09-01 (no migration; needs a
 deploy + a parser release).** Phase 15 (parser, `../seekers-epgp-parser`):
 the Bids tab is a live round view (`CaptureBids` returns a `BidRound`, a
