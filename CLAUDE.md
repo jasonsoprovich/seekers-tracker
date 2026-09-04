@@ -365,6 +365,27 @@ after attendance" report that kicked this off) for the row-read savings.
   pass (refreshStandings runs fine inside `commitRateDecay`); `tsc` + `npm
   run build` clean. **Not browser-verified** — same Discord-OAuth gap as
   every prior change. **Not yet applied to remote D1 / deployed.**
+- **Remote rollout order (when the user asks for the Cloudflare update) —
+  the post-deploy backfill is REQUIRED, not optional:**
+  1. `npx wrangler d1 migrations list seekers-of-souls --remote` — see
+     what's outstanding (likely 0024 zone + 0025 source_key + 0026
+     standings, none applied to remote yet).
+  2. `npx wrangler d1 migrations apply seekers-of-souls --remote` (applies
+     them oldest-first). 0025 caveat: remote import rows then have NULL
+     `source_key` until the next `--mode reset`; `--mode sync` refuses an
+     unkeyed target.
+  3. `npm run deploy` — check gzipped bundle stays under the 3072 KiB Free
+     cap (`wrangler deploy --dry-run`).
+  4. **Backfill `player_epgp_totals` on remote.** Until this runs, every
+     read path (`/roster`, `/api/officer/{bids,totals,characters}`,
+     custom-worker's live-bid priority) sees an empty table and shows blank
+     standings. `npm run recompute:standings` is `getPlatformProxy` /
+     local-only as written — add a `--remote` path to it (drizzle over the
+     remote D1 binding), or run `refreshStandings(db, { all: true })` once
+     against remote another way. ~255 row writes, safe vs the 100K/day cap.
+  5. Verify live: `/roster` shows numbers; a test attendance/manual entry
+     moves the roster within seconds (no 45s cache now); `wrangler tail`
+     clean.
 
 **Incremental sheet re-sync — `import-epgp.ts --mode sync`, 2026-09-03
 (migration 0025, LOCAL ONLY so far — needs `--remote` apply before it's
