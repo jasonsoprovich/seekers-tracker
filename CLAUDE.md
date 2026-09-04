@@ -320,6 +320,19 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 4 (items 4a/4b) — parser panels survive tab
+switches, 2026-09-04 (`../seekers-epgp-parser` commit `f1de44e`; ships with
+the same release as item 1).** `App.tsx` rendered each panel as
+`tab === "x" && <Panel />`, so a tab switch unmounted it and dropped its
+React state — an officer lost an unsubmitted Attendance capture or an open
+Bids round just by glancing at another tab. Now every panel stays mounted
+(`hidden` attr on a wrapper div); no panel polls on a background interval,
+so it's one extra startup fetch each and nothing ongoing. Attendance and
+Bids each got a header **Clear** button that deliberately discards the
+current capture/round (Bids also clears the site's live round + stale
+banners); the Bids review "Discard" is relabelled "Clear". frontend
+`tsc`+`vite build` clean; not GUI-verified (needs a Wails build).
+
 **Leader-requested batch 4 (item 1) — parser attendance zone fix,
 2026-09-04 (`../seekers-epgp-parser` commit `ed3a5a1`; NEEDS A RELEASE
 BUILD — see below).** Two separate problems: (a) the zone was never
