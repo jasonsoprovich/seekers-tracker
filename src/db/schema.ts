@@ -72,6 +72,13 @@ export const players = sqliteTable("players", {
     .default("active"),
   joinedAt: integer("joined_at", { mode: "timestamp" }),
   departedAt: integer("departed_at", { mode: "timestamp" }),
+  // Set by removeMemberFromGuild (src/app/(app)/admin/actions.ts) when it
+  // zeroes a departing player's EP — the decay_events row (kind
+  // 'departure') that wipe created. reinstateMember reverses that event and
+  // nulls this back out, restoring the EP. NULL when the player was never
+  // removed, was removed before this column existed, or had 0 EP to wipe.
+  // Forward ref: decay_events is declared later in this file.
+  removalDecayEventId: integer("removal_decay_event_id").references((): AnySQLiteColumn => decayEvents.id),
   // §4j's "status_note" — reused as this table's general free-text note
   // (also used by scripts/derive-players-from-sos-bot.ts for provenance),
   // not a second dedicated column.

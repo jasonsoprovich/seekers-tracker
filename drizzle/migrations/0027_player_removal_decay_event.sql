@@ -1,0 +1,1 @@
+ALTER TABLE `players` ADD `removal_decay_event_id` integer REFERENCES decay_events(id);

@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // Leader-only control in /admin's "Members & Roles" list. "Remove from
-// guild" is a player-level state (players.status 'departed') — it strips
-// the person's site role to member and blocks all page access until
-// reinstated, independent of Discord membership. Character records and
-// EP/GP history are untouched. See src/app/(app)/admin/actions.ts.
+// guild" strips the person's site role to member, blocks all page access
+// (players.status 'departed'), and zeroes their EP across every character
+// (GP is kept). All three reverse on Reinstate — except the role, which a
+// leader re-grants deliberately. See src/app/(app)/admin/actions.ts.
 export function RemoveMemberButton({
   userId,
   username,
@@ -31,7 +31,7 @@ export function RemoveMemberButton({
   async function remove() {
     const ok = await confirm({
       title: "Remove from guild",
-      message: `Remove ${username} from the guild? Their site role drops to member and they lose all access to the site until a leader reinstates them. Their characters and EP/GP history stay as-is.`,
+      message: `Remove ${username} from the guild? Their site role drops to member, they lose all site access, and their EP is zeroed on every character (GP is kept). Reinstating a leader restores the EP and access.`,
       confirmLabel: "Remove",
       danger: true,
     });
@@ -48,6 +48,12 @@ export function RemoveMemberButton({
   }
 
   async function reinstate() {
+    const ok = await confirm({
+      title: "Reinstate member",
+      message: `Reinstate ${username}? Site access is restored and the EP that was zeroed on removal is added back (the removal decay batch is reversed). Their role is not restored — grant it separately if needed.`,
+      confirmLabel: "Reinstate",
+    });
+    if (!ok) return;
     setPending(true);
     setError(null);
     const result = await reinstateMember(userId);

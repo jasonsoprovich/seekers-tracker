@@ -320,6 +320,34 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 3 (item 9) — "Remove from guild" now zeroes EP,
+reversibly, 2026-09-04 (migration 0027, LOCAL ONLY).** Hard character
+deletion is gone entirely (`deleteCharacter` action + `DeleteCharacterButton`
++ the delete button on `/admin`'s All Characters list) — the leader's call:
+always keep a record and an audit trail. A bogus character row is now a
+SQL-sandbox cleanup, not a routine button.
+- `removeMemberFromGuild` (still leader-only, still the "Remove from guild"
+  button in `/admin` → Members & Roles) now does three things, all reversed
+  by `reinstateMember` except the role: (1) role → member, (2)
+  `players.status` → `departed` (the existing access block), (3) **zeroes
+  the player's EP across every one of their characters** via
+  `commitDepartureWipe({ characterIds })` — a `decay_events` kind
+  `departure` batch, GP untouched (§1e). The event id is stored on the new
+  `players.removal_decay_event_id` (migration `0027`, plain nullable
+  `ADD COLUMN`); `reinstateMember` calls `reverseDecayEvent` on it,
+  restoring the EP, and nulls the column. Safe if the batch was already
+  reversed by hand on `/epgp/decay` (matches `/already reversed|not found/`
+  and proceeds). A player with 0 EP everywhere just gets no batch and a null
+  pointer.
+- `RemoveMemberButton` gained a confirm on Reinstate (it now restores EP,
+  not just access) and both confirm messages + the `/admin` blurb say EP is
+  zeroed/restored and GP is kept.
+- Verified against local D1 (throwaway script, snapshot/restore): a real
+  2-character player, raw EP 14902.4 → 0 on remove (GP 828.9 unchanged,
+  materialized standings ep → 0, departure event written), → 14902.4 on
+  reinstate (event reversed, standings restored). `tsc` + `build` clean,
+  `npm run verify` 11/13 (unchanged seed noise).
+
 **Leader-requested batch 1 — decay defaults, UI polish, 2026-09-04 (LOCAL
 ONLY — the settings-row change needs applying to remote too, see the
 standings rollout list below).** Small confirmed items, one commit:
@@ -401,7 +429,7 @@ after attendance" report that kicked this off) for the row-read savings.
   the post-deploy backfill is REQUIRED, not optional:**
   1. `npx wrangler d1 migrations list seekers-of-souls --remote` — see
      what's outstanding (likely 0024 zone + 0025 source_key + 0026
-     standings, none applied to remote yet).
+     standings + 0027 removal_decay_event, none applied to remote yet).
   2. `npx wrangler d1 migrations apply seekers-of-souls --remote` (applies
      them oldest-first). 0025 caveat: remote import rows then have NULL
      `source_key` until the next `--mode reset`; `--mode sync` refuses an

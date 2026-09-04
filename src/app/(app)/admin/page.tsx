@@ -160,7 +160,7 @@ export default async function AdminPage() {
       <section>
         <h2 className="text-lg font-semibold">All Characters</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          As {role}, you can view, edit, and delete any member&apos;s character. Edit a character to change its
+          As {role}, you can view and edit any member&apos;s character. Edit a character to change its
           main/alt status or link an alt to its main.
           {canEditRoles && " A main character's row also has a role picker, to promote/demote its owner."}
         </p>
@@ -183,9 +183,9 @@ export default async function AdminPage() {
         <section className="mt-10">
           <h2 className="text-lg font-semibold">Members &amp; Roles</h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Promote or demote members, or remove someone from the guild (strips their role and blocks
-            all site access until reinstated — characters and EP/GP history are untouched). Only leaders
-            can do either.
+            Promote or demote members, or remove someone from the guild (strips their role, blocks all
+            site access, and zeroes their EP — GP is kept — until reinstated, which restores the EP and
+            access but not the role). Character records stay. Only leaders can do either.
           </p>
           <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
             {members.map((m) => (

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 
-import { DeleteCharacterButton } from "@/components/DeleteCharacterButton";
 import { RoleSelect } from "@/components/RoleSelect";
 import { fieldClasses } from "@/components/ui/Field";
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
@@ -288,7 +287,6 @@ export function AdminCharacterList({
             <Link href={`/characters/${c.id}/edit`} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
               Edit
             </Link>
-            <DeleteCharacterButton characterId={c.id} characterName={c.name} />
           </div>
           {canEditRoles && c.charType === "main" && c.ownerId && (
             // ownerId is truthy here, so the leftJoin matched a users row —
