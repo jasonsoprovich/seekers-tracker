@@ -30,7 +30,20 @@ export type RosterRow = {
   epDecay: number | null;
   gpDecay: number | null;
   priorityRating: number | null;
+  // ms epoch of this character's most recent EP/GP entry (shared across a
+  // player's group since rows land on the main), or null if never active.
+  lastActivityAt: number | null;
 };
+
+const ACTIVE_WINDOWS: { key: string; label: string; ms: number | null }[] = [
+  { key: "any", label: "Any time", ms: null },
+  { key: "24h", label: "Last 24 hours", ms: 24 * 60 * 60 * 1000 },
+  { key: "7d", label: "Last 7 days", ms: 7 * 24 * 60 * 60 * 1000 },
+  { key: "30d", label: "Last 30 days", ms: 30 * 24 * 60 * 60 * 1000 },
+  { key: "365d", label: "Last year", ms: 365 * 24 * 60 * 60 * 1000 },
+];
+
+const TYPE_LABEL: Record<RosterRow["charType"], string> = { main: "Main", alt: "Alt", mule: "Mule" };
 
 type SortKey = "name" | "ownerUsername" | "ownerRole" | "className" | "level" | "charType" | "ep" | "gp" | "priorityRating";
 type SortDir = "asc" | "desc";
@@ -69,6 +82,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   const [raceFilter, setRaceFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [activeFilter, setActiveFilter] = useState<string>("any");
   const [minLevel, setMinLevel] = useState("");
   const [maxLevel, setMaxLevel] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -79,6 +93,8 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     const q = search.trim().toLowerCase();
     const min = minLevel === "" ? null : Number(minLevel);
     const max = maxLevel === "" ? null : Number(maxLevel);
+    const activeMs = ACTIVE_WINDOWS.find((w) => w.key === activeFilter)?.ms ?? null;
+    const activeCutoff = activeMs === null ? null : Date.now() - activeMs;
 
     return (r: RosterRow) => {
       if (q && !r.name.toLowerCase().includes(q) && !(r.ownerUsername ?? "").toLowerCase().includes(q)) return false;
@@ -88,9 +104,10 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (min !== null && r.level < min) return false;
       if (max !== null && r.level > max) return false;
+      if (activeCutoff !== null && (r.lastActivityAt === null || r.lastActivityAt < activeCutoff)) return false;
       return true;
     };
-  }, [search, classFilter, raceFilter, typeFilter, statusFilter, minLevel, maxLevel]);
+  }, [search, classFilter, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel]);
 
   // Alts nest under their main so expand/collapse can show or hide them as a
   // unit; an alt whose main went missing (or wasn't itself a "main" row)
@@ -104,7 +121,13 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       if (r.charType === "main") groupMap.set(r.id, { main: r, alts: [] });
     }
     for (const r of rows) {
-      if (r.charType !== "alt") continue;
+      if (r.charType === "main") continue;
+      // Mules aren't nested under a main (§4c) — they stand alone, same as
+      // an alt whose main isn't in the list.
+      if (r.charType === "mule") {
+        orphans.push(r);
+        continue;
+      }
       const main = r.mainCharacterId !== null ? byId.get(r.mainCharacterId) : undefined;
       if (main && main.charType === "main" && groupMap.has(main.id)) {
         groupMap.get(main.id)!.alts.push(r);
@@ -132,7 +155,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     return result;
   }, [groups, matches, sortKey, sortDir]);
 
-  const groupsWithAlts = useMemo(() => visibleGroups.filter((g) => g.alts.length > 0), [visibleGroups]);
   const visibleCount = visibleGroups.reduce((n, g) => n + 1 + g.alts.length, 0);
 
   function toggleSort(key: SortKey) {
@@ -151,13 +173,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       else next.add(id);
       return next;
     });
-  }
-
-  function expandAll() {
-    setExpanded(new Set(groupsWithAlts.map((g) => g.main.id)));
-  }
-  function collapseAll() {
-    setExpanded(new Set());
   }
 
   function renderRow(r: RosterRow, opts: { toggle?: { open: boolean; onClick: () => void } } = {}) {
@@ -196,7 +211,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <td className="px-3 py-2">
           <RoleBadge role={r.ownerRole ?? "member"} />
         </td>
-        <td className="px-3 py-2 text-neutral-400">{r.charType === "main" ? "Main" : "Alt"}</td>
+        <td className="px-3 py-2 text-neutral-400">{TYPE_LABEL[r.charType]}</td>
         <td className="px-3 py-2 text-neutral-400">{r.className}</td>
         <td className="px-3 py-2 text-neutral-400">{r.level}</td>
         {/* EP/GP are already net of decay — the ready-to-use number — with the
@@ -260,9 +275,21 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-neutral-400">Type</span>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
-            <option value="all">Mains &amp; alts</option>
+            <option value="all">All types</option>
             <option value="main">Mains only</option>
             <option value="alt">Alts only</option>
+            <option value="mule">Mules only</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Recently active</span>
+          <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
+            {ACTIVE_WINDOWS.map((w) => (
+              <option key={w.key} value={w.key}>
+                {w.label}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -298,25 +325,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             className={`${fieldClasses({ size: "sm" })} w-20`}
           />
         </label>
-
-        <div className="flex gap-2 pb-0.5">
-          <button
-            type="button"
-            onClick={expandAll}
-            disabled={groupsWithAlts.length === 0}
-            className="rounded-md border border-field px-2.5 py-1 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60 disabled:opacity-40"
-          >
-            Show alts
-          </button>
-          <button
-            type="button"
-            onClick={collapseAll}
-            disabled={expanded.size === 0}
-            className="rounded-md border border-field px-2.5 py-1 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60 disabled:opacity-40"
-          >
-            Hide alts
-          </button>
-        </div>
 
         <span className="pb-1.5 text-sm text-neutral-500">
           {visibleCount} of {rows.length} character{rows.length === 1 ? "" : "s"}
