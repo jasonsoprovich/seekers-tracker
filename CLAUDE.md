@@ -320,6 +320,26 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 4 (item 1) — parser attendance zone fix,
+2026-09-04 (`../seekers-epgp-parser` commit `ed3a5a1`; NEEDS A RELEASE
+BUILD — see below).** Two separate problems: (a) the zone was never
+reaching the site at all because the officers' installed binary
+(`bin/`, dated 2026-09-01) predates the original zone commit `be6fbc9`
+(09-02); (b) even with that code, the zone came from the `/who` block's
+"There are N players in <Zone>." footer, which for `/who guild` (what
+officers use, to catch anonymous raiders) reads "…in EverQuest." not the
+raid zone. Fixed (b): `ParseAttendance` now tracks the most recent real
+"You have entered X." line and uses that, falling back to the footer only
+when the capture has no zone-in; "You have entered an area where
+levitation…" and friends are filtered. `cmd/simlog` emits a zone-in line
+per `/who` round. No `App` signature change (`SubmitAttendance` already
+carries `zone`), so no bindings regen. **To ship: cut a parser release**
+— `git tag vX.Y.Z && git push --tags` on `../seekers-epgp-parser`
+(`build-windows.yml` builds + publishes the GitHub Release; officers'
+in-app updater picks it up). The tracker side (`ep_ledger.zone`, migration
+0024, the Ledger Zone column) is already done and just needs the remote
+rollout above.
+
 **Leader-requested batch 3 (items 2/3) — live-bids resolved cards persist +
 collapse, 2026-09-04 (LOCAL, no migration; needs a deploy + is NOT
 browser/endpoint-verified — same standing gap as every live-bids change).**
