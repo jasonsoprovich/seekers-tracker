@@ -35,6 +35,7 @@ export async function AppShell({
     { href: "/characters", label: "Characters" },
     { href: "/roster", label: "Roster" },
     { href: "/epgp/ledger", label: "EPGP Ledger" },
+    { href: "/epgp/raids", label: "Raids & Events" },
     { href: "/bank", label: "Bank" },
     { href: "/progression", label: "Pop Progression" },
     { href: "/keys", label: "Keys & Sky Bank" },

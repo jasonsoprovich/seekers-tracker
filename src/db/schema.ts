@@ -507,6 +507,27 @@ export const playerEpgpTotals = sqliteTable("player_epgp_totals", {
     .default(sql`(unixepoch())`),
 });
 
+// Optional label + note for a raid night, keyed by its UTC calendar date.
+// Raids themselves aren't a stored entity — the /epgp/raids view derives
+// them by grouping `source='parse'` ep_ledger attendance rows and
+// loot_events by `date(occurred_at)`. This table only holds the officer's
+// name for that date ("9/2 VT", "Deep+ 8/31") so a Raid-Start/Mid/End set
+// reads as one named night. No FK from the ledger rows — the date is the
+// join key.
+export const raids = sqliteTable("raids", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  raidDate: text("raid_date").notNull().unique(), // 'YYYY-MM-DD' (UTC, matching how sheet-origin dates are shown)
+  name: text("name"),
+  note: text("note"),
+  createdBy: text("created_by").references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 // Edit/delete trail for ep_ledger/gp_ledger rows — who's recorded points is
 // already on each row (entered_by), but that only ever shows the ORIGINAL
 // entry; an officer correcting or removing someone else's entry left no
