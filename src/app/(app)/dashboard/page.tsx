@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 
+import { ActiveByClass, type ActiveRosterEntry } from "@/components/dashboard/ActiveByClass";
 import { DashboardBody, type DashboardBundle } from "@/components/dashboard/DashboardBody";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters } from "@/db";
 import { CHAR_CLASSES, LEVEL_BRACKETS, levelBracket } from "@/lib/eq/enums";
+import { getStandings } from "@/lib/epgp/standings";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -84,6 +86,27 @@ export default async function DashboardPage() {
 
   const db = await getDb();
   const allCharacters = await db.select().from(characters);
+  const standings = await getStandings(db);
+
+  // "Active Members by Class" board: every non-mule character whose player
+  // has any EP/GP ledger activity, with the player's shared Loot Priority
+  // and last-activity timestamp. The window filter (24h/7d/1mo/1yr) is
+  // applied client-side. Character `status` isn't filtered here — recency
+  // is the point of the view.
+  const activeRoster: ActiveRosterEntry[] = allCharacters
+    .filter((c) => c.charType !== "mule" && c.playerId !== null)
+    .map((c): ActiveRosterEntry | null => {
+      const s = standings.get(c.playerId as number);
+      if (!s?.lastActivityAt) return null;
+      return {
+        name: c.name,
+        classId: c.class,
+        isAlt: c.charType === "alt",
+        priority: s.priorityRating,
+        lastActivityMs: s.lastActivityAt.getTime(),
+      };
+    })
+    .filter((e): e is ActiveRosterEntry => e !== null);
 
   // Guild-wide table, not filtered by character ID list — an inArray() of
   // every character's ID hits D1's ~100-bound-parameter-per-statement limit
@@ -102,6 +125,7 @@ export default async function DashboardPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Guild Dashboard" />
       <DashboardBody all={aggregate(allCharacters, flagsByCharacter)} activeOnly={aggregate(activeCharacters, flagsByCharacter)} />
+      <ActiveByClass roster={activeRoster} nowMs={Date.now()} />
     </div>
   );
 }

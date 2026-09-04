@@ -320,6 +320,18 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 3 (item 5) — Dashboard "Active Members by Class",
+2026-09-04 (LOCAL, no migration).** `ActiveByClass.tsx` on `/dashboard`
+(below the existing charts): OpenDKP-style board, one card per class listing
+that class's characters with EP/GP ledger activity inside a
+24h/7d/1mo(default)/1yr window, ranked by the player's Loot Priority (4 dp).
+Mains and alts both shown; alts dimmed + "alt" tag. Empty classes hidden.
+The window is a pure client-side filter — `dashboard/page.tsx` sends the
+whole active roster once (`getStandings` gives per-player `lastActivityAt` +
+`priorityRating`; mules and player-less characters excluded). `nowMs` is
+passed from the server to avoid a hydration mismatch. Local data: 95 / 251 /
+282 / 565 characters in the four windows.
+
 **Leader-requested batch 3 (item 9) — "Remove from guild" now zeroes EP,
 reversibly, 2026-09-04 (migration 0027, LOCAL ONLY).** Hard character
 deletion is gone entirely (`deleteCharacter` action + `DeleteCharacterButton`
