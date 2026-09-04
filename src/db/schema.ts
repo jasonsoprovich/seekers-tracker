@@ -473,7 +473,10 @@ export const ledgerAuditLog = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     ledgerType: text("ledger_type", { enum: ["ep", "gp"] }).notNull(),
     ledgerId: integer("ledger_id").notNull(),
-    action: text("action", { enum: ["update", "delete"] }).notNull(),
+    // "create" added 2026-09 so manual ledger adds (insertLedgerEntry with
+    // source "manual") leave a trail too — not just edits/deletes. No CHECK
+    // on this column, so widening the enum is a TS-only change.
+    action: text("action", { enum: ["create", "update", "delete"] }).notNull(),
     changedBy: text("changed_by").references(() => users.id),
     changedAt: integer("changed_at", { mode: "timestamp" })
       .notNull()

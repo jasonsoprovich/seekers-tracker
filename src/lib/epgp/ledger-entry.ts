@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
+import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
 import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 
@@ -13,6 +14,12 @@ import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
 // different validation rules. Callers are responsible for their own
 // auth/permission check before calling this — it only validates the row
 // shape and inserts.
+//
+// A `source: "manual"` insert also writes a `create` ledger_audit_log row
+// (parity with updateLedgerEntry/deleteLedgerEntry, which have always been
+// audited). `source: "parse"` — bulk attendance awards and per-bid GP
+// charges — is not audited: those land dozens at a time and already trace
+// back through loot_events/bids and the capture itself.
 export type LedgerEntrySource = "manual" | "parse";
 
 export type InsertLedgerEntryInput =
@@ -72,37 +79,45 @@ export async function insertLedgerEntry(
     // cap_applied is always false here; only cap_at_entry (today's cap
     // setting) is recorded for later reference.
     const capAtEntryRaw = await getSettingAt(db, "ep_cap_per_cycle", occurredAt);
-    await db.insert(epLedger).values({
-      characterId: targetCharacterId,
-      playerId,
-      occurredAt,
-      activity: activityOrTier,
-      points: input.points,
-      pointsNominal: input.points,
-      pointsAwarded: input.points,
-      capApplied: false,
-      capAtEntry: capAtEntryRaw !== null ? Number(capAtEntryRaw) : null,
-      note: input.note.trim() || null,
-      zone: input.zone?.trim() || null,
-      enteredBy,
-      source,
-    });
+    const [row] = await db
+      .insert(epLedger)
+      .values({
+        characterId: targetCharacterId,
+        playerId,
+        occurredAt,
+        activity: activityOrTier,
+        points: input.points,
+        pointsNominal: input.points,
+        pointsAwarded: input.points,
+        capApplied: false,
+        capAtEntry: capAtEntryRaw !== null ? Number(capAtEntryRaw) : null,
+        note: input.note.trim() || null,
+        zone: input.zone?.trim() || null,
+        enteredBy,
+        source,
+      })
+      .returning();
+    if (source === "manual") await recordLedgerChange(db, "ep", row.id, "create", null, row, enteredBy);
   } else {
-    await db.insert(gpLedger).values({
-      characterId: targetCharacterId,
-      playerId,
-      occurredAt,
-      itemName: input.itemName.trim() || null,
-      tier: activityOrTier,
-      points: input.points,
-      pointsNominal: input.points,
-      pointsAwarded: input.points,
-      capApplied: false,
-      capAtEntry: null,
-      note: input.note.trim() || null,
-      enteredBy,
-      source,
-    });
+    const [row] = await db
+      .insert(gpLedger)
+      .values({
+        characterId: targetCharacterId,
+        playerId,
+        occurredAt,
+        itemName: input.itemName.trim() || null,
+        tier: activityOrTier,
+        points: input.points,
+        pointsNominal: input.points,
+        pointsAwarded: input.points,
+        capApplied: false,
+        capAtEntry: null,
+        note: input.note.trim() || null,
+        enteredBy,
+        source,
+      })
+      .returning();
+    if (source === "manual") await recordLedgerChange(db, "gp", row.id, "create", null, row, enteredBy);
   }
 
   // Every EPGP-affecting write goes through this function (website form,
