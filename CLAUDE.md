@@ -320,6 +320,20 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 4 (item 6) — Raids & Events view, 2026-09-04
+(migration 0028, LOCAL ONLY).** A raid isn't a stored entity —
+`src/lib/epgp/raids.ts` derives one per UTC calendar date by grouping
+`source='parse'` attendance awards + `loot_events`. Migration `0028` adds a
+tiny `raids` table (`raid_date` UNIQUE + optional `name`/`note`) so an
+officer can label a night; no FK from the ledger, the date is the join key.
+`/epgp/raids` is a newest-first list (date, name, zones, attended, items,
+EP awarded, GP spent — new sidebar entry after EPGP Ledger); `/epgp/raids/
+[date]` shows attendance grouped into captures (activity/time/zone/members
++ priority) and a loot table, with an officer-only inline name editor
+(`RaidNameEditor` → `updateRaidMeta`). Verified against local D1. **No
+parser change** — officers name raids on the site; a `raidName` field on
+the attendance submit could auto-name later.
+
 **Leader-requested batch 4 (item 4d) — record a missed bid / missed
 attendance, 2026-09-04 (tracker commit `2f7eb20`; parser commit `7392eee`;
 parser needs a release).**
@@ -516,7 +530,7 @@ after attendance" report that kicked this off) for the row-read savings.
   the post-deploy backfill is REQUIRED, not optional:**
   1. `npx wrangler d1 migrations list seekers-of-souls --remote` — see
      what's outstanding (likely 0024 zone + 0025 source_key + 0026
-     standings + 0027 removal_decay_event, none applied to remote yet).
+     standings + 0027 removal_decay_event + 0028 raids, none applied to remote yet).
   2. `npx wrangler d1 migrations apply seekers-of-souls --remote` (applies
      them oldest-first). 0025 caveat: remote import rows then have NULL
      `source_key` until the next `--mode reset`; `--mode sync` refuses an
