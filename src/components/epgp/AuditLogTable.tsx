@@ -7,6 +7,7 @@ export type AuditLogRow = {
   action: "create" | "update" | "delete";
   changedAt: Date;
   changedByName: string | null;
+  characterName: string | null;
   before: unknown;
   after: unknown;
 };
@@ -71,7 +72,7 @@ const ACTION_STYLE: Record<AuditLogRow["action"], string> = {
 // Read-only — edit/delete/add of ep_ledger/gp_ledger rows happens on the EP
 // Ledger / GP Ledger tabs; this tab is purely the trail those actions leave
 // via recordLedgerChange (src/lib/epgp/ledger-audit.ts).
-export function AuditLogTable({ rows, characterNames }: { rows: AuditLogRow[]; characterNames: Map<number, string> }) {
+export function AuditLogTable({ rows }: { rows: AuditLogRow[] }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[880px] text-left text-sm">
@@ -89,7 +90,7 @@ export function AuditLogTable({ rows, characterNames }: { rows: AuditLogRow[]; c
           {rows.map((r) => {
             const snapshot = asRecord(r.before) ?? asRecord(r.after);
             const charId = snapshot?.characterId;
-            const characterName = typeof charId === "number" ? (characterNames.get(charId) ?? `#${charId}`) : "—";
+            const characterName = r.characterName ?? (typeof charId === "number" ? `#${charId}` : "—");
             const parts = describe(r);
             return (
               <tr key={r.id} className="align-top hover:bg-neutral-900/40">

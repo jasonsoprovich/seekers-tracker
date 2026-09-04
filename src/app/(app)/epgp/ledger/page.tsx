@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -23,7 +23,7 @@ const TABS: { key: TabType; label: string; officerOnly?: boolean; searchPlacehol
   { key: "ep", label: "EP Ledger", searchPlaceholder: "Character or activity…" },
   { key: "gp", label: "GP Ledger", searchPlaceholder: "Character, item, or tier…" },
   { key: "bids", label: "Bids History", searchPlaceholder: "Character or item…" },
-  { key: "audit", label: "Audit Trail", officerOnly: true },
+  { key: "audit", label: "Audit Trail", officerOnly: true, searchPlaceholder: "Character, officer, or action…" },
 ];
 
 // The EP/GP Log tabs this replaces (47k/5.9k rows) — the first paginated
@@ -87,7 +87,6 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   let gpRows: GpRow[] = [];
   let bidRows: Awaited<ReturnType<typeof listBidHistory>>["rows"] = [];
   let auditRows: AuditLogRow[] = [];
-  let auditCharacterNames = new Map<number, string>();
   let hasNext = false;
 
   if (type === "ep") {
@@ -104,6 +103,19 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
     hasNext = result.hasNext;
   } else {
     const offset = (page - 1) * PAGE_SIZE;
+    // The audited row's character id lives inside the before/after JSON
+    // snapshot (before is '{}' on a create, so the character is in after) —
+    // join characters through it so the name is both displayable and
+    // searchable without a second round-trip.
+    const auditCharId = sql<number | null>`coalesce(json_extract(${ledgerAuditLog.before}, '$.characterId'), json_extract(${ledgerAuditLog.after}, '$.characterId'))`;
+    const auditWhere = term
+      ? or(
+          like(sql`lower(${characters.name})`, `%${term.toLowerCase()}%`),
+          like(sql`lower(coalesce(${users.username}, ''))`, `%${term.toLowerCase()}%`),
+          like(sql`lower(${ledgerAuditLog.action})`, `%${term.toLowerCase()}%`),
+          like(sql`lower(${ledgerAuditLog.ledgerType})`, `%${term.toLowerCase()}%`),
+        )
+      : undefined;
     const rows = await db
       .select({
         id: ledgerAuditLog.id,
@@ -112,27 +124,19 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         action: ledgerAuditLog.action,
         changedAt: ledgerAuditLog.changedAt,
         changedByName: users.username,
+        characterName: characters.name,
         before: ledgerAuditLog.before,
         after: ledgerAuditLog.after,
       })
       .from(ledgerAuditLog)
       .leftJoin(users, eq(ledgerAuditLog.changedBy, users.id))
+      .leftJoin(characters, eq(characters.id, auditCharId))
+      .where(auditWhere)
       .orderBy(desc(ledgerAuditLog.changedAt))
       .limit(PAGE_SIZE + 1)
       .offset(offset);
     hasNext = rows.length > PAGE_SIZE;
     auditRows = rows.slice(0, PAGE_SIZE);
-
-    const characterIds = new Set<number>();
-    for (const r of auditRows) {
-      const snapshot = (r.before ?? r.after) as Record<string, unknown> | null;
-      const id = snapshot?.characterId;
-      if (typeof id === "number") characterIds.add(id);
-    }
-    const characterRows = characterIds.size
-      ? await db.select({ id: characters.id, name: characters.name }).from(characters).where(inArray(characters.id, [...characterIds]))
-      : [];
-    auditCharacterNames = new Map(characterRows.map((c) => [c.id, c.name]));
   }
 
   const activeTab = TABS.find((t) => t.key === type)!;
@@ -178,7 +182,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} />}
         {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} />}
         {type === "bids" && <BidHistoryTable rows={bidRows} />}
-        {type === "audit" && <AuditLogTable rows={auditRows} characterNames={auditCharacterNames} />}
+        {type === "audit" && <AuditLogTable rows={auditRows} />}
       </div>
 
       <div className="mt-4 flex items-center justify-between text-sm">
