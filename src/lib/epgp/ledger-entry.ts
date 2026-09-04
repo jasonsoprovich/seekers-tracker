@@ -4,7 +4,7 @@ import type { drizzle } from "drizzle-orm/d1";
 import { characters, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
-import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
+import { refreshStandings } from "@/lib/epgp/standings";
 
 // Shared by the website's manual-entry Server Action
 // (src/app/(app)/epgp/ledger/actions.ts) and the officer app's
@@ -26,7 +26,12 @@ export type InsertLedgerEntryInput =
   | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null }
   | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string };
 
-export type InsertLedgerEntryResult = { ok: true } | { ok: false; error: string };
+// `playerId` is the account this row landed on (an alt's row is redirected
+// to its main's character but keeps the shared player_id) — returned so a
+// bulk caller that passed `deferStandingsRefresh` can collect every
+// affected player and do one `refreshStandings({ playerIds })` at the end
+// instead of one per row. NULL only for a character with no player_id yet.
+export type InsertLedgerEntryResult = { ok: true; playerId: number | null } | { ok: false; error: string };
 
 function parseOccurredAt(raw: string): Date | null {
   const d = new Date(raw);
@@ -38,6 +43,7 @@ export async function insertLedgerEntry(
   input: InsertLedgerEntryInput,
   enteredBy: string,
   source: LedgerEntrySource = "manual",
+  opts: { deferStandingsRefresh?: boolean } = {},
 ): Promise<InsertLedgerEntryResult> {
   if (!Number.isFinite(input.points)) return { ok: false, error: "Points must be a number." };
   const occurredAt = parseOccurredAt(input.occurredAt);
@@ -121,9 +127,14 @@ export async function insertLedgerEntry(
   }
 
   // Every EPGP-affecting write goes through this function (website form,
-  // officer manual-entry/attendance/bids routes), so invalidating here once
-  // covers every caller instead of each one remembering to do it.
-  await invalidateEpgpTotalsCache();
+  // officer manual-entry/attendance/bids routes), so refreshing the
+  // player's materialized standings row here covers every single-row
+  // caller. Bulk callers (attendance, a bid round's GP charges) pass
+  // `deferStandingsRefresh` and do one `refreshStandings({ playerIds })`
+  // for the whole batch instead — see those routes.
+  if (!opts.deferStandingsRefresh && playerId != null) {
+    await refreshStandings(db, { playerIds: [playerId] });
+  }
 
-  return { ok: true };
+  return { ok: true, playerId };
 }

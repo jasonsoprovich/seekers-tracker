@@ -320,6 +320,52 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Materialized EPGP standings — `player_epgp_totals`, 2026-09-04 (migration
+0026, LOCAL ONLY so far — needs `--remote` apply + a deploy, and
+`npm run recompute:standings` against remote right after, before the read
+paths have anything to read).** Replaces the 45s Cloudflare edge cache over
+`computeEpgpTotals` (PLAN.md §6 tasks 0.1-0.4). That function runs 4
+unfiltered `GROUP BY SUM()` over the whole `ep_ledger`/`gp_ledger` (~46K
+rows) — ~93K rows read per `/roster` render once its own two `max()` scans
+are counted — and `/roster` + 3 officer routes + `custom-worker.ts`'s
+live-bid priority lookups all called it per request. The cache traded a
+stale-standings window and an invalidation race (the "roster didn't update
+after attendance" report that kicked this off) for the row-read savings.
+- `player_epgp_totals` (migration `0026_player_epgp_totals.sql`, plain
+  single `CREATE TABLE`, no rebuild): one row per player — `ep/gp/ep_decay/
+  gp_decay/priority_rating/raw_ep/raw_gp/pre_cycle_ep/pre_cycle_gp/
+  last_activity_at/updated_at`. It's the exact output of `computeEpgpTotals`
+  stored instead of recomputed.
+- `src/lib/epgp/standings.ts`: `refreshStandings(db, { playerIds } | { all:
+  true })` recomputes one/many players (index-seeked via a new
+  `computeEpgpTotals({ playerIds })` filter) or everyone, upserts, prunes
+  stale rows (chunked deletes — Miniflare D1 trips "too many SQL variables"
+  well under 999). `getStandings(db)` reads the ~255-row table into the same
+  `Map<playerId, …>` shape `getCachedEpgpTotals` returned, plus
+  `lastActivityAt` folded in so `/roster` drops its own two ledger `max()`
+  scans.
+- Every write path that used to call `invalidateEpgpTotalsCache()` now calls
+  `refreshStandings()` instead: `insertLedgerEntry` (single player;
+  `deferStandingsRefresh` opt for bulk callers), `/api/officer/attendance`
+  (one batched refresh for the whole `/who` capture), `updateLedgerEntry`/
+  `deleteLedgerEntry` (the row's own player), `/epgp/settings` and all 3
+  `decay.ts` commit/reverse paths (`{ all: true }` — those move everyone).
+  `getCachedEpgpTotals`/`invalidateEpgpTotalsCache` and the Cache API
+  plumbing are deleted from `totals.ts`; `computeEpgpTotals` stays as the
+  reference impl (verify-harness) and the recompute source.
+- No cron added: under `decay_model=global` (the intended default) the
+  table only changes on a ledger/decay/settings write, all hooked. Under
+  `legacy` the pre/current-cycle split shifts for everyone at each rollover
+  — run `npm run recompute:standings` then (it's also the initial backfill
+  and a drift check: asserts every materialized row matches a fresh
+  `computeEpgpTotals` to the cent, exits non-zero otherwise).
+- Verified local: `recompute:standings` 255 players / 0 mismatches; `npm run
+  verify` 11/13 (the 2 "fails" are Takkisina/Kaalos with the known +50
+  attendance-test seed noise, not a regression); `verify:global-decay` all
+  pass (refreshStandings runs fine inside `commitRateDecay`); `tsc` + `npm
+  run build` clean. **Not browser-verified** — same Discord-OAuth gap as
+  every prior change. **Not yet applied to remote D1 / deployed.**
+
 **Incremental sheet re-sync — `import-epgp.ts --mode sync`, 2026-09-03
 (migration 0025, LOCAL ONLY so far — needs `--remote` apply before it's
 usable against production).** Migration `0025_ledger_source_key.sql` adds a

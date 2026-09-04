@@ -183,6 +183,13 @@
       "when": 1788481948091,
       "tag": "0025_ledger_source_key",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1788493051361,
+      "tag": "0026_player_epgp_totals",
+      "breakpoints": true
     }
   ]
 }

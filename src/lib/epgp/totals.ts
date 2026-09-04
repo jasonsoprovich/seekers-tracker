@@ -1,4 +1,4 @@
-import { gte, lt, sql } from "drizzle-orm";
+import { and, gte, inArray, lt, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { cycles, epLedger, gpLedger } from "@/db";
@@ -12,6 +12,14 @@ export type EpgpTotal = {
   epDecay: number;
   gpDecay: number;
   priorityRating: number;
+  // Undecayed ledger sums and the pre-current-cycle portion of each, as of
+  // `asOf`. Carried so src/lib/epgp/standings.ts can persist them and let a
+  // legacy-model read re-derive the §1a haircut against a later cycle
+  // boundary without re-summing the ledger. Unused under decay_model=global.
+  rawEp: number;
+  rawGp: number;
+  preCycleEp: number;
+  preCycleGp: number;
 };
 
 // Settings and the "current cycle" are resolved as of `asOf` (default: real
@@ -63,9 +71,16 @@ export async function getEpgpSettings(
 // with no join back through characters.
 export async function computeEpgpTotals(
   db: ReturnType<typeof drizzle>,
-  opts: { asOf?: Date } = {},
+  opts: { asOf?: Date; playerIds?: number[] } = {},
 ): Promise<Map<number, EpgpTotal>> {
   const asOf = opts.asOf ?? new Date();
+  // A targeted recompute (src/lib/epgp/standings.ts's per-write refresh)
+  // pushes `player_id IN (...)` into the 4 aggregate scans so a single
+  // ledger insert costs a few hundred index-seeked rows, not a full-table
+  // GROUP BY. An empty array would mean "nobody" — treat it as unfiltered
+  // rather than returning an empty map, so `refreshStandings({ playerIds: []
+  // })` from a NULL-player edge case is a harmless no-op-ish full pass.
+  const playerFilter = opts.playerIds && opts.playerIds.length > 0 ? opts.playerIds : null;
   const settings = await getEpgpSettings(db, asOf);
   // PLAN.md §11 Phase 5 task 5.2 / §1c — which cycle-decay model is in
   // force right now. "legacy" derives the 20% pre-cycle haircut below
@@ -93,26 +108,28 @@ export async function computeEpgpTotals(
   // rather than crashing — nothing to decay yet.
   const cycleStart = currentCycle?.startDate ?? new Date(0);
 
+  const epScoped = playerFilter ? inArray(epLedger.playerId, playerFilter) : undefined;
+  const gpScoped = playerFilter ? inArray(gpLedger.playerId, playerFilter) : undefined;
   const [prePointsEp, curPointsEp, prePointsGp, curPointsGp] = await Promise.all([
     db
       .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
       .from(epLedger)
-      .where(lt(epLedger.occurredAt, cycleStart))
+      .where(and(lt(epLedger.occurredAt, cycleStart), epScoped))
       .groupBy(epLedger.playerId),
     db
       .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
       .from(epLedger)
-      .where(gte(epLedger.occurredAt, cycleStart))
+      .where(and(gte(epLedger.occurredAt, cycleStart), epScoped))
       .groupBy(epLedger.playerId),
     db
       .select({ playerId: gpLedger.playerId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
       .from(gpLedger)
-      .where(lt(gpLedger.occurredAt, cycleStart))
+      .where(and(lt(gpLedger.occurredAt, cycleStart), gpScoped))
       .groupBy(gpLedger.playerId),
     db
       .select({ playerId: gpLedger.playerId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
       .from(gpLedger)
-      .where(gte(gpLedger.occurredAt, cycleStart))
+      .where(and(gte(gpLedger.occurredAt, cycleStart), gpScoped))
       .groupBy(gpLedger.playerId),
   ]);
 
@@ -147,66 +164,20 @@ export async function computeEpgpTotals(
     const ep = rawEp - epDecay;
     const gp = rawGp - gpDecay;
     const priorityRating = (ep + settings.base_ep) / (gp + settings.base_gp);
-    totals.set(playerId, { playerId, ep, gp, epDecay, gpDecay, priorityRating });
+    totals.set(playerId, { playerId, ep, gp, epDecay, gpDecay, priorityRating, rawEp, rawGp, preCycleEp: preEpAmt, preCycleGp: preGpAmt });
   }
 
   return totals;
 }
 
-// computeEpgpTotals runs 4 unfiltered GROUP BY SUM() queries over the full
-// ep_ledger/gp_ledger — D1 scans every row on every call, and it was being
-// called uncached from a server component (roster/page.tsx, re-runs per
-// request) plus three officer API routes. That's what burns the 5M/day
-// free-tier row-read budget (PLAN.md §6). Cache the result in Cloudflare's
-// edge Cache API under a synthetic key — there's no real inbound request
-// this response corresponds to, so `cache.put` needs a made-up GET Request
-// to key off. TTL is short (not correctness-critical data — EPGP standings
-// tolerate a ~1min-stale read) but long enough to collapse a burst of page
-// loads into one D1 hit.
-const TOTALS_CACHE_TTL_SECONDS = 45;
-const TOTALS_CACHE_KEY = new Request("https://seekers-tracker.internal/cache/epgp-totals");
-
-// cloudflare-env.d.ts's CacheStorage/Cache (the Workers runtime's single
-// `.default` cache) get shadowed by the "dom" lib's same-named types (the
-// browser Cache Storage API — named caches only, no `.default`) once both
-// are in `tsconfig.json`'s `lib`, which this Next.js app needs for its
-// client-side code. `caches` resolves to the DOM interface at the type
-// level even though the Workers runtime object underneath is the
-// Cloudflare one, so reach `.default` through a narrow local cast instead
-// of fighting the lib conflict.
-interface CloudflareCache {
-  match(request: Request): Promise<Response | undefined>;
-  put(request: Request, response: Response): Promise<void>;
-  delete(request: Request): Promise<boolean>;
-}
-function defaultCache(): CloudflareCache {
-  return (caches as unknown as { default: CloudflareCache }).default;
-}
-
-export async function getCachedEpgpTotals(db: ReturnType<typeof drizzle>): Promise<Map<number, EpgpTotal>> {
-  const cache = defaultCache();
-  const cached = await cache.match(TOTALS_CACHE_KEY);
-  if (cached) {
-    const rows = (await cached.json()) as [number, EpgpTotal][];
-    return new Map(rows);
-  }
-
-  // Only the miss path hits D1 — this line is what makes the TTL window
-  // visible in `wrangler tail` (PLAN.md §6 task 0.4). A quiet stretch of
-  // cache hits between misses is the caching working, not a gap in logging.
-  console.log("[epgp-totals] cache miss, querying D1");
-  const totals = await computeEpgpTotals(db);
-  const response = new Response(JSON.stringify([...totals]), {
-    headers: { "content-type": "application/json", "cache-control": `max-age=${TOTALS_CACHE_TTL_SECONDS}` },
-  });
-  await cache.put(TOTALS_CACHE_KEY, response);
-  return totals;
-}
-
-// Called by every EPGP-ledger write path (insertLedgerEntry covers manual
-// entry, attendance, and bids' GP charges — see that file) so a fresh totals
-// read never has to wait out the TTL after an officer just changed the
-// numbers.
-export async function invalidateEpgpTotalsCache(): Promise<void> {
-  await defaultCache().delete(TOTALS_CACHE_KEY);
-}
+// computeEpgpTotals runs 4 GROUP BY SUM() queries over the full
+// ep_ledger/gp_ledger — every unfiltered call (the default) scans every
+// row. It used to be fronted by a 45s Cloudflare edge cache
+// (getCachedEpgpTotals / invalidateEpgpTotalsCache, PLAN.md §6 tasks
+// 0.1-0.4) so a burst of /roster loads collapsed to one D1 hit. That
+// cache is gone as of the standings-table work: reads now go through
+// `getStandings` (src/lib/epgp/standings.ts) against the materialized
+// `player_epgp_totals`, and writes call `refreshStandings` where they used
+// to invalidate. This function stays as the reference implementation
+// (scripts/verify-harness.ts) and the thing `refreshStandings` recomputes
+// from — production reads no longer call it directly.

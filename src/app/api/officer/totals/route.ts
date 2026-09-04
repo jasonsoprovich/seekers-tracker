@@ -3,7 +3,7 @@ import { asc, like } from "drizzle-orm";
 import { characters } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
-import { getCachedEpgpTotals } from "@/lib/epgp/totals";
+import { getStandings } from "@/lib/epgp/standings";
 
 // Backs the officer app's Browse > Totals tab — same EP/GP/Priority
 // standings as /roster: every character sharing a player_id (PLAN.md §11
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       .from(characters)
       .where(term ? like(characters.name, `%${term}%`) : undefined)
       .orderBy(asc(characters.name)),
-    getCachedEpgpTotals(db),
+    getStandings(db),
   ]);
 
   const nameById = new Map(rows.map((r) => [r.id, r.name]));

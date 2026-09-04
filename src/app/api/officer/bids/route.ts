@@ -5,7 +5,7 @@ import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
 import { getActivePointValue } from "@/lib/epgp/point-values";
-import { getCachedEpgpTotals } from "@/lib/epgp/totals";
+import { getStandings } from "@/lib/epgp/standings";
 
 type BidEntryBody = { characterName?: unknown; tier?: unknown; occurredAt?: unknown; isWinner?: unknown };
 type BidsRequestBody = { itemName?: unknown; entries?: unknown; note?: unknown };
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
 
   const [allCharacters, totals] = await Promise.all([
     db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
-    getCachedEpgpTotals(db),
+    getStandings(db),
   ]);
   const byLowerName = new Map(allCharacters.map((c) => [c.name.toLowerCase(), c]));
 

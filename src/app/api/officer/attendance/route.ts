@@ -6,6 +6,7 @@ import { checkMinAttendance } from "@/lib/epgp/attendance";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
+import { refreshStandings } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 
 type AttendanceRequestBody = {
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
   // request's own name list, and once against rows already on ep_ledger
   // (catches a resubmission of the same capture in a separate request).
   const seenPlayerKeys = new Set<number>();
+  const awardedPlayerIds = new Set<number>();
   let inserted = 0;
 
   for (const name of names) {
@@ -126,10 +128,23 @@ export async function POST(request: Request) {
     }
 
     seenPlayerKeys.add(playerKey);
-    const result = await insertLedgerEntry(db, { kind: "ep", characterId, activity, points, occurredAt: body.occurredAt, note, zone }, auth.userId, "parse");
-    if (result.ok) inserted++;
-    else unmatched.push(name);
+    // Defer the per-row standings refresh — a `/who` capture awards 20-40
+    // players at once, so one `refreshStandings({ playerIds })` for the
+    // whole batch below beats one recompute per name.
+    const result = await insertLedgerEntry(
+      db,
+      { kind: "ep", characterId, activity, points, occurredAt: body.occurredAt, note, zone },
+      auth.userId,
+      "parse",
+      { deferStandingsRefresh: true },
+    );
+    if (result.ok) {
+      inserted++;
+      if (result.playerId != null) awardedPlayerIds.add(result.playerId);
+    } else unmatched.push(name);
   }
+
+  if (awardedPlayerIds.size > 0) await refreshStandings(db, { playerIds: [...awardedPlayerIds] });
 
   return Response.json({ inserted, unmatched, duplicates }, { status: 201 });
 }

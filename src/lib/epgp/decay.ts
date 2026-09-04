@@ -3,7 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, decayEvents, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
-import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
+import { refreshStandings } from "@/lib/epgp/standings";
 
 // PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
 // rows. Legacy cycle decay (§1a) stays derived at read time in totals.ts
@@ -212,7 +212,7 @@ export async function commitRateDecay(
     }
   }
 
-  await invalidateEpgpTotalsCache();
+  await refreshStandings(db, { all: true });
   return { decayEventId: event.id, epRows, gpRows };
 }
 
@@ -315,7 +315,7 @@ export async function commitDepartureWipe(
     });
   }
 
-  await invalidateEpgpTotalsCache();
+  await refreshStandings(db, { all: true });
   return { decayEventId: event.id, epRows: preview.length };
 }
 
@@ -347,7 +347,7 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
   }
 
   await db.update(decayEvents).set({ reversedAt: new Date(), reversedBy }).where(eq(decayEvents.id, decayEventId));
-  await invalidateEpgpTotalsCache();
+  await refreshStandings(db, { all: true });
 
   return { ok: true, epRows: epRowsBefore.length, gpRows: gpRowsBefore.length };
 }

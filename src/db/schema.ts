@@ -457,6 +457,49 @@ export const gpLedger = sqliteTable(
   ],
 );
 
+// Materialized EPGP standings — one row per player, the exact output of
+// `computeEpgpTotals` (src/lib/epgp/totals.ts) stored instead of recomputed.
+// Maintained incrementally by `refreshStandings` (src/lib/epgp/standings.ts),
+// called from every EPGP-affecting write path (ledger insert/edit/delete,
+// every decay commit/reverse, settings change) right where
+// `invalidateEpgpTotalsCache` used to be.
+//
+// Why: `computeEpgpTotals` runs 4 unfiltered GROUP BY SUM() over the whole
+// ep_ledger/gp_ledger (~46K rows and growing) on every call, and /roster +
+// three officer routes + custom-worker's live-bid priority lookups all call
+// it per request. The old fix was a 45s edge cache (PLAN.md §6 task 0.1-0.4),
+// which traded a stale-standings window and a cache-invalidation race for the
+// row-read savings. This table removes both: a standings read is now ~1 row
+// per player, always fresh. `computeEpgpTotals` stays as the reference
+// implementation (scripts/verify-harness.ts) and the recompute source.
+//
+// `rawEp`/`rawGp` are the undecayed ledger sums; `preCycleEp`/`preCycleGp`
+// are the portion earned before the current cycle start as of the last
+// refresh — kept so a legacy-model read can re-derive the §1a haircut against
+// today's cycle boundary without re-summing the ledger, and so a cycle
+// rollover only needs `refreshStandings({ all: true })` (npm run
+// recompute:standings, or the scheduled job) rather than a schema-aware
+// migration. Under decay_model=global these two columns are unused (global
+// decay is stored as real negative ledger rows, so rawEp already reflects it).
+export const playerEpgpTotals = sqliteTable("player_epgp_totals", {
+  playerId: integer("player_id")
+    .primaryKey()
+    .references(() => players.id),
+  ep: real("ep").notNull(),
+  gp: real("gp").notNull(),
+  epDecay: real("ep_decay").notNull(),
+  gpDecay: real("gp_decay").notNull(),
+  priorityRating: real("priority_rating").notNull(),
+  rawEp: real("raw_ep").notNull(),
+  rawGp: real("raw_gp").notNull(),
+  preCycleEp: real("pre_cycle_ep").notNull().default(0),
+  preCycleGp: real("pre_cycle_gp").notNull().default(0),
+  lastActivityAt: integer("last_activity_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 // Edit/delete trail for ep_ledger/gp_ledger rows — who's recorded points is
 // already on each row (entered_by), but that only ever shows the ORIGINAL
 // entry; an officer correcting or removing someone else's entry left no

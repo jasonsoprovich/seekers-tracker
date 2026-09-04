@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { characters } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
-import { getCachedEpgpTotals } from "@/lib/epgp/totals";
+import { getStandings } from "@/lib/epgp/standings";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
 import { createStandalonePlayer } from "@/lib/players";
 
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       })
       .from(characters)
       .orderBy(asc(characters.name)),
-    getCachedEpgpTotals(db),
+    getStandings(db),
   ]);
 
   const nameById = new Map(rows.map((r) => [r.id, r.name]));

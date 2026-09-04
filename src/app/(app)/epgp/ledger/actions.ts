@@ -8,7 +8,7 @@ import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
-import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
+import { refreshStandings } from "@/lib/epgp/standings";
 import { getSession } from "@/lib/session";
 
 export type LedgerActionResult = { error?: string };
@@ -62,9 +62,13 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   if (!activityOrTier) return { error: input.kind === "ep" ? "Activity is required." : "Tier is required." };
 
   const db = await getDb();
+  // An edit never reassigns the character (that's a delete + re-add), so
+  // the row's own player_id is the only standings that can move.
+  let affectedPlayerId: number | null = null;
   if (input.kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
+    affectedPlayerId = before.playerId;
     const [after] = await db
       .update(epLedger)
       .set({
@@ -82,6 +86,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
+    affectedPlayerId = before.playerId;
     const [after] = await db
       .update(gpLedger)
       .set({
@@ -98,11 +103,11 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     await recordLedgerChange(db, "gp", input.id, "update", before, after, session.user.id);
   }
 
-  // Every other EPGP-affecting write path invalidates this cache
-  // (insertLedgerEntry, every decay commit) — this one and delete's below
-  // didn't, which left /roster showing stale EP/GP after an officer edited
-  // or deleted a row. Found auditing this file, 2026-08-25.
-  await invalidateEpgpTotalsCache();
+  // Keep the materialized standings in step — every other EPGP-affecting
+  // write path does this too (insertLedgerEntry, every decay commit). This
+  // one and delete's below were the two that used to forget (then only
+  // invalidating a cache; found auditing this file, 2026-08-25).
+  if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
 
   return {};
 }
@@ -117,19 +122,22 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
   }
 
   const db = await getDb();
+  let affectedPlayerId: number | null = null;
   if (kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, id));
     if (!before) return { error: "Ledger row not found." };
+    affectedPlayerId = before.playerId;
     await db.delete(epLedger).where(eq(epLedger.id, id));
     await recordLedgerChange(db, "ep", id, "delete", before, null, session.user.id);
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, id));
     if (!before) return { error: "Ledger row not found." };
+    affectedPlayerId = before.playerId;
     await db.delete(gpLedger).where(eq(gpLedger.id, id));
     await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
   }
 
-  await invalidateEpgpTotalsCache();
+  if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
 
   return {};
 }

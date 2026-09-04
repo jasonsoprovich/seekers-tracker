@@ -23,7 +23,8 @@
     "verify:attendance-minimum": "tsx scripts/verify-attendance-minimum.ts",
     "verify:global-decay": "tsx scripts/verify-global-decay.ts",
     "verify:player-reconciliation": "tsx scripts/verify-player-reconciliation.ts",
-    "verify:quest-flags": "tsx scripts/verify-quest-flags.ts"
+    "verify:quest-flags": "tsx scripts/verify-quest-flags.ts",
+    "recompute:standings": "tsx scripts/recompute-standings.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.7.1",

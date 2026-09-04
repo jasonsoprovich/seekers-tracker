@@ -6,7 +6,7 @@ import { setSetting, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { invalidateEpgpTotalsCache } from "@/lib/epgp/totals";
+import { refreshStandings } from "@/lib/epgp/standings";
 
 export type UpdateSettingResult = { error?: string };
 
@@ -43,10 +43,10 @@ export async function updateSetting(key: string, value: string, note: string): P
   const db = await getDb();
   await setSetting(db, key, trimmed, session.user.id, { note: note.trim() || undefined });
 
-  // Settings feed computeEpgpTotals via getEpgpSettings — a stale cached
-  // total after a leader just changed the EP cap or a decay rate would be
-  // confusing (same reasoning as invalidating on every ledger write, §6).
-  await invalidateEpgpTotalsCache();
+  // base_ep/base_gp/ep_decay/gp_decay/decay_model all feed
+  // computeEpgpTotals, so a change here moves every player's priority (and,
+  // under legacy, their decay). Rebuild the whole materialized table.
+  await refreshStandings(db, { all: true });
 
   return {};
 }

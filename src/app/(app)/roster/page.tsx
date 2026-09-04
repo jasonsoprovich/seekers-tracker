@@ -1,12 +1,12 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characters, epLedger, gpLedger, users } from "@/db";
+import { characters, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
-import { getCachedEpgpTotals } from "@/lib/epgp/totals";
+import { getStandings } from "@/lib/epgp/standings";
 import { getSession } from "@/lib/session";
 
 // Visible to every role (member/officer/leader) — this is a read-only view
@@ -26,7 +26,7 @@ export default async function RosterPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [rows, totals, epLast, gpLast] = await Promise.all([
+  const [rows, totals] = await Promise.all([
     db
       .select({
         id: characters.id,
@@ -45,23 +45,15 @@ export default async function RosterPage() {
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
       .orderBy(characters.name),
-    getCachedEpgpTotals(db),
-    // Most recent EP/GP entry per player (rows are attributed to the main,
-    // so a player's whole group — main, alts, mules — shares this).
-    db.select({ playerId: epLedger.playerId, lastAt: sql<number | null>`max(${epLedger.occurredAt})` }).from(epLedger).groupBy(epLedger.playerId),
-    db.select({ playerId: gpLedger.playerId, lastAt: sql<number | null>`max(${gpLedger.occurredAt})` }).from(gpLedger).groupBy(gpLedger.playerId),
+    // Materialized standings — one ~255-row scan, always current. Carries
+    // `lastActivityAt` (most recent EP/GP entry for the player's whole
+    // group) so this page no longer runs its own two max() scans over the
+    // full ledgers on every request.
+    getStandings(db),
   ]);
 
-  const lastActivityByPlayer = new Map<number, number>();
-  for (const r of [...epLast, ...gpLast]) {
-    if (r.playerId == null || r.lastAt == null) continue;
-    const prev = lastActivityByPlayer.get(r.playerId);
-    if (prev == null || r.lastAt > prev) lastActivityByPlayer.set(r.playerId, r.lastAt);
-  }
-
-  // computeEpgpTotals groups by player_id (PLAN.md §11 Phase 3 task 3.11) —
-  // every character sharing a player (main, alt, mule) reads the same
-  // total, so there's no alt→main resolution to do here anymore.
+  // Every character sharing a player (main, alt, mule) reads the same
+  // total, so there's no alt→main resolution to do here.
   function totalsFor(r: (typeof rows)[number]) {
     return r.playerId !== null ? totals.get(r.playerId) : undefined;
   }
@@ -85,8 +77,8 @@ export default async function RosterPage() {
       epDecay: total?.epDecay ?? null,
       gpDecay: total?.gpDecay ?? null,
       priorityRating: total?.priorityRating ?? null,
-      // occurred_at is stored in seconds; the client works in ms.
-      lastActivityAt: r.playerId !== null && lastActivityByPlayer.has(r.playerId) ? lastActivityByPlayer.get(r.playerId)! * 1000 : null,
+      // The client works in ms.
+      lastActivityAt: total?.lastActivityAt ? total.lastActivityAt.getTime() : null,
     };
   });
 
