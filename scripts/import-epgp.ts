@@ -650,12 +650,18 @@ async function main() {
   out.push(`-- ${characters.size} characters, ${epRows.length} EP rows, ${gpRows.length} GP rows.`);
 
   if (wipe) {
-    out.push("-- --wipe: clear EPGP tables (characters/site accounts are untouched)");
+    out.push("-- --mode reset: clear EPGP tables (characters/site accounts are untouched)");
     out.push("DELETE FROM bids;");
     out.push("DELETE FROM loot_events;");
     out.push("DELETE FROM gp_ledger;");
     out.push("DELETE FROM ep_ledger;");
     out.push("DELETE FROM cycles;");
+    // ledger_audit_log has no FK to ep_ledger/gp_ledger (a delete's audit
+    // row must outlive the row it describes), so a wipe+reload leaves every
+    // audit row pointing at a since-reassigned ledger id — stale, not
+    // history. Clear it too. Real prod audit history is kept by never
+    // running --mode reset against prod once live — that's --mode sync's job.
+    out.push("DELETE FROM ledger_audit_log;");
   }
   // epgp_point_values is small, static, and fully derived from the sheet's
   // config tab — always safe to fully replace, --wipe or not.
