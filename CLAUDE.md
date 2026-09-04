@@ -320,6 +320,28 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 4 (item 4d) — record a missed bid / missed
+attendance, 2026-09-04 (tracker commit `2f7eb20`; parser commit `7392eee`;
+parser needs a release).**
+- **Tracker:** `POST /api/officer/bids` gained a soft duplicate guard —
+  same item name + a winning-entry time within 12h of an existing
+  `loot_events` row → `409 { error, duplicate }`, nothing written, unless
+  the body carries `confirmDuplicate: true`. Stops a double-clicked
+  finalize (or a manual re-entry) from silently doubling the winner's GP
+  charge; a real second drop the same night is confirmed through.
+  Case-insensitive on item name. Verified against local D1.
+- **Parser:** Manual Entry tab has a mode selector — "EP / GP adjustment"
+  (the old form), "Missed bid", "Missed attendance". Missed bid
+  (`MissedBidForm`): item autocomplete + date/time + a per-bidder table
+  (name/`NoMatchSelect`, tier, winner), posts via new `App.SubmitManualBid`
+  → `officerapi.SubmitBidsChecked`, which surfaces the 409 as
+  `BidsResponse.Duplicate` + message so the form offers "Record anyway"
+  (resends `confirmDuplicate`). Missed attendance (`MissedAttendanceForm`):
+  activity + date/time + optional zone + names one-per-line →
+  `App.SubmitAttendance` (its `(player, activity, time)` dedupe already
+  reports already-recorded names as "skipped"). `wails3 generate bindings`
+  run; go + frontend builds clean; not GUI-verified.
+
 **Leader-requested batch 4 (items 4a/4b) — parser panels survive tab
 switches, 2026-09-04 (`../seekers-epgp-parser` commit `f1de44e`; ships with
 the same release as item 1).** `App.tsx` rendered each panel as
