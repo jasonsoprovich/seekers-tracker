@@ -2,18 +2,46 @@
 // .xlsx) into SQL that seeds ep_ledger/gp_ledger/cycles/epgp_* — see
 // docs/guild-website-feasibility.md and the EPGP plan for background.
 //
-// This does NOT talk to D1 directly: it emits a .sql file you apply with
-// `wrangler d1 execute`, so a re-snapshot before go-live is one review-able
-// diff, not a live write from a dev machine.
+// It emits a .sql file you apply with `wrangler d1 execute`, so a
+// re-snapshot is one review-able diff, not a live write from a dev machine.
+// (`--mode sync` additionally reads the *current* row keys back from the
+// target DB — one SELECT via `wrangler d1 execute --json` — to work out the
+// diff; it still only ever writes through the emitted .sql.)
 //
 // Usage:
-//   npx tsx scripts/import-epgp.ts --file "/path/to/SoS - EPGP.xlsx" [--out drizzle/seed/epgp-import.sql] [--wipe]
+//   npx tsx scripts/import-epgp.ts --file "/path/to/SoS - EPGP.xlsx" [--out <path>] [--mode reset|sync] [--remote]
 //   wrangler d1 execute seekers-of-souls --local --file=drizzle/seed/epgp-import.sql
 //
-// --wipe prepends DELETEs for the EPGP ledger/config tables (NOT
-// `characters` — real site accounts and previously-imported roster rows are
-// preserved; `characters` has a unique name constraint and every insert
-// here is `INSERT OR IGNORE`, so reruns are naturally idempotent for it).
+// --mode reset (default; --wipe is the old alias): full reload — prepend
+//   DELETEs for the EPGP ledger/config tables, then re-INSERT every row.
+//   ~140K row writes (deletes + inserts + the player_id backfill). Fine
+//   against local D1 (unlimited); the right call for the one-time
+//   production snapshot. Too heavy for repeated remote re-syncs.
+//
+// --mode sync: reconcile an already-seeded DB against a fresh sheet export
+//   by INSERT/UPDATE/DELETE of only the ledger rows that actually changed.
+//   The guild's master sheet is read-only to us, so there's no per-row id
+//   column to key on — instead each row's ep_ledger/gp_ledger.source_key is
+//   a content hash the importer derives itself: sha1 of the row's *identity*
+//   (character name + date + activity/item + a tie-break ordinal for rows
+//   that are otherwise identical, numbered in sheet order). A value edit to
+//   an existing row (points, note, tier, cycle) keeps the same key and
+//   comes through as an UPDATE; a change to name/date/activity/item, or an
+//   inserted/deleted row, is a DELETE + INSERT. A typical weekly delta is a
+//   few hundred writes vs. ~140K — safe to run repeatedly against remote
+//   D1's 100K/day write cap while officers keep editing the live sheet.
+//   Needs the DB seeded by `--mode reset` at least once first (so every
+//   import row already has a source_key to match); add `--remote` to diff
+//   against production D1.
+//
+// Neither mode touches `characters` beyond `INSERT OR IGNORE` + a class
+// backfill — real site accounts and previously-imported roster rows are
+// preserved. Both modes end with a correlated UPDATE that fills
+// ep_ledger/gp_ledger.player_id from characters.player_id for any freshly
+// written row whose character is already linked to a player (run
+// `derive:players` first if the sync report lists brand-new characters).
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -33,11 +61,28 @@ const hasFlag = (name: string) => process.argv.includes(`--${name}`);
 
 const filePath = arg("file");
 if (!filePath) {
-  console.error("Usage: tsx scripts/import-epgp.ts --file <path to .xlsx> [--out <path>] [--wipe]");
+  console.error("Usage: tsx scripts/import-epgp.ts --file <path to .xlsx> [--out <path>] [--mode reset|sync] [--remote]");
   process.exit(1);
 }
-const outPath = resolve(arg("out") ?? "drizzle/seed/epgp-import.sql");
-const wipe = hasFlag("wipe");
+
+const rawMode = arg("mode");
+if (rawMode && rawMode !== "reset" && rawMode !== "sync") {
+  console.error(`--mode must be "reset" or "sync" (got "${rawMode}").`);
+  process.exit(1);
+}
+// --wipe is the old spelling of --mode reset; default stays reset.
+const mode: "reset" | "sync" = rawMode === "sync" ? "sync" : "reset";
+// Legacy: a bare run (no --mode, no --wipe) stays non-destructive; --wipe or
+// an explicit --mode reset does the full DELETE + reload.
+const wipe = mode === "reset" && (hasFlag("wipe") || rawMode === "reset");
+const remote = hasFlag("remote");
+const d1Target = remote ? "--remote" : "--local";
+const outPath = resolve(arg("out") ?? (mode === "sync" ? "drizzle/seed/epgp-sync.sql" : "drizzle/seed/epgp-import.sql"));
+
+// Field separator for the content-hash inputs — a control char that can't
+// occur in any sheet cell, so "A|B" and "AB|" (etc.) can't collide.
+const HASH_SEP = "\u0001";
+const sha1 = (s: string) => createHash("sha1").update(s).digest("hex");
 
 // ---------- cell helpers ----------
 
@@ -355,6 +400,7 @@ async function main() {
     nominalPoints: number;
     note: string | null;
     orphaned: boolean;
+    key: string; // ep_ledger.source_key — a content hash, assigned after parsing
   };
   const epRows: EpRow[] = [];
   let epSkipped = 0;
@@ -410,7 +456,7 @@ async function main() {
       }
       epOrphaned++;
       const awarded = points ?? 0;
-      epRows.push({ name: null, cycleNumber, occurredAt: date, activity, points: awarded, nominalPoints: nominalPoints ?? awarded, note, orphaned: true });
+      epRows.push({ name: null, cycleNumber, occurredAt: date, activity, points: awarded, nominalPoints: nominalPoints ?? awarded, note, orphaned: true, key: "" });
       return;
     }
 
@@ -423,7 +469,7 @@ async function main() {
       epNameSkipped++;
       return;
     }
-    epRows.push({ name: canonical, cycleNumber, occurredAt: date, activity, points, nominalPoints: nominalPoints ?? points, note, orphaned: false });
+    epRows.push({ name: canonical, cycleNumber, occurredAt: date, activity, points, nominalPoints: nominalPoints ?? points, note, orphaned: false, key: "" });
   });
   let classBackfilled = 0;
   for (const [key, record] of characters) {
@@ -440,6 +486,8 @@ async function main() {
   );
 
   // --- GP Log ---
+  // (col B "Key" is the sheet's own column — unused by us; source_key is a
+  // content hash assigned after parsing, see below.)
   assertHeaders(gpSheet, 1, { 2: "Key", 3: "Date", 4: "Character", 5: "Loot", 6: "Gear Level", 7: "Notes", 8: "Duplicate Loot Found" });
   type GpRow = {
     name: string;
@@ -448,6 +496,7 @@ async function main() {
     tier: string;
     points: number;
     duplicateFlag: boolean;
+    key: string; // gp_ledger.source_key — a content hash, assigned after parsing
   };
   const gpRows: GpRow[] = [];
   let gpSkipped = 0;
@@ -475,8 +524,38 @@ async function main() {
     const itemName = cellText(row.getCell(5)) || null;
     const duplicateFlag = cellText(row.getCell(8)).toLowerCase() === "yes";
     if (cycleForDate(date) === null) gpUnresolvedCycle++;
-    gpRows.push({ name: canonical, occurredAt: date, itemName, tier, points, duplicateFlag });
+    gpRows.push({ name: canonical, occurredAt: date, itemName, tier, points, duplicateFlag, key: "" });
   });
+
+  // ---------- assign each ledger row a stable content-hash source_key ----------
+  // Identity = the fields that make a row "the same entry" (name/date/
+  // activity for EP; name/date/item for GP), plus a per-identity ordinal in
+  // sheet order so genuinely repeated entries (two "Bank Donation" for one
+  // person on one day, a duplicate drop) still get distinct keys. Mutable
+  // fields (points, note, tier, cycle) are deliberately NOT in the key —
+  // editing one keeps the key stable so --mode sync emits an UPDATE, not a
+  // delete+insert. `HASH_SEP` between fields so "a|b" can't alias "ab|".
+  const assignKeys = <T extends { key: string }>(rows: T[], identity: (r: T) => string) => {
+    const seen = new Map<string, number>();
+    for (const r of rows) {
+      const id = identity(r);
+      const ord = seen.get(id) ?? 0;
+      seen.set(id, ord + 1);
+      r.key = sha1(id + HASH_SEP + ord);
+    }
+    const distinct = new Set(rows.map((r) => r.key));
+    if (distinct.size !== rows.length) {
+      throw new Error(`source_key collision: ${rows.length - distinct.size} row(s) hashed to a non-unique key — should be impossible, investigate before applying.`);
+    }
+  };
+  // EP identity includes `activity` (one person legitimately has Raid
+  // Start/Mid/End on one date); GP identity stops at the item (`tier` is the
+  // "how much", mutable like points — a tier correction should UPDATE, not
+  // churn the row).
+  assignKeys(epRows, (r) =>
+    ["ep", r.name ?? "", unixSeconds(r.occurredAt), r.activity, r.orphaned ? "1" : "0"].join(HASH_SEP),
+  );
+  assignKeys(gpRows, (r) => ["gp", r.name, unixSeconds(r.occurredAt), r.itemName ?? ""].join(HASH_SEP));
   console.log(
     `GP Log: ${gpRows.length} rows parsed, ${gpSkipped} skipped, ${gpUnresolvedCycle} with no matching cycle date range, ${gpNameSkipped} skipped (whitespace name typo, doesn't match the sheet's SUMIF).`,
   );
@@ -547,9 +626,27 @@ async function main() {
     for (const c of stillUnresolvedClasses.slice(0, 40)) console.log(`  ${c.name}`);
   }
 
+  // ---------- read the target DB back (sync only) ----------
+  // The one place this script touches D1: a single read query per table via
+  // `wrangler d1 execute --json`, to work out which sheet rows are new /
+  // edited / gone. All writes still go through the emitted .sql.
+  function queryTarget(sql: string): Record<string, unknown>[] {
+    const rawOut = execFileSync("npx", ["wrangler", "d1", "execute", "seekers-of-souls", d1Target, "--json", "--command", sql], {
+      encoding: "utf8",
+      maxBuffer: 512 * 1024 * 1024,
+    });
+    const jsonStart = rawOut.indexOf("[");
+    if (jsonStart === -1) throw new Error(`wrangler d1 execute returned no JSON:\n${rawOut.slice(0, 800)}`);
+    const parsed = JSON.parse(rawOut.slice(jsonStart)) as { success?: boolean; results?: Record<string, unknown>[] }[];
+    const first = parsed[0];
+    if (!first?.success) throw new Error(`wrangler d1 execute failed:\n${rawOut.slice(0, 800)}`);
+    return first.results ?? [];
+  }
+
   // ---------- emit SQL ----------
   const out: string[] = [];
   out.push(`-- Generated by scripts/import-epgp.ts from ${filePath} on ${new Date().toISOString()}`);
+  out.push(`-- mode=${mode}${mode === "sync" ? ` (diffed against ${remote ? "REMOTE" : "local"} D1)` : ""}`);
   out.push(`-- ${characters.size} characters, ${epRows.length} EP rows, ${gpRows.length} GP rows.`);
 
   if (wipe) {
@@ -613,46 +710,231 @@ async function main() {
   }
 
   const BATCH = 300;
-  out.push("\n-- ep_ledger");
-  for (let i = 0; i < epRows.length; i += BATCH) {
-    const batch = epRows.slice(i, i + BATCH);
-    const values = batch
-      .map((r) => {
-        const cycleIdExpr = r.cycleNumber !== null ? `(SELECT id FROM cycles WHERE cycle_number = ${r.cycleNumber})` : "NULL";
-        // Orphaned (§1e): name was stripped in the sheet, unattributable —
-        // character_id/player_id both NULL rather than guessed.
-        const charIdExpr = r.orphaned ? "NULL" : `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)})`;
-        const capApplied = r.nominalPoints !== r.points ? 1 : 0;
-        return `(${charIdExpr}, ${cycleIdExpr}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.activity)}, ${sqlNum(r.points)}, ${sqlNum(r.nominalPoints)}, ${sqlNum(r.points)}, ${capApplied}, ${sqlNum(Number(SETTINGS.ep_cap_per_cycle))}, ${r.orphaned ? 1 : 0}, ${sqlStr(r.note)}, 'import')`;
-      })
-      .join(",\n");
-    out.push(
-      `INSERT INTO ep_ledger (character_id, cycle_id, occurred_at, activity, points, points_nominal, points_awarded, cap_applied, cap_at_entry, orphaned, note, source) VALUES\n${values};`,
+
+  // ---------- shared ledger SQL builders (both --mode reset and --mode sync) ----------
+  const EP_COLS =
+    "character_id, cycle_id, occurred_at, activity, points, points_nominal, points_awarded, cap_applied, cap_at_entry, orphaned, note, source, source_key";
+  const GP_COLS =
+    "character_id, cycle_id, occurred_at, item_name, tier, points, points_nominal, points_awarded, cap_applied, cap_at_entry, orphaned, duplicate_flag, source, source_key";
+  const epCharIdExpr = (r: EpRow) => (r.orphaned ? "NULL" : `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)})`);
+  const epCycleIdExpr = (r: EpRow) =>
+    r.cycleNumber !== null ? `(SELECT id FROM cycles WHERE cycle_number = ${r.cycleNumber})` : "NULL";
+  const gpCycleIdExpr = (r: GpRow) => {
+    const n = cycleForDate(r.occurredAt);
+    return n !== null ? `(SELECT id FROM cycles WHERE cycle_number = ${n})` : "NULL";
+  };
+  const epCapApplied = (r: EpRow) => (r.nominalPoints !== r.points ? 1 : 0);
+  const epTuple = (r: EpRow) =>
+    `(${epCharIdExpr(r)}, ${epCycleIdExpr(r)}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.activity)}, ${sqlNum(r.points)}, ${sqlNum(r.nominalPoints)}, ${sqlNum(r.points)}, ${epCapApplied(r)}, ${sqlNum(Number(SETTINGS.ep_cap_per_cycle))}, ${r.orphaned ? 1 : 0}, ${sqlStr(r.note)}, 'import', ${sqlStr(r.key)})`;
+  const gpTuple = (r: GpRow) =>
+    `((SELECT id FROM characters WHERE name = ${sqlStr(r.name)}), ${gpCycleIdExpr(r)}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.itemName)}, ${sqlStr(r.tier)}, ${sqlNum(r.points)}, ${sqlNum(r.points)}, ${sqlNum(r.points)}, 0, NULL, 0, ${r.duplicateFlag ? 1 : 0}, 'import', ${sqlStr(r.key)})`;
+  // Fingerprint = the mutable content of a row, on a basis the DB can report
+  // back (character *name* via a join, cycle *number* via a lookup), so sync
+  // can tell an unchanged row from an edited one. Fields are joined on U+0001,
+  // a control char that can't occur in any sheet cell.
+  const FP = "\u0001";
+  const epFingerprint = (p: {
+    name: string;
+    cycleNumber: number | null;
+    occurredAtUnix: number;
+    activity: string;
+    points: number | null;
+    nominal: number | null;
+    note: string | null;
+    orphaned: boolean;
+  }) => [p.name, p.cycleNumber ?? "", p.occurredAtUnix, p.activity, p.points ?? "", p.nominal ?? "", p.note ?? "", p.orphaned ? 1 : 0].join(FP);
+  const gpFingerprint = (p: {
+    name: string;
+    occurredAtUnix: number;
+    itemName: string | null;
+    tier: string;
+    points: number | null;
+    dup: boolean;
+  }) => [p.name, p.occurredAtUnix, p.itemName ?? "", p.tier, p.points ?? "", p.dup ? 1 : 0].join(FP);
+
+  const insertBatched = (cols: string, tuples: string[], table: string) => {
+    for (let i = 0; i < tuples.length; i += BATCH) {
+      out.push(`INSERT INTO ${table} (${cols}) VALUES\n${tuples.slice(i, i + BATCH).join(",\n")};`);
+    }
+  };
+
+  if (mode === "reset") {
+    out.push("\n-- ep_ledger (full reload)");
+    insertBatched(EP_COLS, epRows.map(epTuple), "ep_ledger");
+    out.push("\n-- gp_ledger (full reload)");
+    insertBatched(GP_COLS, gpRows.map(gpTuple), "gp_ledger");
+  } else {
+    // ---------- sync: diff the sheet against the current DB, emit only changes ----------
+    // Guard: sync can only match rows that already carry a source_key. If the
+    // target still holds import rows from a pre-source_key seed, a sync would
+    // treat the entire sheet as "new" and double every ledger row.
+    const [seedCheck] = queryTarget(
+      "SELECT " +
+        "(SELECT COUNT(*) FROM ep_ledger WHERE source='import') AS ep_import, " +
+        "(SELECT COUNT(*) FROM ep_ledger WHERE source='import' AND source_key IS NOT NULL) AS ep_keyed, " +
+        "(SELECT COUNT(*) FROM gp_ledger WHERE source='import') AS gp_import, " +
+        "(SELECT COUNT(*) FROM gp_ledger WHERE source='import' AND source_key IS NOT NULL) AS gp_keyed",
+    );
+    const epImport = Number(seedCheck?.ep_import ?? 0);
+    const gpImport = Number(seedCheck?.gp_import ?? 0);
+    const epKeyed = Number(seedCheck?.ep_keyed ?? 0);
+    const gpKeyed = Number(seedCheck?.gp_keyed ?? 0);
+    if ((epImport > 0 && epKeyed === 0) || (gpImport > 0 && gpKeyed === 0)) {
+      throw new Error(
+        `The ${remote ? "remote" : "local"} DB has import ledger rows with no source_key ` +
+          `(ep: ${epKeyed}/${epImport} keyed, gp: ${gpKeyed}/${gpImport}). Run \`--mode reset\` once against this target first, then sync.`,
+      );
+    }
+
+    const cycleNumById = new Map<number, number>();
+    for (const c of queryTarget("SELECT id, cycle_number FROM cycles")) {
+      cycleNumById.set(Number(c.id), Number(c.cycle_number));
+    }
+
+    // EP
+    const epDb = queryTarget(
+      "SELECT el.source_key AS k, c.name AS name, el.cycle_id AS cycle_id, el.occurred_at AS occurred_at, " +
+        "el.activity AS activity, el.points AS points, el.points_nominal AS nominal, el.note AS note, el.orphaned AS orphaned " +
+        "FROM ep_ledger el LEFT JOIN characters c ON c.id = el.character_id " +
+        "WHERE el.source = 'import' AND el.source_key IS NOT NULL",
+    );
+    const epDbFp = new Map<string, string>();
+    for (const row of epDb) {
+      epDbFp.set(
+        String(row.k),
+        epFingerprint({
+          name: (row.name as string | null) ?? "",
+          cycleNumber: row.cycle_id != null ? cycleNumById.get(Number(row.cycle_id)) ?? null : null,
+          occurredAtUnix: Number(row.occurred_at),
+          activity: (row.activity as string | null) ?? "",
+          points: row.points == null ? null : Number(row.points),
+          nominal: row.nominal == null ? null : Number(row.nominal),
+          note: (row.note as string | null) ?? null,
+          orphaned: !!row.orphaned,
+        }),
+      );
+    }
+    const epNew: EpRow[] = [];
+    const epChanged: EpRow[] = [];
+    const epSheetKeys = new Set<string>();
+    for (const r of epRows) {
+      const k = String(r.key);
+      epSheetKeys.add(k);
+      const sheetFp = epFingerprint({
+        name: r.name ?? "",
+        cycleNumber: r.cycleNumber,
+        occurredAtUnix: unixSeconds(r.occurredAt),
+        activity: r.activity,
+        points: r.points,
+        nominal: r.nominalPoints,
+        note: r.note,
+        orphaned: r.orphaned,
+      });
+      if (!epDbFp.has(k)) epNew.push(r);
+      else if (epDbFp.get(k) !== sheetFp) epChanged.push(r);
+    }
+    const epRemoved = [...epDbFp.keys()].filter((k) => !epSheetKeys.has(k));
+
+    out.push(`\n-- ep_ledger sync: +${epNew.length} new, ~${epChanged.length} changed, -${epRemoved.length} removed`);
+    insertBatched(EP_COLS, epNew.map(epTuple), "ep_ledger");
+    for (const r of epChanged) {
+      // player_id nulled so the trailing backfill re-resolves it (covers a
+      // name correction that moves the row to a different player).
+      out.push(
+        `UPDATE ep_ledger SET character_id = ${epCharIdExpr(r)}, cycle_id = ${epCycleIdExpr(r)}, occurred_at = ${unixSeconds(r.occurredAt)}, ` +
+          `activity = ${sqlStr(r.activity)}, points = ${sqlNum(r.points)}, points_nominal = ${sqlNum(r.nominalPoints)}, points_awarded = ${sqlNum(r.points)}, ` +
+          `cap_applied = ${epCapApplied(r)}, cap_at_entry = ${sqlNum(Number(SETTINGS.ep_cap_per_cycle))}, orphaned = ${r.orphaned ? 1 : 0}, ` +
+          `note = ${sqlStr(r.note)}, player_id = NULL WHERE source_key = ${sqlStr(r.key)} AND source = 'import';`,
+      );
+    }
+    for (const k of epRemoved) out.push(`DELETE FROM ep_ledger WHERE source_key = ${sqlStr(k)} AND source = 'import';`);
+
+    // GP
+    const gpDb = queryTarget(
+      "SELECT gl.source_key AS k, c.name AS name, gl.occurred_at AS occurred_at, gl.item_name AS item_name, " +
+        "gl.tier AS tier, gl.points AS points, gl.duplicate_flag AS duplicate_flag " +
+        "FROM gp_ledger gl LEFT JOIN characters c ON c.id = gl.character_id " +
+        "WHERE gl.source = 'import' AND gl.source_key IS NOT NULL",
+    );
+    const gpDbFp = new Map<string, string>();
+    for (const row of gpDb) {
+      gpDbFp.set(
+        String(row.k),
+        gpFingerprint({
+          name: (row.name as string | null) ?? "",
+          occurredAtUnix: Number(row.occurred_at),
+          itemName: (row.item_name as string | null) ?? null,
+          tier: (row.tier as string | null) ?? "",
+          points: row.points == null ? null : Number(row.points),
+          dup: !!row.duplicate_flag,
+        }),
+      );
+    }
+    const gpNew: GpRow[] = [];
+    const gpChanged: GpRow[] = [];
+    const gpSheetKeys = new Set<string>();
+    for (const r of gpRows) {
+      const k = String(r.key);
+      gpSheetKeys.add(k);
+      const sheetFp = gpFingerprint({
+        name: r.name,
+        occurredAtUnix: unixSeconds(r.occurredAt),
+        itemName: r.itemName,
+        tier: r.tier,
+        points: r.points,
+        dup: r.duplicateFlag,
+      });
+      if (!gpDbFp.has(k)) gpNew.push(r);
+      else if (gpDbFp.get(k) !== sheetFp) gpChanged.push(r);
+    }
+    const gpRemoved = [...gpDbFp.keys()].filter((k) => !gpSheetKeys.has(k));
+
+    out.push(`\n-- gp_ledger sync: +${gpNew.length} new, ~${gpChanged.length} changed, -${gpRemoved.length} removed`);
+    insertBatched(GP_COLS, gpNew.map(gpTuple), "gp_ledger");
+    for (const r of gpChanged) {
+      out.push(
+        `UPDATE gp_ledger SET character_id = (SELECT id FROM characters WHERE name = ${sqlStr(r.name)}), cycle_id = ${gpCycleIdExpr(r)}, ` +
+          `occurred_at = ${unixSeconds(r.occurredAt)}, item_name = ${sqlStr(r.itemName)}, tier = ${sqlStr(r.tier)}, points = ${sqlNum(r.points)}, ` +
+          `points_nominal = ${sqlNum(r.points)}, points_awarded = ${sqlNum(r.points)}, duplicate_flag = ${r.duplicateFlag ? 1 : 0}, ` +
+          `player_id = NULL WHERE source_key = ${sqlStr(r.key)} AND source = 'import';`,
+      );
+    }
+    for (const k of gpRemoved) out.push(`DELETE FROM gp_ledger WHERE source_key = ${sqlStr(k)} AND source = 'import';`);
+
+    console.log(
+      `\nSync plan vs ${remote ? "REMOTE" : "local"} D1 — EP: +${epNew.length} ~${epChanged.length} -${epRemoved.length}   GP: +${gpNew.length} ~${gpChanged.length} -${gpRemoved.length}` +
+        `   (~${epNew.length + epChanged.length + epRemoved.length + gpNew.length + gpChanged.length + gpRemoved.length} ledger row writes)`,
     );
   }
 
-  out.push("\n-- gp_ledger");
-  for (let i = 0; i < gpRows.length; i += BATCH) {
-    const batch = gpRows.slice(i, i + BATCH);
-    const values = batch
-      .map((r) => {
-        const cycleNum = cycleForDate(r.occurredAt);
-        const cycleIdExpr = cycleNum !== null ? `(SELECT id FROM cycles WHERE cycle_number = ${cycleNum})` : "NULL";
-        const charIdExpr = `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)})`;
-        // GP has no per-cycle cap (§2 is EP-only) — nominal/awarded always
-        // mirror `points`, cap_applied always false, cap_at_entry always NULL.
-        return `(${charIdExpr}, ${cycleIdExpr}, ${unixSeconds(r.occurredAt)}, ${sqlStr(r.itemName)}, ${sqlStr(r.tier)}, ${sqlNum(r.points)}, ${sqlNum(r.points)}, ${sqlNum(r.points)}, 0, NULL, 0, ${r.duplicateFlag ? 1 : 0}, 'import')`;
-      })
-      .join(",\n");
-    out.push(
-      `INSERT INTO gp_ledger (character_id, cycle_id, occurred_at, item_name, tier, points, points_nominal, points_awarded, cap_applied, cap_at_entry, orphaned, duplicate_flag, source) VALUES\n${values};`,
-    );
-  }
+  // ---------- fill ledger.player_id from characters.player_id ----------
+  // computeEpgpTotals groups strictly by ledger player_id (no join), so a
+  // freshly written row is invisible until this runs. Idempotent
+  // (WHERE player_id IS NULL). On a fresh --mode reset this is a no-op at
+  // apply time — characters.player_id isn't set until `derive:players` runs
+  // — so re-run this file's tail (or `npm run derive:players -- --commit`
+  // then re-apply) after that. In --mode sync the linkage already exists for
+  // everyone but brand-new characters.
+  out.push("\n-- backfill ledger.player_id from characters.player_id (idempotent)");
+  out.push(
+    "UPDATE ep_ledger SET player_id = (SELECT c.player_id FROM characters c WHERE c.id = ep_ledger.character_id) " +
+      "WHERE source = 'import' AND player_id IS NULL AND character_id IS NOT NULL;",
+  );
+  out.push(
+    "UPDATE gp_ledger SET player_id = (SELECT c.player_id FROM characters c WHERE c.id = gp_ledger.character_id) " +
+      "WHERE source = 'import' AND player_id IS NULL AND character_id IS NOT NULL;",
+  );
 
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, out.join("\n") + "\n");
-  console.log(`\nWrote ${outPath} (${(out.join("\n").length / 1024 / 1024).toFixed(1)} MB).`);
-  console.log(`Apply with: wrangler d1 execute seekers-of-souls --local --file=${outPath.replace(process.cwd() + "/", "")}`);
+  const rel = outPath.replace(process.cwd() + "/", "");
+  console.log(`\nWrote ${rel} (${(out.join("\n").length / 1024 / 1024).toFixed(2)} MB).`);
+  console.log(`Apply with: npx wrangler d1 execute seekers-of-souls ${d1Target} --file=${rel}`);
+  if (mode === "sync") {
+    console.log("Then re-check EP/GP totals against the sheet (npm run verify) before the next sync.");
+  } else {
+    console.log("Reset pipeline: apply -> import:sos-bot-dump -> derive:players --commit -> re-apply this file's player_id backfill -> backfill:expansion-decay -> verify.");
+  }
 }
 
 if (!existsSync(resolve(filePath!))) {

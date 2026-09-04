@@ -376,6 +376,16 @@ export const epLedger = sqliteTable(
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
       .default("manual"),
+    // Stable per-row identity from the guild sheet's "Key" column (EP Log
+    // col L), so scripts/import-epgp.ts can run `--mode sync` — reconcile an
+    // existing D1 against a fresh sheet export by INSERT/UPDATE/DELETE of
+    // only what actually changed — instead of the `--mode reset` full
+    // wipe-and-reload, whose ~45K row rewrite is painful against remote D1's
+    // 100K/day write cap. NULL on every non-import row (manual/parse) and on
+    // any import row written before the sheet had a Key column. The unique
+    // index is what makes it an upsert target; SQLite allows many NULLs in a
+    // UNIQUE index, so pre-existing NULL rows don't collide.
+    sourceKey: text("source_key"),
     // Set only on rows a decay_events batch produced (or, for the 3
     // historical expansion decays, backfilled onto rows the sheet import
     // already created — PLAN.md §2.3). Null on every ordinary award row.
@@ -389,6 +399,7 @@ export const epLedger = sqliteTable(
     index("ep_ledger_player_id_idx").on(table.playerId),
     index("ep_ledger_occurred_at_idx").on(table.occurredAt),
     index("ep_ledger_decay_event_id_idx").on(table.decayEventId),
+    uniqueIndex("ep_ledger_source_key_unique").on(table.sourceKey),
   ],
 );
 
@@ -428,6 +439,9 @@ export const gpLedger = sqliteTable(
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
       .default("manual"),
+    // See epLedger.sourceKey — same role here, from GP Log's own "Key"
+    // column (col B).
+    sourceKey: text("source_key"),
     // See epLedger.decayEventId's comment — same meaning here.
     decayEventId: integer("decay_event_id").references(() => decayEvents.id),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -439,6 +453,7 @@ export const gpLedger = sqliteTable(
     index("gp_ledger_player_id_idx").on(table.playerId),
     index("gp_ledger_occurred_at_idx").on(table.occurredAt),
     index("gp_ledger_decay_event_id_idx").on(table.decayEventId),
+    uniqueIndex("gp_ledger_source_key_unique").on(table.sourceKey),
   ],
 );
 

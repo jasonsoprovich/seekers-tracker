@@ -102,15 +102,40 @@ as a last-resort rollback — don't rely on it as a testing strategy.
   `.sqlite`, plus a `metadata.sqlite` to ignore).
 
 **Seed from the sheet** — `scripts/import-epgp.ts` (run via
-`npm run import:epgp -- --file "/path/to/SoS - EPGP.xlsx" --wipe`). Parses
-the guild's downloaded `.xlsx`, prints a reconciliation report against the
-sheet's own cached `Totals` tab, and emits `drizzle/seed/epgp-import.sql`
-(gitignored — regenerate, don't commit). Apply with
+`npm run import:epgp -- --file "/path/to/SoS - EPGP.xlsx" --mode reset`).
+Parses the guild's downloaded `.xlsx`, prints a reconciliation report
+against the sheet's own cached `Totals` tab, and emits
+`drizzle/seed/epgp-import.sql` (gitignored — regenerate, don't commit).
+Apply with
 `npx wrangler d1 execute seekers-of-souls --local --file=drizzle/seed/epgp-import.sql`.
-Deterministic and idempotent — safe to re-run after a fresh sheet export;
-`--wipe` clears the EPGP ledger/config tables first (never touches
-`characters`, which is `INSERT OR IGNORE` either way). This is also the
-9/30 production-snapshot tool (PLAN.md §7).
+Deterministic and idempotent — safe to re-run after a fresh sheet export.
+
+- **`--mode reset`** (default; `--wipe` is the old alias) clears the EPGP
+  ledger/config tables first, then re-INSERTs every row (~140K writes with
+  the player_id backfill; never touches `characters`, which is
+  `INSERT OR IGNORE` either way). This is the production-snapshot tool
+  (PLAN.md §14), and the one-time thing you run before the first sync.
+- **`--mode sync`**: reconciles an already-seeded DB against a fresh export
+  by emitting only the INSERT/UPDATE/DELETE for ledger rows that actually
+  changed. The master sheet is read-only to us, so there's **no Key column**
+  — `ep_ledger`/`gp_ledger.source_key` (migration 0025) is a **content hash
+  the importer derives**: `sha1` of the row's identity (character name +
+  date + activity for EP / + item for GP) plus a per-identity ordinal in
+  sheet order. A value edit (points, note, tier, cycle) keeps the same key
+  → `UPDATE`; a name/date/activity/item change, or an inserted/deleted row,
+  → `DELETE` + `INSERT`. It reads the current keys+fingerprints back from
+  the target (`wrangler d1 execute --json`; add `--remote` for production)
+  and aborts if the target still has import rows with no `source_key` (run
+  `--mode reset` there first). A typical weekly delta is a few hundred
+  writes vs. ~140K; a do-nothing sync is ~35 idempotent config writes.
+
+Both modes finish with a correlated `UPDATE` that fills ledger `player_id`
+from `characters.player_id` (WHERE player_id IS NULL) — needed because
+`computeEpgpTotals` groups strictly by ledger `player_id`. On a fresh
+`--mode reset` that's a no-op until `derive:players --commit` has run, so
+re-apply the emitted file's tail (or just those two UPDATEs) afterward. In
+`--mode sync` the linkage already exists for everyone but brand-new
+characters (re-run `derive:players` if the sync report lists any).
 
 **Snapshot/restore** — `scripts/snapshot.sh {save|restore|list} [name]`
 (`npm run snapshot -- save foo`) copies the live `.sqlite` to/from
@@ -294,6 +319,40 @@ contents, and never print raw Discord IDs into logs or commit messages.
   awarded values as-is; never recompute them from nominal. PLAN.md §2.
 
 ## Roadmap / status (update this section as things ship or change)
+
+**Incremental sheet re-sync — `import-epgp.ts --mode sync`, 2026-09-03
+(migration 0025, LOCAL ONLY so far — needs `--remote` apply before it's
+usable against production).** Migration `0025_ledger_source_key.sql` adds a
+nullable, uniquely-indexed `source_key` to `ep_ledger`/`gp_ledger` (plain
+`ADD COLUMN` + `CREATE UNIQUE INDEX`, no table rebuild). `import-epgp.ts`
+gains `--mode reset` (the old `--wipe`, now also writing `source_key`) and
+`--mode sync`. **The master EPGP sheet is read-only to us — no Key column
+can be added** — so `source_key` is a **content hash the importer derives
+itself**: `sha1(identity)` where identity = character name + date +
+activity (EP) / + item (GP), plus a per-identity ordinal in sheet order to
+separate genuinely-repeated entries. Mutable fields (points/note/tier/
+cycle) are deliberately out of the hash, so a value correction to an old
+row keeps its key and syncs as an `UPDATE`, not a churn. `--mode sync`
+reads the current keys + a content fingerprint back from the target
+(`wrangler d1 execute --json`, `--remote` for production), diffs, and emits
+only the INSERT/UPDATE/DELETE for what changed; it refuses to run if the
+target still has import rows with no `source_key` (must `--mode reset`
+there once first). Purpose: keep remote D1 in step with the live sheet
+during the pre-cutover multi-officer testing window without ~140K row
+writes per re-snapshot against D1's 100K/day cap (weekly delta ≈ a few
+hundred writes; a no-op sync ≈ 35 idempotent config writes). Both modes now
+also emit the ledger `player_id` backfill that was previously a manual
+one-off. **Considered but rejected**: adding a Key column to the sheet
+(can't touch the master); staying on `--mode reset` + upgrading to Workers
+Paid (viable fallback — $5/mo makes the write volume a non-issue — but
+keeps the mid-wipe data gap and ledger-id churn). Verified end-to-end
+against local D1: `reset` seeds every row's `source_key`; an identical
+frozen round-trip re-run syncs +0/~0/-0; an edit + add + delete + rename in
+the sheet produces exactly `EP +2 ~1 -2` (rename = delete old key + insert
+new; edit = UPDATE, id preserved) and re-syncs clean; the "seed first"
+guard fires on an unkeyed DB. `npm run verify` 13/13, `tsc` clean.
+**Not yet applied to remote D1** — see "Seed from the sheet" above for the
+workflow.
 
 **EP-table zone + resolved live-bid cards keep every bid, 2026-09-01
 (migration 0024, LOCAL ONLY so far — needs `--remote` + a deploy + a
