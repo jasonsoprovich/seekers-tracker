@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { decayEvents, epLedger, gpLedger, users } from "@/db";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { ledgerDate } from "@/lib/format-date";
 import { getSession } from "@/lib/session";
 
 export default async function EpgpDecayPage() {
@@ -110,7 +111,7 @@ export default async function EpgpDecayPage() {
                   {event.reversedAt && <span className="ml-2 text-xs text-red-400">reversed</span>}
                 </p>
                 <p className="text-sm text-neutral-500">
-                  effective {event.effectiveDate.toLocaleDateString()} — {epCountByEvent.get(event.id) ?? 0} EP row(s),{" "}
+                  effective {ledgerDate(event.effectiveDate)} — {epCountByEvent.get(event.id) ?? 0} EP row(s),{" "}
                   {gpCountByEvent.get(event.id) ?? 0} GP row(s)
                   {event.label && <span> — &ldquo;{event.label}&rdquo;</span>}
                 </p>
@@ -125,7 +126,7 @@ export default async function EpgpDecayPage() {
                 </p>
               </div>
               {!event.reversedAt && (
-                <ReverseDecayButton decayEventId={event.id} label={`${event.kind} decay effective ${event.effectiveDate.toLocaleDateString()}`} />
+                <ReverseDecayButton decayEventId={event.id} label={`${event.kind} decay effective ${ledgerDate(event.effectiveDate)}`} />
               )}
             </li>
           ))}

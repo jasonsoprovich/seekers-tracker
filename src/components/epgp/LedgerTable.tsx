@@ -6,6 +6,7 @@ import { useState } from "react";
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
+import { ledgerDate } from "@/lib/format-date";
 import type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
 export type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
@@ -210,7 +211,7 @@ export function LedgerTable(props: Props) {
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2 text-neutral-400">{r.occurredAt.toLocaleDateString()}</td>
+                      <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt)}</td>
                       <td className="px-3 py-2 font-medium">{r.characterName}</td>
                       {props.type === "ep" ? (
                         <>

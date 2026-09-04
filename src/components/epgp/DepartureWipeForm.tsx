@@ -7,6 +7,7 @@ import { commitDepartureAction, previewDepartureAction } from "@/app/(app)/epgp/
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
+import { ledgerDate } from "@/lib/format-date";
 import type { DeparturePreviewRow } from "@/lib/epgp/decay";
 
 type Preview = { rows: DeparturePreviewRow[]; totalEp: number };
@@ -152,7 +153,7 @@ export function DepartureWipeForm() {
                     <tr key={row.characterId} className="border-t border-border/60">
                       <td className="px-3 py-1.5">{row.characterName}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-red-400">-{row.epBalance.toFixed(2)}</td>
-                      <td className="px-3 py-1.5 text-neutral-500">{row.lastEpActivity ? new Date(row.lastEpActivity).toLocaleDateString() : "never"}</td>
+                      <td className="px-3 py-1.5 text-neutral-500">{row.lastEpActivity ? ledgerDate(row.lastEpActivity) : "never"}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-neutral-500">{row.gpBalance.toFixed(2)}</td>
                     </tr>
                   ))}

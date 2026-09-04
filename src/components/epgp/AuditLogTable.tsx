@@ -1,3 +1,5 @@
+import { ledgerDate } from "@/lib/format-date";
+
 export type AuditLogRow = {
   id: number;
   ledgerType: "ep" | "gp";
@@ -29,15 +31,10 @@ const FIELDS: Record<"ep" | "gp", { key: string; label: string; kind?: "date" }[
   ],
 };
 
-// Ledger dates are stored at UTC midnight (scripts/import-epgp.ts reads the
-// sheet's date cells as UTC; the officer app sends a date too) — render them
-// in UTC so a viewer west of Greenwich doesn't see the day before.
 function fmt(value: unknown, kind?: "date"): string {
   if (value === null || value === undefined || value === "") return "∅";
-  if (kind === "date") {
-    const d = new Date(value as string | number);
-    return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString("en-US", { timeZone: "UTC" });
-  }
+  // ledger dates are stored at UTC midnight — see @/lib/format-date.
+  if (kind === "date") return ledgerDate(value as string | number);
   return String(value);
 }
 

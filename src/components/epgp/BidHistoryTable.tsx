@@ -1,3 +1,4 @@
+import { ledgerDate } from "@/lib/format-date";
 import type { BidHistoryRow } from "@/lib/epgp/ledger-list";
 
 const STATUS_CLASSES: Record<BidHistoryRow["status"], string> = {
@@ -29,7 +30,7 @@ export function BidHistoryTable({ rows }: { rows: BidHistoryRow[] }) {
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
             <tr key={r.id} className="hover:bg-neutral-900/40">
-              <td className="px-3 py-2 text-neutral-400">{r.occurredAt.toLocaleDateString()}</td>
+              <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt)}</td>
               <td className="px-3 py-2 font-medium">{r.itemName}</td>
               <td className="px-3 py-2 text-neutral-400">{r.characterName}</td>
               <td className="px-3 py-2 text-neutral-400">{r.tier}</td>
