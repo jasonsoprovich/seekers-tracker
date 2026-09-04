@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 
 import { bids as bidsTable, characters, lootEvents } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
@@ -8,7 +8,15 @@ import { getActivePointValue } from "@/lib/epgp/point-values";
 import { getStandings } from "@/lib/epgp/standings";
 
 type BidEntryBody = { characterName?: unknown; tier?: unknown; occurredAt?: unknown; isWinner?: unknown };
-type BidsRequestBody = { itemName?: unknown; entries?: unknown; note?: unknown };
+type BidsRequestBody = { itemName?: unknown; entries?: unknown; note?: unknown; confirmDuplicate?: unknown };
+
+// A bid round with the same item name and a winning-entry time within this
+// of an existing loot_events row is flagged as a likely double-submit —
+// the finalize button double-clicked, or a "Missed Bid" manual entry for
+// something already recorded. Soft: the officer resends with
+// `confirmDuplicate: true` to record it anyway (a genuine second drop of
+// the same item the same night is normal).
+const DUPLICATE_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 type BidEntry = { characterName: string; tier: string; occurredAt: string; isWinner: boolean };
 
@@ -76,6 +84,33 @@ export async function POST(request: Request) {
   }
 
   const db = await getDb();
+
+  // Soft duplicate guard — skipped when the caller has already confirmed.
+  if (body.confirmDuplicate !== true) {
+    const at = parseOccurredAt(winners[0].occurredAt) as Date;
+    const lo = new Date(at.getTime() - DUPLICATE_WINDOW_MS);
+    const hi = new Date(at.getTime() + DUPLICATE_WINDOW_MS);
+    const [existing] = await db
+      .select({ id: lootEvents.id, occurredAt: lootEvents.occurredAt })
+      .from(lootEvents)
+      .where(
+        and(
+          sql`lower(${lootEvents.itemName}) = ${itemName.toLowerCase()}`,
+          gte(lootEvents.occurredAt, lo),
+          lte(lootEvents.occurredAt, hi),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      return Response.json(
+        {
+          error: `"${itemName}" was already recorded around ${existing.occurredAt.toLocaleString()}. Resubmit with confirmDuplicate to record it anyway.`,
+          duplicate: { lootEventId: existing.id, itemName, occurredAt: existing.occurredAt.toISOString() },
+        },
+        { status: 409 },
+      );
+    }
+  }
 
   const [allCharacters, totals] = await Promise.all([
     db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
