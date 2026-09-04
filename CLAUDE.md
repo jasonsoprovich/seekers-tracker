@@ -320,6 +320,26 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 3 (items 2/3) — live-bids resolved cards persist +
+collapse, 2026-09-04 (LOCAL, no migration; needs a deploy + is NOT
+browser/endpoint-verified — same standing gap as every live-bids change).**
+- `LiveAuctionSession` DO: a resolved round no longer auto-expires
+  (`expiryOf` → `Infinity`) and is no longer swept when the same officer
+  starts their next item (`sweepResolvedForOfficer` and its `/push` call
+  deleted; `RESOLVED_EXPIRY_MS` gone). It stays on the board until a member
+  `/dismiss`es it or the officer app `/clear`s it on quit. Collecting
+  rounds still idle-expire at `ROUND_EXPIRY_MS` (an abandoned collection
+  nobody finalized).
+- `LiveBidsView`: resolved cards render **collapsed** — winner line + a
+  "▸ Show all N bids" toggle; collecting cards stay fully expanded (watching
+  live is the point). Resolved cards stay inline + dimmed (no separate
+  stack — leader's call). Added an on-mount `fetch('/api/live-bids/state')`
+  alongside the WebSocket so navigating away and back repaints the open +
+  resolved rounds immediately instead of showing a blank "Connecting…" gap.
+  Bid "Prio" column now 4 dp; its header renamed "Tier" → "Bid" (matches
+  batch 1).
+- `tsc` + `build` clean.
+
 **Leader-requested batch 3 (item 5) — Dashboard "Active Members by Class",
 2026-09-04 (LOCAL, no migration).** `ActiveByClass.tsx` on `/dashboard`
 (below the existing charts): OpenDKP-style board, one card per class listing

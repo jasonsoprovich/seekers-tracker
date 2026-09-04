@@ -24,14 +24,15 @@ import { DurableObject } from "cloudflare:workers";
 // the officer finalized it; it lingers with its winner(s) so members can
 // review who bid what). While collecting: "live" for LIVE_TTL_MS after the
 // last push/heartbeat, then "idle", then dropped after ROUND_EXPIRY_MS with
-// no signal. Once resolved: shown until RESOLVED_EXPIRY_MS after resolvedAt,
-// OR until the same officer opens a round for the NEXT item (their
-// attention has moved on — see the /push handler), OR until a member
-// dismisses it (/dismiss). A resolved round never touches another officer's
-// rounds when it sweeps.
+// no signal (an abandoned collection nobody finalized). A **resolved** round
+// never times out and is never swept by another round starting — it stays
+// on the board until a member explicitly dismisses it (/dismiss) or the
+// officer app clears it (/clear on quit). Leader call, 2026-09-04: the old
+// 20-min auto-expiry and "the same officer's next item sweeps their
+// resolved cards" behaviour were both removed — people want to review at
+// their own pace.
 const LIVE_TTL_MS = 90_000;
 const ROUND_EXPIRY_MS = 300_000;
-const RESOLVED_EXPIRY_MS = 1_200_000; // 20 min of post-finalize review time
 
 // The parser poll fires a push or heartbeat every ~5s per officer for a
 // whole round. Re-arming the sweep alarm on every one is pointless — it
@@ -160,10 +161,6 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
 
       let round = this.rounds.get(k);
       if (!round) {
-        // A new round from this officer means the last item they were on is
-        // done — sweep THEIR resolved rounds (never anyone else's). This is
-        // the "next loot cycle clears the last one" trigger.
-        if (officerId) this.sweepResolvedForOfficer(officerId);
         round = {
           itemName: body.itemName.trim(),
           officerId,
@@ -244,8 +241,8 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     }
 
     // Phase 16: the parser calls this on Submit — the round stays visible,
-    // now flagged resolved with its winner(s), until RESOLVED_EXPIRY_MS or
-    // this officer's next item or a member dismiss.
+    // now flagged resolved with its winner(s), until a member dismisses it
+    // (/dismiss) or the officer app clears it (/clear). No auto-expiry.
     if (request.method === "POST" && url.pathname === "/resolve") {
       let body: unknown = {};
       try {
@@ -386,11 +383,10 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     this.broadcast();
   }
 
-  // When this expires, in ms since epoch.
+  // When this expires, in ms since epoch. A resolved round never expires on
+  // its own (Infinity) — only /dismiss or /clear removes it.
   private expiryOf(round: Round): number {
-    return round.state === "resolved"
-      ? round.resolvedAt + RESOLVED_EXPIRY_MS
-      : round.lastSeenAt + ROUND_EXPIRY_MS;
+    return round.state === "resolved" ? Infinity : round.lastSeenAt + ROUND_EXPIRY_MS;
   }
 
   // Drops rounds past their expiry. Returns whether anything was removed.
@@ -404,16 +400,6 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       }
     }
     return removed;
-  }
-
-  // A fresh round from officer O means their previous item is done — drop
-  // the resolved cards they own so the dashboard doesn't pile up. Never
-  // touches another officer's rounds (they may still be mid-collection or
-  // have their own resolved cards someone's still reading).
-  private sweepResolvedForOfficer(officerId: string) {
-    for (const [k, round] of this.rounds) {
-      if (round.state === "resolved" && round.officerId === officerId) this.rounds.delete(k);
-    }
   }
 
   // Arms the sweep alarm for the soonest round expiry. Debounced: only

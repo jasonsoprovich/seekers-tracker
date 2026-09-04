@@ -83,6 +83,10 @@ export function LiveBidsView() {
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const [dismissing, setDismissing] = useState<Record<string, boolean>>({});
+  // Resolved cards render collapsed (winner line only) until the viewer
+  // opens them — the point of the board is watching what's live, not
+  // re-reading finished rounds. Collecting cards are always expanded.
+  const [openBids, setOpenBids] = useState<Record<string, boolean>>({});
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
   const socketRef = useRef<WebSocket | null>(null);
@@ -90,6 +94,24 @@ export function LiveBidsView() {
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Hydrate immediately on mount from the DO's REST snapshot, in parallel
+  // with the WebSocket handshake — so navigating away and back shows the
+  // open + resolved rounds right away instead of a blank "Connecting…"
+  // gap while the socket comes up.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/live-bids/state")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((raw) => {
+        const msg = raw as ServerMessage | null;
+        if (!cancelled && msg?.type === "state") setRounds((cur) => (cur.length === 0 ? msg.rounds : cur));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -216,6 +238,9 @@ export function LiveBidsView() {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";
             const winnerNames = new Set(round.winners.map((w) => w.characterName.toLowerCase()));
+            // Collecting rounds: always show the table. Resolved rounds:
+            // collapsed unless the viewer opened this one.
+            const showTable = !resolved || openBids[round.itemName];
             return (
               <article
                 key={round.itemName}
@@ -256,15 +281,25 @@ export function LiveBidsView() {
                   )}
                 </header>
 
+                {resolved && ranked.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenBids((o) => ({ ...o, [round.itemName]: !o[round.itemName] }))}
+                    className="border-b border-border px-4 py-2 text-left text-xs font-medium text-neutral-400 transition-colors hover:bg-neutral-900/40"
+                  >
+                    {showTable ? "▾ Hide bids" : `▸ Show all ${ranked.length} bid${ranked.length === 1 ? "" : "s"}`}
+                  </button>
+                )}
+
                 {ranked.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-neutral-500">No bids{resolved ? " were recorded" : " yet"}.</div>
-                ) : (
+                ) : !showTable ? null : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="border-b border-border text-[11px] uppercase tracking-wide text-neutral-500">
                           <th className="px-4 py-2 font-medium">Character</th>
-                          <th className="px-4 py-2 font-medium">Tier</th>
+                          <th className="px-4 py-2 font-medium">Bid</th>
                           <th className="px-4 py-2 font-medium">Prio</th>
                           <th className="px-4 py-2 font-medium">Time</th>
                         </tr>
@@ -285,7 +320,7 @@ export function LiveBidsView() {
                               </td>
                               <td className="px-4 py-2 text-neutral-400">{b.tier}</td>
                               <td className="px-4 py-2 tabular-nums text-neutral-400">
-                                {b.priorityRating !== null ? b.priorityRating.toFixed(2) : "—"}
+                                {b.priorityRating !== null ? b.priorityRating.toFixed(4) : "—"}
                               </td>
                               <td className="px-4 py-2 tabular-nums text-neutral-400">
                                 {new Date(b.occurredAt).toLocaleTimeString()}
