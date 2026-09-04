@@ -21,7 +21,7 @@ export function BidHistoryTable({ rows }: { rows: BidHistoryRow[] }) {
             <th className="px-3 py-2 font-medium">Date</th>
             <th className="px-3 py-2 font-medium">Item</th>
             <th className="px-3 py-2 font-medium">Character</th>
-            <th className="px-3 py-2 font-medium">Tier</th>
+            <th className="px-3 py-2 font-medium">Bid</th>
             <th className="px-3 py-2 font-medium">Priority</th>
             <th className="px-3 py-2 font-medium">Result</th>
             <th className="px-3 py-2 font-medium">Note</th>

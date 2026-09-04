@@ -6,12 +6,11 @@ import { characters } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { ImportGearForm } from "@/components/ImportGearForm";
 import { ImportPqExportForm } from "@/components/ImportPqExportForm";
 import { ImportSeerForm } from "@/components/ImportSeerForm";
 import { ImportTabs } from "@/components/import/ImportTabs";
 
-import { importGear, importPqCompanionExport, importSeerText } from "./actions";
+import { importPqCompanionExport, importSeerText } from "./actions";
 
 export default async function ImportSeerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,7 +27,6 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
 
   const boundImportSeer = importSeerText.bind(null, characterId);
   const boundImportPqExport = importPqCompanionExport.bind(null, characterId);
-  const boundImportGear = importGear.bind(null, characterId);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -61,16 +59,6 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
               signal (keys, kills), those are set from the checklist instead.
             </p>
             <ImportSeerForm action={boundImportSeer} />
-          </div>
-        }
-        gear={
-          <div className="flex flex-col gap-4">
-            <p className="max-w-xl text-sm text-neutral-400">
-              Zeal writes a <code>&lt;CharName&gt;-Quarmy.txt</code> file to your EverQuest folder on logout. Paste
-              its full contents below to populate the gear list — this replaces whatever was imported last time,
-              so it always reflects your current loadout.
-            </p>
-            <ImportGearForm action={boundImportGear} />
           </div>
         }
       />

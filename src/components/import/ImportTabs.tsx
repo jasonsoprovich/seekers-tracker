@@ -2,10 +2,14 @@
 
 import { useState, type ReactNode } from "react";
 
+// Gear dropped 2026-09-04 — gear/stats came out of the character UI in
+// 635df4e; this was the last place it was still reachable. The importGear
+// server action and ImportGearForm are left in the tree (unreferenced),
+// same as the /characters/[id]/gear route, in case gear tracking comes
+// back.
 const TABS = [
   { key: "pqc", label: "pq-companion" },
   { key: "seer", label: "Seer Text" },
-  { key: "gear", label: "Gear" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -14,9 +18,9 @@ type TabKey = (typeof TABS)[number]["key"];
 // rendering — each import form keeps its result summary in useActionState,
 // and unmounting on tab-switch would discard a just-completed import's
 // result the moment the member looked at another tab.
-export function ImportTabs({ pqc, seer, gear }: { pqc: ReactNode; seer: ReactNode; gear: ReactNode }) {
+export function ImportTabs({ pqc, seer }: { pqc: ReactNode; seer: ReactNode }) {
   const [active, setActive] = useState<TabKey>("pqc");
-  const panels: Record<TabKey, ReactNode> = { pqc, seer, gear };
+  const panels: Record<TabKey, ReactNode> = { pqc, seer };
 
   return (
     <div>

@@ -132,9 +132,14 @@ export function DepartureWipeForm() {
             <p className="text-sm text-neutral-400">
               {preview.rows.length} character(s) matched — total EP to be zeroed {preview.totalEp.toFixed(2)}. GP is not affected.
             </p>
-            <Button type="button" size="sm" onClick={onCommit} disabled={pending || preview.rows.length === 0}>
-              {pending ? "Committing…" : "Confirm & commit"}
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={() => setPreview(null)} disabled={pending}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" onClick={onCommit} disabled={pending || preview.rows.length === 0}>
+                {pending ? "Committing…" : "Confirm & commit"}
+              </Button>
+            </div>
           </div>
 
           {preview.rows.length > 0 && (

@@ -28,7 +28,7 @@ export function LedgerTable(props: Props) {
   const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "" });
 
   // EP: Date, Character, Activity, Zone, Points, Source, Recorded by.
-  // GP: Date, Character, Item, Tier, Points, Source, Recorded by.
+  // GP: Date, Character, Item, Bid, Points, Source, Recorded by.
   const baseCols = 7;
   const totalCols = props.canManage ? baseCols + 1 : baseCols;
 
@@ -57,7 +57,7 @@ export function LedgerTable(props: Props) {
       return;
     }
     if (!draft.activityOrTier.trim()) {
-      setError(props.type === "ep" ? "Activity is required." : "Tier is required.");
+      setError(props.type === "ep" ? "Activity is required." : "Bid is required.");
       return;
     }
     setPending(true);
@@ -120,7 +120,7 @@ export function LedgerTable(props: Props) {
               ) : (
                 <>
                   <th className="px-3 py-2 font-medium">Item</th>
-                  <th className="px-3 py-2 font-medium">Tier</th>
+                  <th className="px-3 py-2 font-medium">Bid</th>
                 </>
               )}
               <th className="px-3 py-2 font-medium">Points</th>
@@ -178,7 +178,7 @@ export function LedgerTable(props: Props) {
                               value={draft.activityOrTier}
                               onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
                               className={fieldClasses({ size: "sm" })}
-                              placeholder="Tier"
+                              placeholder="Bid"
                             />
                           </td>
                         </>

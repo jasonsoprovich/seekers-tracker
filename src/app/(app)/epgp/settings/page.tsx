@@ -10,8 +10,16 @@ import { DEFAULT_SETTINGS, getSettingsAt, SETTING_KEYS, type SettingKey } from "
 import { getSession } from "@/lib/session";
 
 const SETTING_META: Record<SettingKey, { label: string; description: string }> = {
-  ep_decay: { label: "EP decay rate", description: "Legacy cycle decay: fraction of pre-cycle EP dropped each cycle (§1a)." },
-  gp_decay: { label: "GP decay rate", description: "Legacy cycle decay: fraction of pre-cycle GP dropped each cycle (§1a)." },
+  ep_decay: {
+    label: "EP decay rate",
+    description:
+      "Only used by the legacy decay model (§1a: fraction of pre-cycle EP dropped each cycle, derived at read time). Ignored under the global model — enter the global cycle-decay rate on the EPGP Decay page instead.",
+  },
+  gp_decay: {
+    label: "GP decay rate",
+    description:
+      "Only used by the legacy decay model (§1a: fraction of pre-cycle GP dropped each cycle, derived at read time). Ignored under the global model — enter the global cycle-decay rate on the EPGP Decay page instead.",
+  },
   base_ep: {
     label: "Base EP",
     description:
@@ -27,7 +35,7 @@ const SETTING_META: Record<SettingKey, { label: string; description: string }> =
   decay_model: {
     label: "Decay model",
     description:
-      "legacy = 20% derived from pre-cycle total, never stored; global = trusts stored ledger rows as-is — run cycle decay on the EPGP Decay page first, or every character's total just looks undiscounted until you do (§1c). Switch on/around the 10/17 cutover, not before.",
+      "global (current) = totals are the stored ledger rows as-is; run cycle decay on the EPGP Decay page and it lands as real negative rows (§1c). legacy = the old 20% pre-cycle haircut derived at read time, never stored — retired at cutover, kept only so pre-cutover history still reads correctly.",
   },
 };
 
@@ -75,17 +83,23 @@ export default async function EpgpSettingsPage() {
       />
 
       <ul className="mt-6 divide-y divide-border rounded-lg border border-border">
-        {SETTING_KEYS.map((key) => (
-          <SettingRow
-            key={key}
-            settingKey={key}
-            label={SETTING_META[key].label}
-            description={SETTING_META[key].description}
-            currentValue={current[key] ?? DEFAULT_SETTINGS[key]}
-            isDecayModel={key === "decay_model"}
-            history={historyByKey.get(key) ?? []}
-          />
-        ))}
+        {SETTING_KEYS.map((key) => {
+          const raw = current[key] ?? DEFAULT_SETTINGS[key];
+          // The two decay-rate settings display to 2 dp (0.10, not 0.1);
+          // the rest are integers or the decay_model string, shown as-is.
+          const display = key === "ep_decay" || key === "gp_decay" ? Number(raw).toFixed(2) : raw;
+          return (
+            <SettingRow
+              key={key}
+              settingKey={key}
+              label={SETTING_META[key].label}
+              description={SETTING_META[key].description}
+              currentValue={display}
+              isDecayModel={key === "decay_model"}
+              history={historyByKey.get(key) ?? []}
+            />
+          );
+        })}
       </ul>
     </div>
   );

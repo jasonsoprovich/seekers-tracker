@@ -320,6 +320,38 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 1 — decay defaults, UI polish, 2026-09-04 (LOCAL
+ONLY — the settings-row change needs applying to remote too, see the
+standings rollout list below).** Small confirmed items, one commit:
+- **Decay defaults flipped to the post-cutover rules.** `DEFAULT_SETTINGS`
+  (`src/lib/epgp/settings.ts`) and `scripts/import-epgp.ts`'s seed block:
+  `decay_model` legacy→**global**, `ep_decay`/`gp_decay` 0.2→**0.1**. Also
+  written into local `epgp_settings` as effective-dated rows (effective_from
+  = 2026-09-04, note explaining the cutover) — NOT effective_from=0, so
+  `verify-harness` (pinned `FIXTURES_AS_OF` 2026-08-21) still resolves
+  legacy/0.2 and stays 11/13. `import-epgp.ts` gained `SHEET_RECON` (legacy
+  0.2 / base 150) for its Totals-tab reconciliation self-check, since
+  `SETTINGS` no longer reproduces the sheet's numbers.
+- **Expansion decay form default** 0.85→**0.90** (`ExpansionDecayForm`).
+- **Cancel button** on all three decay preview forms (Expansion / Global
+  cycle / Departure wipe) — clears the preview client-side, no server call.
+- **Priority shows 4 dp** on the roster (`RosterTable`, was 2) to match the
+  sheet's Loot Priority column. Decay-rate settings show 2 dp (0.10).
+- **`SettingRow`** value + Change button now pin top-right regardless of
+  description length (was wrapping to a left-aligned line for the long
+  Base EP/GP blurbs). `ep_decay`/`gp_decay`/`decay_model` descriptions
+  rewritten for the global default.
+- **"Tier" → "Bid"** as a display label only (GP Ledger tab header, Bids
+  History header, manual-entry field label, "… is required" errors,
+  placeholder). The `gp_ledger.tier` column and its values are untouched —
+  the DB rename is batch 2.
+- **Gear tab removed** from `/characters/[id]/import` (`ImportTabs` +
+  page wiring). `importGear` action and `ImportGearForm.tsx` left in the
+  tree unreferenced, same as the still-present `/characters/[id]/gear`
+  route (gear came out of the UI in 635df4e).
+- Verified: `tsc` + `build` clean, `npm run verify` 11/13 (unchanged
+  Takkisina/Kaalos seed noise), `recompute:standings` 255/0.
+
 **Materialized EPGP standings — `player_epgp_totals`, 2026-09-04 (migration
 0026, LOCAL ONLY so far — needs `--remote` apply + a deploy, and
 `npm run recompute:standings` against remote right after, before the read
@@ -376,16 +408,23 @@ after attendance" report that kicked this off) for the row-read savings.
      unkeyed target.
   3. `npm run deploy` — check gzipped bundle stays under the 3072 KiB Free
      cap (`wrangler deploy --dry-run`).
-  4. **Backfill `player_epgp_totals` on remote.** Until this runs, every
+  4. **Apply the batch-1 decay-defaults settings change to remote.** Local
+     got three effective-dated `epgp_settings` rows (`decay_model=global`,
+     `ep_decay=0.1`, `gp_decay=0.1`, effective 2026-09-04). Remote needs the
+     same — either a leader sets each on `/epgp/settings` post-deploy (the
+     intended path; writes history + refreshes standings), or apply the
+     equivalent INSERTs via `wrangler d1 execute --remote`. Do this BEFORE
+     step 5 so the backfill computes under the global model.
+  5. **Backfill `player_epgp_totals` on remote.** Until this runs, every
      read path (`/roster`, `/api/officer/{bids,totals,characters}`,
      custom-worker's live-bid priority) sees an empty table and shows blank
      standings. `npm run recompute:standings` is `getPlatformProxy` /
      local-only as written — add a `--remote` path to it (drizzle over the
      remote D1 binding), or run `refreshStandings(db, { all: true })` once
      against remote another way. ~255 row writes, safe vs the 100K/day cap.
-  5. Verify live: `/roster` shows numbers; a test attendance/manual entry
-     moves the roster within seconds (no 45s cache now); `wrangler tail`
-     clean.
+  6. Verify live: `/roster` shows numbers (priority at 4 dp; decay 0 under
+     global); a test attendance/manual entry moves the roster within
+     seconds (no 45s cache now); `wrangler tail` clean.
 
 **Incremental sheet re-sync — `import-epgp.ts --mode sync`, 2026-09-03
 (migration 0025, LOCAL ONLY so far — needs `--remote` apply before it's

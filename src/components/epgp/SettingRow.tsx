@@ -55,14 +55,18 @@ export function SettingRow({
 
   return (
     <li className="px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      {/* The value + Change button stay pinned top-right regardless of how
+          long the description runs — `min-w-0 flex-1` lets the text block
+          take (and wrap within) the remaining width instead of pushing the
+          controls onto their own left-aligned line. */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <p className="font-medium">{label}</p>
           <p className="text-sm text-neutral-500">{description}</p>
           <code className="mt-1 inline-block text-xs text-neutral-600">{settingKey}</code>
         </div>
         {!editing && (
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <span className="font-mono text-lg">{currentValue}</span>
             <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
               Change

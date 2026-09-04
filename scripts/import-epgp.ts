@@ -252,22 +252,30 @@ const POINT_VALUES: { kind: "ep" | "gp"; activity: string; points: number; retir
   { kind: "gp", activity: "No Looter", points: 0 },
 ];
 
-// Base EP/GP, decay %, per-cycle EP cap, minimum attendance, and the decay
-// model version — read directly off the Overview/Point Values tabs on
-// 2026-08-18, plus min_attendance/decay_model per PLAN.md §4h/§1c (not on
-// the sheet at all; these are new website-only settings). src/db/schema.ts's
-// epgp_settings default fallback mirrors these same numbers, so they're
-// duplicated deliberately, not derived from one shared source. Written as
-// effective-dated rows (PLAN.md §4i) — see the SQL emission below.
+// What gets SEEDED into epgp_settings as the effective_from=0 baseline
+// (PLAN.md §4i). base_ep/base_gp/ep_cap_per_cycle are straight off the
+// Overview/Point Values tabs (2026-08-18). min_attendance/decay_model are
+// website-only (not on the sheet — §4h/§1c). ep_decay/gp_decay were a sheet
+// cell (historically 0.2) but the guild goes live on global cycle decay
+// only — legacy §1a is never exercised past cutover — and voted the rate to
+// 10%, so the seed is the post-cutover rule: 0.1 / "global". Keep
+// src/lib/epgp/settings.ts DEFAULT_SETTINGS in sync with this.
 const SETTINGS: Record<string, string> = {
-  ep_decay: "0.2",
-  gp_decay: "0.2",
+  ep_decay: "0.1",
+  gp_decay: "0.1",
   base_ep: "150",
   base_gp: "100",
   ep_cap_per_cycle: "900",
   min_attendance: "12",
-  decay_model: "legacy",
+  decay_model: "global",
 };
+
+// The sheet's Totals tab was computed with legacy §1a decay at 20%, so the
+// reconciliation self-check below has to reproduce THOSE numbers to
+// validate the import — it can't use SETTINGS (now global/10%) or every
+// veteran would read as a mismatch. These are the sheet's own historical
+// constants, used for nothing but that comparison.
+const SHEET_RECON = { ep_decay: 0.2, gp_decay: 0.2, base_ep: 150, base_gp: 100 };
 
 // ---------- main ----------
 
@@ -603,9 +611,10 @@ async function main() {
     const rawEp = preEpAmt + (curEp.get(key) ?? 0);
     const rawGp = preGpAmt + (curGp.get(key) ?? 0);
     // Mirrors Totals!I/J's threshold guard: the sheet skips decay entirely
-    // for a character whose raw lifetime total hasn't reached base_ep/gp yet.
-    const ep = rawEp - (rawEp < Number(SETTINGS.base_ep) ? 0 : preEpAmt * Number(SETTINGS.ep_decay));
-    const gp = rawGp - (rawGp < Number(SETTINGS.base_gp) ? 0 : preGpAmt * Number(SETTINGS.gp_decay));
+    // for a character whose raw lifetime total hasn't reached base_ep/gp
+    // yet. Uses SHEET_RECON (legacy 20%), not SETTINGS — see its comment.
+    const ep = rawEp - (rawEp < SHEET_RECON.base_ep ? 0 : preEpAmt * SHEET_RECON.ep_decay);
+    const gp = rawGp - (rawGp < SHEET_RECON.base_gp ? 0 : preGpAmt * SHEET_RECON.gp_decay);
     if (Math.abs(ep - sheet.ep) <= 1 && Math.abs(gp - sheet.gp) <= 1) {
       matched++;
     } else {

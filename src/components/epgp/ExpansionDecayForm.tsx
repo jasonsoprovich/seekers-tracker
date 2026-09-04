@@ -22,7 +22,7 @@ function todayIso(): string {
 export function ExpansionDecayForm() {
   const router = useRouter();
   const confirm = useConfirm();
-  const [rate, setRate] = useState("0.85");
+  const [rate, setRate] = useState("0.90");
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
   const [label, setLabel] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -125,9 +125,14 @@ export function ExpansionDecayForm() {
               {preview.rows.length} character(s) affected — total EP decay {preview.totalEpDecay.toFixed(2)}, total GP decay{" "}
               {preview.totalGpDecay.toFixed(2)}.
             </p>
-            <Button type="button" size="sm" onClick={onCommit} disabled={pending || preview.rows.length === 0}>
-              {pending ? "Committing…" : "Confirm & commit"}
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={() => setPreview(null)} disabled={pending}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" onClick={onCommit} disabled={pending || preview.rows.length === 0}>
+                {pending ? "Committing…" : "Confirm & commit"}
+              </Button>
+            </div>
           </div>
 
           {preview.rows.length > 0 && (

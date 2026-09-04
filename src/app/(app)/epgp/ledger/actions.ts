@@ -59,7 +59,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   const occurredAt = parseOccurredAt(input.occurredAt);
   if (!occurredAt) return { error: "Invalid date." };
   const activityOrTier = (input.kind === "ep" ? input.activity : input.tier).trim();
-  if (!activityOrTier) return { error: input.kind === "ep" ? "Activity is required." : "Tier is required." };
+  if (!activityOrTier) return { error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
 
   const db = await getDb();
   // An edit never reassigns the character (that's a delete + re-add), so

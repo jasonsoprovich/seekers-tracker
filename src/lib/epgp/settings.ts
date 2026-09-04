@@ -13,17 +13,24 @@ export type SettingKey = (typeof SETTING_KEYS)[number];
 
 // Fallback values, used only when epgp_settings has no row yet for a key
 // (e.g. a fresh dev DB before the seed script runs, or a key added to
-// SETTING_KEYS that hasn't been seeded). Match the sheet's own values as
-// observed 2026-08-18 — see scripts/import-epgp.ts, which is what actually
+// SETTING_KEYS that hasn't been seeded). See scripts/import-epgp.ts, which
 // seeds real effective-dated rows.
+//
+// decay_model / ep_decay / gp_decay were seeded from the sheet as
+// "legacy" / 0.2 / 0.2, but the guild is going live on global cycle decay
+// only (§1c) — legacy is never exercised past cutover — and voted the
+// per-cycle rate down to 10%. These defaults reflect that; the live
+// epgp_settings rows are updated to match in the same change (a leader
+// setting-change with a note, so the history still shows the sheet's
+// originals).
 export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
-  ep_decay: "0.2",
-  gp_decay: "0.2",
+  ep_decay: "0.1",
+  gp_decay: "0.1",
   base_ep: "150",
   base_gp: "100",
   ep_cap_per_cycle: "900",
   min_attendance: "12",
-  decay_model: "legacy",
+  decay_model: "global",
 };
 
 // Resolves the value in force for `key` at `date` — the row with the

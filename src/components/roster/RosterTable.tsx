@@ -226,7 +226,10 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <div className="font-medium text-neutral-200">{r.gp === null ? "—" : Math.round(r.gp)}</div>
           {!!r.gpDecay && <div className="text-xs text-neutral-600">-{Math.round(r.gpDecay)} next decay</div>}
         </td>
-        <td className="px-3 py-2 font-semibold text-emerald-400">{r.priorityRating?.toFixed(2) ?? "—"}</td>
+        {/* 4 dp to match the guild sheet's Loot Priority column — the ratio
+            clusters tightly, so 2 dp collapsed too many rows to the same
+            value to sort by eye. */}
+        <td className="px-3 py-2 font-semibold text-emerald-400">{r.priorityRating?.toFixed(4) ?? "—"}</td>
         <td className="px-3 py-2 text-neutral-400">
           {r.ownerUsername ?? <span className="text-neutral-600">Unclaimed</span>}
         </td>

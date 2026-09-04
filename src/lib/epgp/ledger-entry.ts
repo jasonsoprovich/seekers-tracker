@@ -49,7 +49,7 @@ export async function insertLedgerEntry(
   const occurredAt = parseOccurredAt(input.occurredAt);
   if (!occurredAt) return { ok: false, error: "Invalid date." };
   const activityOrTier = (input.kind === "ep" ? input.activity : input.tier).trim();
-  if (!activityOrTier) return { ok: false, error: input.kind === "ep" ? "Activity is required." : "Tier is required." };
+  if (!activityOrTier) return { ok: false, error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
 
   const [character] = await db
     .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId, playerId: characters.playerId })

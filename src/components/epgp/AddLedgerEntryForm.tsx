@@ -97,7 +97,7 @@ export function AddLedgerEntryForm({
       )}
 
       <Field className="w-48">
-        <span className="text-neutral-400">{type === "ep" ? "Activity" : "Tier"}</span>
+        <span className="text-neutral-400">{type === "ep" ? "Activity" : "Bid"}</span>
         <input
           name="activityOrTier"
           list={`${type}-activity-suggestions`}
