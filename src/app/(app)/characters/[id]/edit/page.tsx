@@ -1,8 +1,8 @@
 import { and, eq, ne } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 
+import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { CharacterForm } from "@/components/CharacterForm";
-import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
@@ -19,9 +19,14 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!character) notFound();
-  if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
+  const [row] = await db
+    .select({ character: characters, ownerUsername: users.username, ownerRole: users.role })
+    .from(characters)
+    .leftJoin(users, eq(characters.ownerId, users.id))
+    .where(eq(characters.id, characterId));
+  if (!row) notFound();
+  const { character, ownerUsername, ownerRole } = row;
+  if (!(await canManageCharacter(character, session.user.id))) redirect(`/characters/${characterId}`);
 
   const mainCandidates = await db
     .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
@@ -33,21 +38,16 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   const boundUpdate = updateCharacter.bind(null, characterId);
 
   return (
-    <div className="mx-auto max-w-md">
-      <PageHeader
-        breadcrumbs={[
-          { label: "Characters", href: "/characters" },
-          { label: character.name, href: `/characters/${character.id}` },
-          { label: "Edit" },
-        ]}
-        title={`Edit ${character.name}`}
-      />
-      <CharacterForm
-        action={boundUpdate}
-        character={character}
-        mainCandidates={mainCandidates.map((m) => ({ ...m, ownerUsername: m.ownerUsername ?? "(no username)" }))}
-        submitLabel="Save Changes"
-      />
+    <div className="mx-auto max-w-3xl">
+      <CharacterHeader character={character} active="edit" ownerUsername={ownerUsername ?? undefined} ownerRole={ownerRole} />
+      <div className="mx-auto mt-6 max-w-md">
+        <CharacterForm
+          action={boundUpdate}
+          character={character}
+          mainCandidates={mainCandidates.map((m) => ({ ...m, ownerUsername: m.ownerUsername ?? "(no username)" }))}
+          submitLabel="Save Changes"
+        />
+      </div>
     </div>
   );
 }

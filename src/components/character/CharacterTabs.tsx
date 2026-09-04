@@ -1,12 +1,15 @@
 import Link from "next/link";
 
+// Gear and Stats (routes /gear, /stats) and the Quarmy import (/import) are
+// still reachable by URL but are off the tab bar for now — the guild isn't
+// using the Quarmy gear/stat sheets. Edit was a top-right link; it's a tab
+// now, first, so the detail page reads Edit -> PoP Checklist.
 const TABS = [
+  { key: "edit", label: "Edit", path: "/edit" },
   { key: "pop", label: "PoP Checklist", path: "" },
-  { key: "gear", label: "Gear", path: "/gear" },
-  { key: "stats", label: "Stats", path: "/stats" },
 ] as const;
 
-export type CharacterTabKey = (typeof TABS)[number]["key"];
+export type CharacterTabKey = (typeof TABS)[number]["key"] | "gear" | "stats";
 
 export function CharacterTabs({ characterId, active }: { characterId: number; active: CharacterTabKey }) {
   return (

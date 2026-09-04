@@ -32,9 +32,6 @@ export function CharacterForm({
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
-  // "mule" is a Phase 3 backfill-only type (PLAN.md §4c) — this form has no
-  // UI for it, so a mule row edited here just shows neither radio checked
-  // until the user picks main/alt, same as any other unset selection.
   const [charType, setCharType] = useState<"main" | "alt" | "mule">(character?.charType ?? "main");
 
   return (
@@ -108,7 +105,20 @@ export function CharacterForm({
           />
           Alt
         </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="charType"
+            value="mule"
+            checked={charType === "mule"}
+            onChange={() => setCharType("mule")}
+          />
+          Mule
+        </label>
       </fieldset>
+      {charType === "mule" && (
+        <p className="text-xs text-neutral-500">Bank/storage character — excluded from EPGP and not nested under a main on the roster.</p>
+      )}
 
       {charType === "alt" && (
         <label className="flex flex-col gap-1 text-sm">

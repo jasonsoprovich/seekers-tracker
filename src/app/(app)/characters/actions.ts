@@ -42,10 +42,10 @@ function parseCharacterForm(
   if (!Number.isInteger(level) || level < 1 || level > MAX_CHAR_LEVEL) {
     return { error: `Level must be between 1 and ${MAX_CHAR_LEVEL}.` };
   }
-  if (charType !== "main" && charType !== "alt") return { error: "Invalid character type." };
+  if (charType !== "main" && charType !== "alt" && charType !== "mule") return { error: "Invalid character type." };
 
-  // Only alts carry a main-character link — a main switched back from alt
-  // silently drops any stale link rather than erroring.
+  // Only alts carry a main-character link — a main or mule silently drops
+  // any stale link rather than erroring.
   let mainCharacterId: number | null = null;
   if (charType === "alt" && mainCharacterIdRaw) {
     mainCharacterId = Number(mainCharacterIdRaw);
