@@ -51,18 +51,27 @@ export type GoldenFixture = {
 export const TOLERANCE = 0.05;
 
 // The harness pins computeEpgpTotals to this date instead of real "now".
-// The `expected` values below were read off the sheet on 2026-08-21, when
-// the guild's current cycle was 66 (2026-08-16 → 2026-08-29) — so the
-// sheet's cached "EP Decay"/"GP Decay" columns reflect a cycle start of
-// 2026-08-16. Without pinning, `computeEpgpTotals` uses the real clock, and
-// every time wall-time crosses a cycle boundary another ~2 weeks of a
-// veteran's EP rolls behind the current-cycle line and picks up the legacy
-// §1a 20% haircut — the ep/epDecay split moves, `rawEp` doesn't, and the
-// veteran-decay fixtures "fail" against numbers that were only ever valid
-// in the cycle-66 window. Pinning makes the harness test the decay *math*,
-// deterministically, forever. Re-point this (and re-baseline `expected`
-// from a fresh sheet export) only as a deliberate act, not to chase drift.
-export const FIXTURES_AS_OF = new Date("2026-08-21T12:00:00Z");
+// The `expected` values below were read off the sheet's Totals tab
+// (Effort Points / Gear Points / Loot Priority / EP Decay / GP Decay
+// columns) on 2026-09-03, when the guild's current cycle was 67
+// (2026-08-30 → ~2026-09-12) — so the sheet's cached decay columns reflect
+// a cycle start of 2026-08-30. Without pinning, `computeEpgpTotals` uses the
+// real clock, and every time wall-time crosses a cycle boundary another
+// ~2 weeks of a veteran's EP rolls behind the current-cycle line and picks
+// up the legacy §1a 20% haircut — the ep/epDecay split moves, `rawEp`
+// doesn't, and the veteran-decay fixtures "fail" against numbers that were
+// only ever valid in the cycle-67 window. Pinning makes the harness test
+// the decay *math*, deterministically, forever. Re-point this (and
+// re-baseline `expected` from a fresh sheet export) only as a deliberate
+// act, not to chase drift.
+//
+// Re-baselined 2026-09-03 after a fresh sheet snapshot (import-epgp.ts):
+// only the 5 still-active raiders moved (Aransur/Ammaru/Takkisina/Luna/
+// Kaalos — more current-cycle EP earned since 2026-08-21); the 8
+// floor-exempt / departed / inactive fixtures were byte-identical and
+// unchanged. Every re-baselined value equals the fresh sheet's own cached
+// Totals cell.
+export const FIXTURES_AS_OF = new Date("2026-09-03T12:00:00Z");
 
 export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
@@ -74,14 +83,14 @@ export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
     name: "Aransur",
     category: "veteran-all-3-expansion-decays",
-    note: "Guild's top-end lifetime EP (~17.7K raw) — verified against Totals!I4 in PLAN.md §1a.",
-    expected: { ep: 14032.56, gp: 1145.8, epDecay: 3458.14, gpDecay: 261.45, priority: 11.3843 },
+    note: "Guild's top-end lifetime EP (~18.5K raw) — verified against Totals!I4 in PLAN.md §1a.",
+    expected: { ep: 14862.56, gp: 1263.8, epDecay: 3628.14, gpDecay: 283.45, priority: 11.0079 },
   },
   {
     name: "Ammaru",
     category: "veteran-all-3-expansion-decays",
     note: "Third of the three characters PLAN.md §1a verifies the legacy cycle-decay formula against.",
-    expected: { ep: 7881.68, gp: 993.48, epDecay: 1932.92, gpDecay: 248.37, priority: 7.3451 },
+    expected: { ep: 8281.68, gp: 1033.48, epDecay: 2032.92, gpDecay: 258.37, priority: 7.4388 },
   },
   {
     name: "Aiyana",
@@ -105,19 +114,19 @@ export const GOLDEN_FIXTURES: GoldenFixture[] = [
     name: "Takkisina",
     category: "frequently-cap-limited",
     note: "139 historical cap-limited cycle rows (PLAN.md §5 table) — cap logic itself isn't tested until Phase 2/3, but this exercises a large, decay-heavy ledger.",
-    expected: { ep: 13433.36, gp: 1479.56, epDecay: 3320.84, gpDecay: 369.89, priority: 8.5995 },
+    expected: { ep: 14183.36, gp: 1489.56, epDecay: 3470.84, gpDecay: 369.89, priority: 9.0172 },
   },
   {
     name: "Luna",
     category: "frequently-cap-limited",
     note: "125 historical cap-limited rows, including cycle 6 = 1,310 recorded (over the 900 cap) per PLAN.md §2 — the over-cap example itself needs a per-cycle query Phase 0 doesn't have yet, but the character-level total is a fixture here now.",
-    expected: { ep: 11751.88, gp: 655.12, epDecay: 2900.47, gpDecay: 163.78, priority: 15.7616 },
+    expected: { ep: 11921.88, gp: 663.12, epDecay: 2980.47, gpDecay: 165.78, priority: 15.8191 },
   },
   {
     name: "Kaalos",
     category: "cap-exceeded-historically",
     note: "Cycle 1 recorded 1,200 (over the 900 cap) per PLAN.md §2. Same caveat as Luna re: per-cycle assertions.",
-    expected: { ep: 10981.72, gp: 1385.8, epDecay: 2695.43, gpDecay: 346.45, priority: 7.4921 },
+    expected: { ep: 11511.72, gp: 1385.8, epDecay: 2815.43, gpDecay: 346.45, priority: 7.8488 },
   },
   {
     name: "Droctulft",
