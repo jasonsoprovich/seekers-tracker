@@ -1,7 +1,8 @@
-import { desc, eq, like, or } from "drizzle-orm";
+import { desc, eq, isNotNull, like, or } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { bids, characters, epLedger, gpLedger, lootEvents, users } from "@/db";
+import { bids, characters, epLedger, gpLedger, lootEvents, players, users } from "@/db";
+import { getStandings } from "./standings";
 
 export type EpLedgerRow = {
   id: number;
@@ -143,4 +144,58 @@ export async function listBidHistory(
     .limit(pageSize + 1)
     .offset(offset);
   return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+}
+
+export type TotalsRow = {
+  playerId: number;
+  mainCharacterName: string;
+  playerStatus: "active" | "inactive" | "departed";
+  lastActivityAt: Date | null;
+  ep: number;
+  gp: number;
+  // Amount already subtracted out of raw EP/GP to get the `ep`/`gp` above
+  // (totals.ts) — always 0 under decay_model=global (today's default),
+  // since global cycle decay is applied as real stored negative rows
+  // rather than derived here; only legacy-model pre-cutover history shows
+  // a nonzero value. Shown anyway (leader, 2026-09-05) since it's the real
+  // field, not a placeholder.
+  epDecay: number;
+  gpDecay: number;
+  priorityRating: number;
+};
+
+// EPGP Ledger's "Totals" tab (leader request, 2026-09-05) — one row per
+// PLAYER, mirroring the guild sheet's own Totals tab (main character name,
+// last activity, EP, GP, priority). Alt/mule activity is already rolled
+// into these numbers by construction — player_epgp_totals is computed
+// per-player, not per-character (PLAN.md §4a) — so there's no separate
+// roll-up step here, unlike character-activity.ts's per-character concern.
+// Only players with a resolved main character are listed (Phase 3's
+// ambiguous-main group has none yet — see players.note for those).
+export async function getTotalsRows(db: ReturnType<typeof drizzle>): Promise<TotalsRow[]> {
+  const [rows, standings] = await Promise.all([
+    db
+      .select({ playerId: players.id, mainCharacterName: characters.name, playerStatus: players.status })
+      .from(players)
+      .innerJoin(characters, eq(characters.id, players.mainCharacterId))
+      .where(isNotNull(players.mainCharacterId)),
+    getStandings(db),
+  ]);
+
+  return rows
+    .map((r) => {
+      const s = standings.get(r.playerId);
+      return {
+        playerId: r.playerId,
+        mainCharacterName: r.mainCharacterName,
+        playerStatus: r.playerStatus,
+        lastActivityAt: s?.lastActivityAt ?? null,
+        ep: s?.ep ?? 0,
+        gp: s?.gp ?? 0,
+        epDecay: s?.epDecay ?? 0,
+        gpDecay: s?.gpDecay ?? 0,
+        priorityRating: s?.priorityRating ?? 0,
+      };
+    })
+    .sort((a, b) => a.mainCharacterName.localeCompare(b.mainCharacterName));
 }

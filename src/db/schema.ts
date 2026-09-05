@@ -31,6 +31,15 @@ export const users = sqliteTable("users", {
   // the data so a future role-mapping decision doesn't need a schema
   // change of its own.
   discordRoleIds: text("discord_role_ids"),
+  // A viewer's own preference for how dates/times are DISPLAYED to them
+  // (leader, 2026-09-05: "perhaps the user can adjust their profile...
+  // for their own viewing"). Null means "use the guild default"
+  // (GUILD_TIMEZONE, src/lib/guild-timezone.ts). Deliberately does NOT
+  // affect shared groupings like which calendar day a raid falls under
+  // (raids.ts) — that has to stay one answer everyone agrees on; this only
+  // reformats timestamps for the viewer looking at them. IANA zone name,
+  // e.g. "America/Chicago".
+  timezone: text("timezone"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -516,13 +525,34 @@ export const playerEpgpTotals = sqliteTable("player_epgp_totals", {
 // join key.
 export const raids = sqliteTable("raids", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  raidDate: text("raid_date").notNull().unique(), // 'YYYY-MM-DD' (UTC, matching how sheet-origin dates are shown)
+  raidDate: text("raid_date").notNull().unique(), // 'YYYY-MM-DD' in GUILD_TIMEZONE (src/lib/guild-timezone.ts)
   name: text("name"),
   note: text("note"),
   createdBy: text("created_by").references(() => users.id),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// Free-text sections for the member-facing Cycle/Rules info page (leader
+// request, 2026-09-05) — "Priority Formula", "How Cycles Work", etc. The
+// numeric facts on that page (cap, decay rate, cycle dates) are read live
+// from epgp_settings/cycles, never duplicated here; this table is only for
+// prose an officer/leader/admin explains those numbers with. `key` is a
+// stable slug the page addresses each section by (seeded once, editable
+// forever after) — not effective-dated like epgp_settings, since a text
+// explanation doesn't need point-in-time history the way a rate change
+// does.
+export const epgpInfoSections = sqliteTable("epgp_info_sections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  key: text("key").notNull().unique(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  updatedBy: text("updated_by").references(() => users.id),
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

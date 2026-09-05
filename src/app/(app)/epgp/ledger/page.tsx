@@ -6,20 +6,22 @@ import { AddLedgerEntryForm } from "@/components/epgp/AddLedgerEntryForm";
 import { AuditLogTable, type AuditLogRow } from "@/components/epgp/AuditLogTable";
 import { BidHistoryTable } from "@/components/epgp/BidHistoryTable";
 import { LedgerTable, type EpRow, type GpRow } from "@/components/epgp/LedgerTable";
+import { TotalsTable } from "@/components/epgp/TotalsTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { fieldClasses } from "@/components/ui/Field";
 import { characters, epgpPointValues, gpLedger, ledgerAuditLog, users } from "@/db";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { listBidHistory, listLedgerRows } from "@/lib/epgp/ledger-list";
+import { getTotalsRows, listBidHistory, listLedgerRows } from "@/lib/epgp/ledger-list";
 import { getSession } from "@/lib/session";
 
 const PAGE_SIZE = 50;
 
-type TabType = "ep" | "gp" | "bids" | "audit";
+type TabType = "totals" | "ep" | "gp" | "bids" | "audit";
 type SearchParams = { type?: string; q?: string; page?: string };
 
 const TABS: { key: TabType; label: string; officerOnly?: boolean; searchPlaceholder?: string }[] = [
+  { key: "totals", label: "Totals" },
   { key: "ep", label: "EP Ledger", searchPlaceholder: "Character or activity…" },
   { key: "gp", label: "GP Ledger", searchPlaceholder: "Character, item, or tier…" },
   { key: "bids", label: "Bids History", searchPlaceholder: "Character or item…" },
@@ -44,7 +46,8 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   const canManage = canManageEpgp(role);
 
   const { type: typeParam, q = "", page: pageParam } = await searchParams;
-  const requestedType: TabType = typeParam === "gp" || typeParam === "bids" || typeParam === "audit" ? typeParam : "ep";
+  const requestedType: TabType =
+    typeParam === "totals" || typeParam === "gp" || typeParam === "bids" || typeParam === "audit" ? typeParam : "ep";
   // Audit is officer+ only — hitting ?type=audit directly without the role
   // (or an old bookmark of the removed /epgp/ledger/audit route) falls back
   // to EP rather than erroring or exposing officer-only rows.
@@ -83,13 +86,16 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
     itemSuggestions = itemRows.map((r) => r.itemName).filter((n): n is string => n !== null);
   }
 
+  let totalsRows: Awaited<ReturnType<typeof getTotalsRows>> = [];
   let epRows: EpRow[] = [];
   let gpRows: GpRow[] = [];
   let bidRows: Awaited<ReturnType<typeof listBidHistory>>["rows"] = [];
   let auditRows: AuditLogRow[] = [];
   let hasNext = false;
 
-  if (type === "ep") {
+  if (type === "totals") {
+    totalsRows = await getTotalsRows(db);
+  } else if (type === "ep") {
     const result = await listLedgerRows(db, { kind: "ep", q: term, page, pageSize: PAGE_SIZE });
     epRows = result.rows;
     hasNext = result.hasNext;
@@ -179,27 +185,30 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
       )}
 
       <div className="mt-4">
+        {type === "totals" && <TotalsTable rows={totalsRows} />}
         {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} />}
         {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} />}
         {type === "bids" && <BidHistoryTable rows={bidRows} />}
         {type === "audit" && <AuditLogTable rows={auditRows} />}
       </div>
 
-      <div className="mt-4 flex items-center justify-between text-sm">
-        <span className="text-neutral-500">Page {page}</span>
-        <div className="flex gap-2">
-          {page > 1 && (
-            <Link href={pageHref({ page: page - 1 })} className="rounded-md border border-field px-3 py-1.5 font-medium text-neutral-300 hover:bg-neutral-900/60">
-              ← Prev
-            </Link>
-          )}
-          {hasNext && (
-            <Link href={pageHref({ page: page + 1 })} className="rounded-md border border-field px-3 py-1.5 font-medium text-neutral-300 hover:bg-neutral-900/60">
-              Next →
-            </Link>
-          )}
+      {type !== "totals" && (
+        <div className="mt-4 flex items-center justify-between text-sm">
+          <span className="text-neutral-500">Page {page}</span>
+          <div className="flex gap-2">
+            {page > 1 && (
+              <Link href={pageHref({ page: page - 1 })} className="rounded-md border border-field px-3 py-1.5 font-medium text-neutral-300 hover:bg-neutral-900/60">
+                ← Prev
+              </Link>
+            )}
+            {hasNext && (
+              <Link href={pageHref({ page: page + 1 })} className="rounded-md border border-field px-3 py-1.5 font-medium text-neutral-300 hover:bg-neutral-900/60">
+                Next →
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

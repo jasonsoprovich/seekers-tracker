@@ -1,8 +1,9 @@
 import { and, gte, inArray, lt, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { cycles, epLedger, gpLedger } from "@/db";
+import { epLedger, gpLedger } from "@/db";
 
+import { getCurrentCycle } from "./cycles";
 import { DEFAULT_SETTINGS, getSettingAt, getSettingsAt } from "./settings";
 
 export type EpgpTotal = {
@@ -93,17 +94,10 @@ export async function computeEpgpTotals(
   // themselves.
   const decayModel = (await getSettingAt(db, "decay_model", asOf)) ?? DEFAULT_SETTINGS.decay_model;
 
-  // The sheet's Cycles tab is pre-populated with future cycles (observed
-  // 2026-08-18: rows exist through cycle 72 / mid-November), so "most
-  // recent by start date" is NOT "current" — it has to be the cycle whose
-  // [start, end] actually contains now. Falls back to the most recent
-  // *started* cycle if the calendar ever has a gap (a raid week not yet
-  // added), so points earned after the last known cycle still count as
-  // "current" rather than vanishing into a mismatch.
-  const allCycles = await db.select().from(cycles).orderBy(sql`${cycles.startDate} asc`);
-  const containingCycle = allCycles.find((c) => c.startDate <= asOf && asOf <= c.endDate);
-  const startedCycles = allCycles.filter((c) => c.startDate <= asOf);
-  const currentCycle = containingCycle ?? startedCycles.at(-1);
+  // See cycles.ts's getCurrentCycle for why "current" isn't simply "most
+  // recent by start date" (the sheet's Cycles tab is pre-populated with
+  // future cycles).
+  const currentCycle = await getCurrentCycle(db, asOf);
   // No cycles seeded yet (fresh dev DB): treat everything as "current cycle"
   // rather than crashing — nothing to decay yet.
   const cycleStart = currentCycle?.startDate ?? new Date(0);

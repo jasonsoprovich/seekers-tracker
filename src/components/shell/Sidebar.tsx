@@ -48,7 +48,9 @@ function AccountBlock({
       ) : (
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[10px] font-semibold">{initials}</span>
       )}
-      <span className="min-w-0 flex-1 truncate">{username}</span>
+      <Link href="/profile" className="min-w-0 flex-1 truncate hover:text-emerald-300" title="Profile settings">
+        {username}
+      </Link>
       <SignOutButton
         onClick={onSignOutClick}
         className="shrink-0 rounded-md px-1.5 py-1 text-xs text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-200"

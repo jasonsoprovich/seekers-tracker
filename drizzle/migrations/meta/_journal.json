@@ -204,6 +204,20 @@
       "when": 1788498641595,
       "tag": "0028_raids",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1788570108665,
+      "tag": "0029_harsh_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1788570311365,
+      "tag": "0030_jazzy_lifeguard",
+      "breakpoints": true
     }
   ]
 }
