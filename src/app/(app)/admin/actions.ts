@@ -4,7 +4,8 @@ import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characters, players, users } from "@/db";
-import { canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
+import { revokeApiKeysForUser } from "@/lib/api-key-auth";
+import { canManageEpgp, canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { swapMainCharacter, type SwapMainResult } from "@/lib/players";
@@ -59,6 +60,16 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
     .update(users)
     .set({ role: role as Role, updatedAt: new Date() })
     .where(eq(users.id, userId));
+
+  // Losing officer-tier access (dropping to "member" — leader/admin/officer
+  // all still pass canManageEpgp) means any app key they hold should stop
+  // existing, not just stop working on its next live check (leader,
+  // 2026-09-05: "if an officer ever loses their officer status... their
+  // api keys need to be revoked automatically"). A no-op if they never had
+  // a key.
+  if (!canManageEpgp(role as Role)) {
+    await revokeApiKeysForUser(db, userId);
+  }
 
   return {};
 }
@@ -122,6 +133,11 @@ export async function removeMemberFromGuild(userId: string): Promise<MemberGuild
 
   const now = new Date();
   await db.update(users).set({ role: "member", updatedAt: now }).where(eq(users.id, userId));
+
+  // Same as setUserRole's demotion path — removal always drops role to
+  // "member", so any app key they held must stop existing too (leader,
+  // 2026-09-05). A no-op if they never had a key.
+  await revokeApiKeysForUser(db, userId);
 
   // Zero their EP. `commitDepartureWipe` skips characters already at 0 EP
   // and returns an error only when nothing matched — that's not a failure

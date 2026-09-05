@@ -3,10 +3,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/AdminCharacterList";
-import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
+import { MembersRolesList } from "@/components/admin/MembersRolesList";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { MainCharacterSelect } from "@/components/MainCharacterSelect";
-import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, players, users } from "@/db";
 import {
@@ -186,28 +185,7 @@ export default async function AdminPage() {
             site access, and zeroes their EP — GP is kept — until reinstated, which restores the EP and
             access but not the role). Character records stay. Only leaders can do either.
           </p>
-          <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
-            {members.map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="font-medium">{m.username ?? "(no username)"}</p>
-                  <p className="text-sm text-neutral-500">
-                    {m.discordVerified ? "Discord verified" : "Not Discord-verified"} · joined{" "}
-                    {m.createdAt.toLocaleDateString()}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <RemoveMemberButton
-                    userId={m.id}
-                    username={m.username ?? "this member"}
-                    departed={m.playerStatus === "departed"}
-                    isSelf={m.id === session.user.id}
-                  />
-                  <RoleSelect userId={m.id} role={m.role} isSelf={m.id === session.user.id} />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <MembersRolesList members={members} selfUserId={session.user.id} />
         </section>
       )}
 

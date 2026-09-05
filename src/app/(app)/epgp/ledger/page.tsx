@@ -25,7 +25,11 @@ const TABS: { key: TabType; label: string; officerOnly?: boolean; searchPlacehol
   { key: "ep", label: "EP Ledger", searchPlaceholder: "Character or activity…" },
   { key: "gp", label: "GP Ledger", searchPlaceholder: "Character, item, or tier…" },
   { key: "bids", label: "Bids History", searchPlaceholder: "Character or item…" },
-  { key: "audit", label: "Audit Trail", officerOnly: true, searchPlaceholder: "Character, officer, or action…" },
+  // Every role can see this, same transparency call as EP/GP/Bids — a
+  // member should be able to see what an officer changed and why (leader
+  // request, 2026-09-05). Read-only regardless of role (AuditLogTable has
+  // no edit affordance at all).
+  { key: "audit", label: "Audit Trail", searchPlaceholder: "Character, officer, or action…" },
 ];
 
 // The EP/GP Log tabs this replaces (47k/5.9k rows) — the first paginated
@@ -46,12 +50,8 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   const canManage = canManageEpgp(role);
 
   const { type: typeParam, q = "", page: pageParam } = await searchParams;
-  const requestedType: TabType =
+  const type: TabType =
     typeParam === "totals" || typeParam === "gp" || typeParam === "bids" || typeParam === "audit" ? typeParam : "ep";
-  // Audit is officer+ only — hitting ?type=audit directly without the role
-  // (or an old bookmark of the removed /epgp/ledger/audit route) falls back
-  // to EP rather than erroring or exposing officer-only rows.
-  const type: TabType = requestedType === "audit" && !canManage ? "ep" : requestedType;
   const page = Math.max(1, Number(pageParam) || 1);
   const term = q.trim();
 

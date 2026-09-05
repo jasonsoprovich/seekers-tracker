@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 
 import { createAuth } from "@/auth";
 import * as schema from "@/db";
-import { users } from "@/db";
+import { apikeys, users } from "@/db";
 import { canManageEpgp, type Role } from "@/lib/authz";
 
 // Auth for /api/officer/* routes, called by the standalone EPGP parser app
@@ -73,4 +73,19 @@ export async function verifyOfficerApiKey(
   }
 
   return { userId: result.key.referenceId };
+}
+
+// Deletes every app key belonging to a user — call this wherever a user
+// loses officer-tier access: setUserRole demoting someone away from
+// officer/leader/admin, and removeMemberFromGuild (admin/actions.ts, both
+// call sites). The live canManageEpgp re-check above already stops a
+// stale key from doing anything on its next request, but that's not the
+// same as the key ceasing to exist — a leader/admin "see everyone's keys"
+// view to revoke one by hand was tried and reverted the same day (2026-
+// 09-05: a real security surface, seeing another member's key metadata,
+// not worth opening) precisely so this automatic path is what closes the
+// gap instead, not a leader having to go find and revoke it manually.
+export async function revokeApiKeysForUser(db: ReturnType<typeof drizzle<typeof schema>>, userId: string): Promise<number> {
+  const deleted = await db.delete(apikeys).where(eq(apikeys.referenceId, userId)).returning({ id: apikeys.id });
+  return deleted.length;
 }

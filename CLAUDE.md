@@ -320,6 +320,67 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 6 — post-batch-5 browser testing fixes, 2026-09-05
+(no migration; `tsc` + `npm run build` + `npx opennextjs-cloudflare build`
+clean, `npm run verify` 13/13 — not browser-verified, no Chrome extension
+connected this session).** A guild leader clicked through batch 5's own
+changes and found five follow-on issues, one commit each:
+- **Audit Trail is now visible to every role**, not just officer+
+  (`/epgp/ledger`'s `officerOnly` flag removed from that tab) — same
+  transparency call as the EP/GP/Bids tabs; `AuditLogTable` was already
+  pure read-only, nothing to lock down.
+- **Dashboard's `RosterOverview` filter bar**: default time window
+  changed "All time" → **7 days**; the "Include alts" checkbox replaced
+  with a `SegmentedToggle` (Mains only / Include alts) to match the date
+  window's own pill style right next to it; the sticky bar's bleed margin
+  fixed from `-mx-4/px-4` to `-mx-6/px-6` to actually match `<main>`'s
+  real `px-6` padding, and given a solid `bg-surface` + bottom border
+  (was `bg-surface/95` + `backdrop-blur`) so the stuck state is visually
+  obvious instead of a near-invisible translucent strip.
+- **Admin's Members & Roles list had no search**, unlike the "All
+  Characters" list below it or the old pre-restructure guild-leader view —
+  new `MembersRolesList` (client component, username-only filter, same
+  pattern as `AdminCharacterList`) replaces the inline unfiltered `<ul>`.
+- **"View as member" got stuck, banner included** — `ViewAsControls`
+  called `router.refresh()` after setting the preview cookie, which
+  re-renders `/admin`'s own Server Component in place; for "member" that
+  component immediately throws `redirect("/characters")`
+  (`canManageAnyCharacter` is false), and a `redirect()` thrown mid-refresh
+  left the page stuck with neither the old nor new content rendering — the
+  root layout's `ViewAsBanner` went with it, since the segment tree the
+  refresh was fetching never finished. "officer"/"leader" didn't trigger it
+  (admin/page.tsx lets both stay on `/admin`), which is what made it look
+  role-specific instead of structural. Fixed: `router.push("/characters")`
+  instead — a real navigation every role can land on, going through the
+  same path any `<Link>` already uses, no refresh-time redirect involved.
+- **API keys: officers already could only see/revoke their own** — better-
+  auth's api-key plugin scopes `listApiKeys`/`deleteApiKey` to the calling
+  session with no server-side override for user-owned keys (confirmed
+  against the plugin's own reference docs via Context7, not assumed). A
+  leader/admin-only "All app keys" view was built the same day to close the
+  actual gap (no way for a leader to revoke someone *else's* key) — **and
+  reverted the same day**, same-day leader call: seeing another member's
+  key metadata (owner, name, timestamps — never the secret itself) was
+  still a security surface not worth opening, full stop. Replaced with
+  **automatic revocation instead of manual leader access**: new
+  `revokeApiKeysForUser(db, userId)` (`src/lib/api-key-auth.ts`, raw
+  `DELETE FROM apikeys WHERE reference_id = ?` — `auth.api.deleteApiKey`
+  has no admin-override param to bypass its own ownership check) is called
+  from two sites in `admin/actions.ts`: `setUserRole` when the new role
+  drops out of `canManageEpgp` (demoted to member — officer/leader/admin
+  all still pass), and unconditionally in `removeMemberFromGuild` (which
+  always drops role to member anyway). A departed/demoted officer's key
+  now stops *existing*, not just stops working on its next
+  `verifyOfficerApiKey` call (that live `canManageEpgp` re-check, added
+  earlier, already blocked it functionally — this closes the same gap by
+  deletion instead of leaving a dead-but-technically-valid-looking row
+  around indefinitely). Verified against local D1 with a throwaway script
+  (snapshot/restore): inserted a fake officer + key, confirmed
+  `revokeApiKeysForUser` deletes exactly that row and returns the count,
+  confirmed a second call against an already-empty set is a harmless
+  no-op. `tsc` + `build` clean, `npm run verify` 13/13 (unrelated area,
+  confirms no regression).
+
 **Leader-requested batch 5 — pre-Monday fixes + new pages, 2026-09-05
 (local D1, migrations 0029/0030 LOCAL ONLY — needs the standard remote
 rollout, see the pending-remote-deploy checklist).** Driven by two full

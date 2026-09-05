@@ -11,11 +11,22 @@ const PREVIEW_ROLES: Role[] = ["member", "officer", "leader"];
 
 // Entry point for admin/view-as-actions.ts's preview mode. Only rendered
 // on /admin when the real (non-preview) role is admin — see admin/page.tsx.
-// Picking a role sets an httpOnly cookie server-side, then refreshes: the
-// current page re-renders under the previewed role immediately, which for
-// /admin itself means an instant bounce to /characters for member/officer
-// (exactly the point — admin/page.tsx's own guard does the work, nothing
-// special-cased here).
+// Picking a role sets an httpOnly cookie server-side, then navigates to
+// /characters (every role, including member, can load that page).
+//
+// Deliberately router.push(), not router.refresh(): a plain refresh
+// re-renders /admin's own Server Component in place, and for "view as
+// member" that component immediately throws redirect("/characters")
+// (canManageAnyCharacter is false for member) — found 2026-09-05 that a
+// redirect() thrown mid-refresh like that leaves the page stuck (neither
+// the old nor the new content renders, and the layout's ViewAsBanner goes
+// with it, since the whole segment tree the refresh was re-fetching never
+// finishes). "officer"/"leader" didn't show the bug (admin/page.tsx lets
+// both stay on /admin), which is what made it look role-specific rather
+// than structural. push() is a real navigation to a new URL, so the
+// banner-carrying root layout and the destination page both render
+// through the normal path every <Link> already uses — no refresh-time
+// redirect involved.
 export function ViewAsControls() {
   const router = useRouter();
   const [pending, setPending] = useState<Role | null>(null);
@@ -30,7 +41,7 @@ export function ViewAsControls() {
       setPending(null);
       return;
     }
-    router.refresh();
+    router.push("/characters");
   }
 
   return (

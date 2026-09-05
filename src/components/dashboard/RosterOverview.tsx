@@ -40,7 +40,10 @@ const WINDOWS = [
 // one into `roster`), matching "mules can be ignored".
 export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs: number }) {
   const [showAlts, setShowAlts] = useState(true);
-  const [win, setWin] = useState<string>("all");
+  // Default to 7 days, not "All time" (leader, 2026-09-05) — "all" buried
+  // the guild's actual recent-activity picture behind every character
+  // who's ever existed, including long-departed/inactive ones.
+  const [win, setWin] = useState<string>("7d");
   const windowDef = WINDOWS.find((w) => w.value === win) ?? WINDOWS[WINDOWS.length - 1];
   const cutoff = nowMs - windowDef.ms;
 
@@ -90,11 +93,21 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
 
   return (
     <div className="mt-4">
-      <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center justify-between gap-3 bg-surface/95 px-4 py-3 backdrop-blur">
-        <label className="flex items-center gap-2 text-sm text-neutral-300">
-          <input type="checkbox" checked={showAlts} onChange={(e) => setShowAlts(e.target.checked)} className="h-4 w-4" />
-          Include alts
-        </label>
+      {/* -mx-6/px-6 matches AppShell's <main> padding exactly, so this bar
+          bleeds flush to the same edges the page content itself sits at —
+          a mismatched -mx-4/px-4 here previously left an 8px gap each
+          side. Solid bg-surface (not /95 + backdrop-blur) and a bottom
+          border make the "stuck" state visually obvious rather than a
+          near-invisible translucent strip once content scrolls under it. */}
+      <div className="sticky top-0 z-20 -mx-6 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-6 py-3">
+        <SegmentedToggle
+          value={showAlts ? "all" : "mains"}
+          onChange={(v) => setShowAlts(v === "all")}
+          options={[
+            { value: "mains", label: "Mains only" },
+            { value: "all", label: "Include alts" },
+          ]}
+        />
         <SegmentedToggle value={win} onChange={setWin} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} />
       </div>
 
