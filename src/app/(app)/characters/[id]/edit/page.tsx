@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 
 import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { CharacterForm } from "@/components/CharacterForm";
-import { characters, users } from "@/db";
+import { ClaimThisCharacterButton } from "@/components/characters/ClaimThisCharacterButton";
+import { Card } from "@/components/ui/Card";
+import { characterClaims, characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -26,28 +28,62 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
     .where(eq(characters.id, characterId));
   if (!row) notFound();
   const { character, ownerUsername, ownerRole } = row;
-  if (!(await canManageCharacter(character, session.user.id))) redirect(`/characters/${characterId}`);
 
-  const mainCandidates = await db
-    .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
-    .from(characters)
-    .leftJoin(users, eq(characters.ownerId, users.id))
-    .where(and(eq(characters.charType, "main"), ne(characters.id, characterId)))
-    .orderBy(characters.name);
+  const isUnclaimed = character.ownerId === null;
+  const canManage = await canManageCharacter(character, session.user.id);
+  // An unclaimed character has no owner yet, so canManageCharacter is
+  // false for everyone but an officer — that used to redirect any regular
+  // member straight back out before they could even see a claim prompt
+  // here (leader, 2026-09-05: claiming belongs on Edit, not PoP Checklist,
+  // where it lived instead). Let anyone in far enough to claim it; only
+  // block when someone else already owns it and the viewer isn't an
+  // officer.
+  if (!isUnclaimed && !canManage) redirect(`/characters/${characterId}`);
+
+  const [mainCandidates, existingClaim] = await Promise.all([
+    db
+      .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
+      .from(characters)
+      .leftJoin(users, eq(characters.ownerId, users.id))
+      .where(and(eq(characters.charType, "main"), ne(characters.id, characterId)))
+      .orderBy(characters.name),
+    isUnclaimed
+      ? db
+          .select({ id: characterClaims.id })
+          .from(characterClaims)
+          .where(
+            and(
+              eq(characterClaims.characterId, characterId),
+              eq(characterClaims.requesterId, session.user.id),
+              eq(characterClaims.status, "pending"),
+            ),
+          )
+      : Promise.resolve([]),
+  ]);
 
   const boundUpdate = updateCharacter.bind(null, characterId);
 
   return (
     <div className="mx-auto max-w-3xl">
       <CharacterHeader character={character} active="edit" ownerUsername={ownerUsername ?? undefined} ownerRole={ownerRole} />
-      <div className="mx-auto mt-6 max-w-md">
-        <CharacterForm
-          action={boundUpdate}
-          character={character}
-          mainCandidates={mainCandidates.map((m) => ({ ...m, ownerUsername: m.ownerUsername ?? "(no username)" }))}
-          submitLabel="Save Changes"
-        />
-      </div>
+
+      {isUnclaimed && (
+        <Card className="mx-auto mt-6 max-w-md px-4 py-3">
+          <p className="mb-2 text-sm text-neutral-300">This character hasn&apos;t been claimed yet.</p>
+          <ClaimThisCharacterButton characterId={character.id} alreadyPending={existingClaim.length > 0} />
+        </Card>
+      )}
+
+      {canManage && (
+        <div className="mx-auto mt-6 max-w-md">
+          <CharacterForm
+            action={boundUpdate}
+            character={character}
+            mainCandidates={mainCandidates.map((m) => ({ ...m, ownerUsername: m.ownerUsername ?? "(no username)" }))}
+            submitLabel="Save Changes"
+          />
+        </div>
+      )}
     </div>
   );
 }

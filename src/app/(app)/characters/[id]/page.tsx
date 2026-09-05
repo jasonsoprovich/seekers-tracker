@@ -1,12 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 
 import { CharacterHeader } from "@/components/character/CharacterHeader";
-import { ClaimThisCharacterButton } from "@/components/characters/ClaimThisCharacterButton";
 import { PopFlagChecklist } from "@/components/PopFlagChecklist";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Card } from "@/components/ui/Card";
-import { characterClaims, characterPopFlags, characters, users } from "@/db";
+import { characterPopFlags, characters, users } from "@/db";
 import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -30,21 +29,7 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
   const { character, ownerUsername, ownerRole } = row;
   const canManage = await canManageCharacter(character, session.user.id);
 
-  const [rows, existingClaim] = await Promise.all([
-    db.select().from(characterPopFlags).where(eq(characterPopFlags.characterId, characterId)),
-    character.ownerId === null
-      ? db
-          .select({ id: characterClaims.id })
-          .from(characterClaims)
-          .where(
-            and(
-              eq(characterClaims.characterId, characterId),
-              eq(characterClaims.requesterId, session.user.id),
-              eq(characterClaims.status, "pending"),
-            ),
-          )
-      : Promise.resolve([]),
-  ]);
+  const rows = await db.select().from(characterPopFlags).where(eq(characterPopFlags.characterId, characterId));
   const resolved = resolveFlags(rows.map((r) => ({ flagId: r.flagId, done: r.done, source: r.source })));
 
   return (
@@ -58,10 +43,13 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
       />
 
       {character.ownerId === null && (
-        <Card className="mt-4 px-4 py-3">
-          <p className="mb-2 text-sm text-neutral-300">This character hasn&apos;t been claimed yet.</p>
-          <ClaimThisCharacterButton characterId={character.id} alreadyPending={existingClaim.length > 0} />
-        </Card>
+        <p className="mt-4 text-sm text-neutral-500">
+          This character hasn&apos;t been claimed yet —{" "}
+          <a href={`/characters/${character.id}/edit`} className="text-emerald-400 hover:text-emerald-300">
+            claim it from Edit
+          </a>
+          .
+        </p>
       )}
 
       <Card className="mt-4 px-4 py-3">

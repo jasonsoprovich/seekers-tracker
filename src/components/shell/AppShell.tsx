@@ -32,13 +32,13 @@ export async function AppShell({
   }
 
   const allLinks: NavLinkDef[] = [
-    { href: "/characters", label: "Characters" },
+    { href: "/characters", label: "Your Characters" },
     { href: "/roster", label: "Roster" },
     { href: "/epgp/ledger", label: "EPGP Ledger" },
     { href: "/epgp/raids", label: "Raids & Events" },
+    { href: "/epgp/info", label: "Cycle & Rules Info" },
     { href: "/bank", label: "Bank" },
     { href: "/progression", label: "Pop Progression" },
-    { href: "/keys", label: "Keys & Sky Bank" },
     { href: "/live-bids", label: "Live Bids" },
     { href: "/dashboard", label: "Dashboard" },
     { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, roles: ["officer", "leader", "admin"] },

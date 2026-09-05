@@ -660,6 +660,16 @@ async function main() {
 
   if (wipe) {
     out.push("-- --mode reset: clear EPGP tables (characters/site accounts are untouched)");
+    // bids.loot_event_id -> loot_events.id AND loot_events.winning_bid_id
+    // -> bids.id is a genuine FK cycle (a loot event points at its winning
+    // bid; a bid points at its parent loot event) — neither DELETE order
+    // alone satisfies both directions. Null the back-reference first to
+    // break the cycle, then delete children-before-parent as usual. Never
+    // triggered until a DB actually had real bids/loot_events rows to
+    // begin with (Phase 12+ live-bid submissions) and then got a --mode
+    // reset run against it — caught 2026-09-05 re-importing over a
+    // snapshot that did.
+    out.push("UPDATE loot_events SET winning_bid_id = NULL;");
     out.push("DELETE FROM bids;");
     out.push("DELETE FROM loot_events;");
     out.push("DELETE FROM gp_ledger;");
