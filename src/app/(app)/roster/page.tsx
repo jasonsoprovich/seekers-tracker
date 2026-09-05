@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
+import { getCharacterLastActivitySince } from "@/lib/epgp/character-activity";
 import { getStandings } from "@/lib/epgp/standings";
 import { getSession } from "@/lib/session";
 
@@ -26,7 +27,7 @@ export default async function RosterPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [rows, totals] = await Promise.all([
+  const [rows, totals, characterActivity] = await Promise.all([
     db
       .select({
         id: characters.id,
@@ -45,11 +46,12 @@ export default async function RosterPage() {
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
       .orderBy(characters.name),
-    // Materialized standings — one ~255-row scan, always current. Carries
-    // `lastActivityAt` (most recent EP/GP entry for the player's whole
-    // group) so this page no longer runs its own two max() scans over the
-    // full ledgers on every request.
+    // Materialized standings — one ~255-row scan, always current. EP/GP/
+    // priority still come from here (genuinely per-player). `lastActivityAt`
+    // does NOT — see character-activity.ts for why the "Recently active"
+    // filter needs the per-character value instead.
     getStandings(db),
+    getCharacterLastActivitySince(db, new Date(Date.now() - 365 * 86_400_000)),
   ]);
 
   // Every character sharing a player (main, alt, mule) reads the same
@@ -77,8 +79,9 @@ export default async function RosterPage() {
       epDecay: total?.epDecay ?? null,
       gpDecay: total?.gpDecay ?? null,
       priorityRating: total?.priorityRating ?? null,
-      // The client works in ms.
-      lastActivityAt: total?.lastActivityAt ? total.lastActivityAt.getTime() : null,
+      // Per-character, not the player-level total's lastActivityAt — see
+      // character-activity.ts. The client works in ms.
+      lastActivityAt: characterActivity.get(r.id)?.getTime() ?? null,
     };
   });
 
