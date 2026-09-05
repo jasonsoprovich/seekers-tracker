@@ -320,6 +320,93 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-requested batch 5 — pre-Monday fixes + new pages, 2026-09-05
+(local D1, migrations 0029/0030 LOCAL ONLY — needs the standard remote
+rollout, see the pending-remote-deploy checklist).** Driven by two full
+raid simulations against local D1 (attendance start/mid/end with people
+joining and leaving between captures, two officers bidding concurrently,
+verified EP/GP/priority before-and-after per character) plus a live
+leader review pass. Six commits, one per theme below; `npm run verify`
+13/13 throughout.
+
+- **Admin "view as role" preview** — an admin can preview the site as
+  member/officer/leader from `/admin`'s "Preview as another role" section,
+  with a banner (`ViewAsBanner`) on every page while active and a one-click
+  way back. `authz.ts`'s `getUserRole()` — the single choke point every
+  `canManage*()` check and ~30 call sites already run through, always with
+  the *acting* user's own id — is cookie-aware: only ever narrows an
+  admin's own effective role for the request, never widens anyone else's.
+  `getRealUserRole()` (the old un-overridden body) backs entry/exit so a
+  preview can't lock an admin out of exiting.
+- **Admin could not actually be promoted** — `setUserRole`'s "can't demote
+  the only leader" guard checked `role !== "leader"` literally, so
+  promoting the sole leader to admin tripped it as a false demotion. The
+  same narrow `role === "leader"` check was independently duplicated in
+  `hasAnyLeader()`, `bootstrap-leader/page.tsx`, and `claimLeaderRole()` —
+  meaning an admin-only guild would wrongly look leaderless and reopen the
+  self-claim flow to anyone. All four now share `LEADERSHIP_ROLES`
+  (`leader | admin`).
+- **Raids grouped by UTC, not guild-local time** — a raid straddling UTC
+  midnight (any Eastern evening, depending on start time and DST) split
+  across two rows on `/epgp/raids`. New `guild-timezone.ts`
+  (`GUILD_TIMEZONE = "America/New_York"`) buckets in JS instead of SQL's
+  UTC-only `strftime`, DST-aware by scanning plausible offsets rather than
+  a transition-rule table. The raid detail page's per-member figure also
+  changed from standing priority (says nothing about that night) to the
+  actual EP that capture awarded.
+- **Live-bids dismiss was global** — one member's Dismiss removed a
+  resolved round from the shared board for everyone. Now client-side only
+  (localStorage), pruned to whatever's still resolved.
+- **Live-bids resolved rounds could still silently disappear** — they're
+  documented to never expire until dismissed, but lived only in a plain
+  in-memory `Map` on `LiveAuctionSession`, which Hibernatable WebSockets
+  can evict independent of any dismiss. Resolved rounds (only) now persist
+  via `ctx.storage` and rehydrate on wake.
+- **EP/GP Ledger tables were missing their Notes column** despite the
+  field already being stored and populated.
+- **Roster/Dashboard "recently active" counts didn't match what was on
+  screen** — both read `player_epgp_totals.lastActivityAt`, which every
+  alt/mule inherits from its main, inflating "98 active in 24h" well past
+  what was actually visible. New `character-activity.ts` computes
+  per-CHARACTER last ledger activity (bounded/indexed, not an unfiltered
+  scan) for both pages instead.
+- **Dashboard rebuilt**: one sticky filter (Include alts + a time window
+  that now has "All time") drives a combined Characters/Mains/Alts card, a
+  Roster-by-Class chart, and a by-class member list (`RosterOverview`) —
+  replacing three separate/duplicated toggles, one of which (Active-only /
+  Include-inactive+removed) was broken and is gone rather than fixed for
+  now. Roster-by-level and PoP-by-class cards removed. New
+  `GuildLeadership` card lists current leader/admin/officer main
+  characters.
+- **New "Totals" tab** on EPGP Ledger (`getTotalsRows`): one row per
+  player — main name, last activity, EP/GP, EP/GP decay, priority —
+  mirroring the guild sheet's own Totals tab.
+- **New `/epgp/info` "Cycle & Rules Info" page**: live cycle dates/EP
+  cap/decay/point-values read straight from `epgp_settings`/`cycles`/
+  `epgp_point_values` (never duplicated), plus officer+-editable prose
+  sections (new `epgp_info_sections` table, migration 0029) for the rules
+  those numbers alone don't explain. Read-only for members. New
+  `cycles.ts` extracts "current cycle" resolution out of `totals.ts` as a
+  shared helper so both agree on what "now" means.
+- **New `/profile` page**: a per-viewer display-timezone preference
+  (migration 0030, `users.timezone`) — only reformats what a viewer sees;
+  shared facts like raid-night grouping always stay guild-local Eastern.
+- **Character claim moved from PoP Checklist to the Edit tab** — Edit's
+  access gate used to redirect a non-owner away before they could even see
+  the claim prompt for an unclaimed character; relaxed to let an unclaimed
+  character through that far.
+- **Admin's role-management section was unreachable** — "Members & Roles"
+  sat below the (up to 790-row) "All Characters" list; reordered above it.
+- Nav: "Characters" → "Your Characters"; removed "Keys & Sky Bank" (Sky
+  Bank already lives on `/bank`; the key-flags half is dropped for now,
+  not migrated).
+- **Found via the simulation, not requested**: `import-epgp.ts`'s
+  `--mode reset` deleted `bids` before `loot_events`, but the two have a
+  genuine circular FK (a loot event points at its winning bid; a bid
+  points at its parent loot event) — only surfaces once a database
+  actually has real bid rows before a reset runs. Fixed by nulling the
+  back-reference first.
+
 **Leader-requested batch 4 (item 6) — Raids & Events view, 2026-09-04
 (migration 0028, LOCAL ONLY).** A raid isn't a stored entity —
 `src/lib/epgp/raids.ts` derives one per UTC calendar date by grouping
