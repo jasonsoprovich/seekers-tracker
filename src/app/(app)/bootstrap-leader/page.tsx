@@ -1,23 +1,23 @@
-import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { ClaimLeaderButton } from "@/components/ClaimLeaderButton";
-import { users } from "@/db";
-import { getDb } from "@/lib/db";
+import { hasAnyLeader } from "@/lib/authz";
 import { getSession } from "@/lib/session";
 
 export default async function BootstrapLeaderPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const db = await getDb();
-  const [existingLeader] = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
-
-  if (existingLeader) {
+  // hasAnyLeader() treats leader and admin as equivalent leadership — see
+  // its own comment. Using the same check here (rather than this page's
+  // former standalone role='leader' query) closes the gap where a guild
+  // whose only privileged account had been promoted to admin would show
+  // this self-claim flow to anyone.
+  if (await hasAnyLeader()) {
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center gap-2 py-16 text-center">
         <h1 className="text-xl font-bold">A leader already exists</h1>
-        <p className="text-neutral-400">Ask an existing leader to promote you from the Admin panel.</p>
+        <p className="text-neutral-400">Ask an existing leader or admin to promote you from the Admin panel.</p>
       </div>
     );
   }

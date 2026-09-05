@@ -4,11 +4,19 @@ import { redirect } from "next/navigation";
 
 import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/AdminCharacterList";
 import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
+import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, players, users } from "@/db";
-import { canManageAnyCharacter, canManageEpgp, canManageEpgpConfig, canManageRoles, getUserRole } from "@/lib/authz";
+import {
+  canManageAnyCharacter,
+  canManageEpgp,
+  canManageEpgpConfig,
+  canManageRoles,
+  getRealUserRole,
+  getUserRole,
+} from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -20,6 +28,11 @@ export default async function AdminPage() {
 
   const role = await getUserRole(session.user.id);
   if (!canManageAnyCharacter(role)) redirect("/characters");
+
+  // Real (non-preview) role, so the "Preview as" controls stay reachable
+  // regardless of which role an admin currently has previewed, but never
+  // show to a real officer/leader.
+  const realRole = await getRealUserRole(session.user.id);
 
   const db = await getDb();
 
@@ -157,30 +170,16 @@ export default async function AdminPage() {
         }
       />
 
-      <section>
-        <h2 className="text-lg font-semibold">All Characters</h2>
-        <p className="mt-1 text-sm text-neutral-400">
-          As {role}, you can view and edit any member&apos;s character. Edit a character to change its
-          main/alt status or link an alt to its main.
-          {canEditRoles && " A main character's row also has a role picker, to promote/demote its owner."}
-        </p>
-        {unresolvedClassCount > 0 && (
-          <p className="mt-2 text-sm text-amber-400">
-            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} have an unresolved class — editable per-character
-            below.
-          </p>
-        )}
-        {roster.length === 0 ? (
-          <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
-        ) : (
-          <div className="mt-4">
-            <AdminCharacterList rows={rows} canEditRoles={canEditRoles} selfUserId={session.user.id} />
-          </div>
-        )}
-      </section>
+      {realRole === "admin" && <ViewAsControls />}
 
+      {/* Members & Roles and Player Main Characters come first, ABOVE All
+          Characters — that list can run into the hundreds/thousands of rows
+          (790 here) and used to bury the one control leaders/admins most
+          need (promoting/demoting someone) below all of it (leader,
+          2026-09-05: "i dont see how guild leader or admin can adjust the
+          officer status"). It wasn't missing, just unreachable. */}
       {canEditRoles && (
-        <section className="mt-10">
+        <section>
           <h2 className="text-lg font-semibold">Members &amp; Roles</h2>
           <p className="mt-1 text-sm text-neutral-400">
             Promote or demote members, or remove someone from the guild (strips their role, blocks all
@@ -235,6 +234,28 @@ export default async function AdminPage() {
           )}
         </section>
       )}
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">All Characters</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          As {role}, you can view and edit any member&apos;s character. Edit a character to change its
+          main/alt status or link an alt to its main.
+          {canEditRoles && " A main character's row also has a role picker, to promote/demote its owner."}
+        </p>
+        {unresolvedClassCount > 0 && (
+          <p className="mt-2 text-sm text-amber-400">
+            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} have an unresolved class — editable per-character
+            below.
+          </p>
+        )}
+        {roster.length === 0 ? (
+          <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
+        ) : (
+          <div className="mt-4">
+            <AdminCharacterList rows={rows} canEditRoles={canEditRoles} selfUserId={session.user.id} />
+          </div>
+        )}
+      </section>
     </div>
   );
 }

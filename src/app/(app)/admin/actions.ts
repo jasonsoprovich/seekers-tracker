@@ -1,10 +1,10 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characters, players, users } from "@/db";
-import { canManageRoles, getUserRole, type Role } from "@/lib/authz";
+import { canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { swapMainCharacter, type SwapMainResult } from "@/lib/players";
@@ -37,14 +37,20 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
 
   const db = await getDb();
 
-  // Guard against locking the guild out of the admin panel: a leader
-  // stepping down (self or otherwise) must leave at least one leader.
-  if (role !== "leader") {
+  // Guard against locking the guild out of the admin panel: stepping down
+  // out of leadership tier (self or otherwise) must leave at least one
+  // leader/admin behind. admin outranks leader (2026-09-05) and is an
+  // equally valid successor — LEADERSHIP_ROLES is the shared definition,
+  // so promoting the sole leader to admin is a lateral move within
+  // leadership tier and never trips this, only a drop to member/officer
+  // does. This used to check `role !== "leader"` literally, which wrongly
+  // treated leader->admin as the demotion it's actually guarding against.
+  if (!canManageRoles(role as Role)) {
     const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-    if (target?.role === "leader") {
-      const leaders = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
+    if (target && LEADERSHIP_ROLES.includes(target.role as Role)) {
+      const leaders = await db.select({ id: users.id }).from(users).where(inArray(users.role, LEADERSHIP_ROLES));
       if (leaders.length <= 1) {
-        return { error: "Can't demote the only leader — promote someone else first." };
+        return { error: "Can't demote the only leader/admin — promote someone else first." };
       }
     }
   }

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 
 import { createAuth } from "@/auth";
 import { accounts, users } from "@/db";
+import { hasAnyLeader } from "@/lib/authz";
 import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -68,9 +69,12 @@ export async function claimLeaderRole(): Promise<ClaimLeaderResult> {
     return { error: "You must be a verified Seekers of Souls Discord member first." };
   }
 
-  const [existingLeader] = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
-  if (existingLeader) {
-    return { error: "The guild already has a leader — ask them to promote you from Admin." };
+  // hasAnyLeader() treats leader and admin as equivalent leadership (see
+  // its own comment in lib/authz.ts) — this used to check role='leader'
+  // alone, so a guild whose only privileged account had been promoted to
+  // admin would wrongly look leaderless and let anyone self-claim here.
+  if (await hasAnyLeader()) {
+    return { error: "The guild already has a leader or admin — ask them to promote you from Admin." };
   }
 
   await db.update(users).set({ role: "leader", updatedAt: new Date() }).where(eq(users.id, session.user.id));

@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/shell/AppShell";
+import { ViewAsBanner } from "@/components/shell/ViewAsBanner";
 import { players, users } from "@/db";
+import { getViewAsRole } from "@/lib/authz";
 import { isMemberAllowed } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -39,9 +41,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect("/access-denied");
   }
 
+  // Admin "view as" preview (admin/view-as-actions.ts): only ever set when
+  // the real DB role is admin (getUserRole() enforces the same gate for
+  // every canManage*() check), so effectiveRole only ever narrows, never
+  // widens, what this session can do.
+  const realRole = me?.role ?? null;
+  const viewAsRole = realRole === "admin" ? await getViewAsRole() : null;
+  const effectiveRole = viewAsRole ?? realRole;
+
   return (
-    <AppShell username={me?.username ?? "Member"} avatarUrl={me?.avatarUrl ?? null} role={me?.role ?? null}>
-      {children}
-    </AppShell>
+    <>
+      {viewAsRole && <ViewAsBanner role={viewAsRole} />}
+      <AppShell username={me?.username ?? "Member"} avatarUrl={me?.avatarUrl ?? null} role={effectiveRole}>
+        {children}
+      </AppShell>
+    </>
   );
 }
