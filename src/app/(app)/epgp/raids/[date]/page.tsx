@@ -1,15 +1,29 @@
+import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
+import { users } from "@/db";
 import { getDb } from "@/lib/db";
 import { getRaidDetail } from "@/lib/epgp/raids";
+import { GUILD_TIMEZONE } from "@/lib/guild-timezone";
 import { getSession } from "@/lib/session";
 
-function timeUTC(d: Date): string {
-  return d.toISOString().slice(11, 16) + " UTC";
+// The page groups by guild-local (Eastern) calendar date (raids.ts) —
+// showing UTC times right next to that date read as a mismatch (e.g. a
+// "00:01 UTC" entry under a raid dated the evening before). Times are
+// formatted in the *viewer's* own timezone preference if they've set one
+// (profile page, users.timezone), else the guild default — the grouping
+// itself always stays guild-wide regardless (see schema.ts's comment).
+function localTimeFormatterFor(timeZone: string) {
+  const timeFormatter = new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", minute: "2-digit" });
+  const tzAbbrevFormatter = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "short" });
+  return (d: Date): string => {
+    const tz = tzAbbrevFormatter.formatToParts(d).find((p) => p.type === "timeZoneName")?.value ?? timeZone;
+    return `${timeFormatter.format(d)} ${tz}`;
+  };
 }
 
 export default async function RaidDetailPage({ params }: { params: Promise<{ date: string }> }) {
@@ -18,10 +32,14 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
 
   const { date } = await params;
   const db = await getDb();
-  const detail = await getRaidDetail(db, date);
+  const [detail, [me]] = await Promise.all([
+    getRaidDetail(db, date),
+    db.select({ timezone: users.timezone }).from(users).where(eq(users.id, session.user.id)),
+  ]);
   if (!detail) notFound();
 
   const canManage = canManageEpgp(await getUserRole(session.user.id));
+  const timeLocal = localTimeFormatterFor(me?.timezone || GUILD_TIMEZONE);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -64,7 +82,7 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-3 py-2 text-sm">
                 <span className="font-medium">{c.activity}</span>
                 <span className="text-neutral-500">
-                  {timeUTC(c.occurredAt)}
+                  {timeLocal(c.occurredAt)}
                   {c.zone ? ` · ${c.zone}` : ""} · {c.members.length} member{c.members.length === 1 ? "" : "s"}
                 </span>
               </div>
@@ -72,7 +90,10 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
                 {c.members.map((m, j) => (
                   <span key={j} className="text-neutral-300">
                     {m.name}
-                    {m.priority !== null && <span className="ml-1 font-mono text-xs text-emerald-400/80">{m.priority.toFixed(4)}</span>}
+                    <span className={`ml-1 font-mono text-xs ${m.ep >= 0 ? "text-emerald-400/80" : "text-red-400/80"}`}>
+                      {m.ep >= 0 ? "+" : ""}
+                      {m.ep} EP
+                    </span>
                   </span>
                 ))}
               </div>
@@ -104,7 +125,7 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
                   <td className="px-3 py-2">{l.winnerName ?? <span className="text-neutral-600">—</span>}</td>
                   <td className="px-3 py-2 text-neutral-400">{l.tier ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{l.gp !== null ? Math.round(l.gp) : "—"}</td>
-                  <td className="px-3 py-2 tabular-nums text-neutral-400">{timeUTC(l.occurredAt)}</td>
+                  <td className="px-3 py-2 tabular-nums text-neutral-400">{timeLocal(l.occurredAt)}</td>
                   <td className="px-3 py-2 text-neutral-500">{l.note ?? ""}</td>
                 </tr>
               ))}

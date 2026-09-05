@@ -7,9 +7,10 @@ import { listRaids } from "@/lib/epgp/raids";
 import { getSession } from "@/lib/session";
 
 // Every raid night, newest first — derived by grouping parse-sourced
-// attendance + loot by UTC date (src/lib/epgp/raids.ts). Read-only for
-// everyone; officers name a night on its detail page. Visible to every
-// role, same as the rest of /epgp.
+// attendance + loot by guild-local (Eastern) date (src/lib/epgp/raids.ts,
+// src/lib/guild-timezone.ts). Read-only for everyone; officers name a
+// night on its detail page. Visible to every role, same as the rest of
+// /epgp.
 export default async function RaidsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
