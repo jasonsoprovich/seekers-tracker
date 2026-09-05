@@ -14,7 +14,7 @@ export default async function LiveBidsPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Live Bids"
-        subtitle="Every officer's round at once, filling in as tells arrive. A finalized round stays on the board with its winner — expand it to see every bid — until someone dismisses it."
+        subtitle="Every officer's round at once, filling in as tells arrive. A finalized round stays on the board with its winner — expand it to see every bid. Dismissing a card only hides it for you; everyone else watching keeps seeing it until they dismiss it too (or it ages off after 20 minutes)."
       />
       <LiveBidsView />
     </div>

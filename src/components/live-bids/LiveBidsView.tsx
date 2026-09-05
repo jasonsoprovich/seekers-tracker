@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Mirrors BidsPanel.tsx's own tier ordering (seekers-epgp-parser) — the
 // live view should rank bids the same way the officer's "Determine
@@ -38,6 +38,37 @@ type RoundView = {
 type ServerMessage = { type: "state"; rounds: RoundView[] };
 
 type ConnectionStatus = "connecting" | "open" | "closed";
+
+// Dismiss is per-viewer (leader, 2026-09-05: one member closing a resolved
+// card must not close it for everyone else watching). The board itself
+// (the Durable Object) has no per-viewer concept, so "dismissed" lives
+// entirely in this browser's localStorage, keyed by item name, and only
+// ever hides a *currently resolved* round from this render — it's never
+// sent to the server. A round naturally reappears if the same item name
+// goes live again later (a fresh round object, no longer "resolved"), and
+// dismissed keys are pruned to whatever's still actually resolved so this
+// doesn't grow unbounded over a long session.
+const DISMISSED_STORAGE_KEY = "seekers.liveBids.dismissedItems";
+
+function loadDismissed(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? new Set(parsed.filter((v): v is string => typeof v === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissed(keys: Set<string>) {
+  try {
+    window.localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...keys]));
+  } catch {
+    // best-effort — a private window or full storage just means dismiss
+    // doesn't persist across reloads for this viewer, nothing breaks
+  }
+}
 
 function wsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -82,7 +113,8 @@ export function LiveBidsView() {
   const [rounds, setRounds] = useState<RoundView[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
-  const [dismissing, setDismissing] = useState<Record<string, boolean>>({});
+  // Lazy initializer so this reads localStorage once, client-side only.
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(loadDismissed);
   // Resolved cards render collapsed (winner line only) until the viewer
   // opens them — the point of the board is watching what's live, not
   // re-reading finished rounds. Collecting cards are always expanded.
@@ -173,35 +205,43 @@ export function LiveBidsView() {
     }
   }
 
-  async function onDismiss(itemName: string) {
-    setDismissing((d) => ({ ...d, [itemName]: true }));
-    try {
-      await fetch("/api/live-bids/dismiss", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemName }),
-      });
-      // The DO broadcasts the new state; drop it locally too so the card
-      // goes immediately even if the socket is mid-reconnect.
-      setRounds((rs) => rs.filter((r) => r.itemName !== itemName));
-    } catch {
-      // leave it; the sweep timer will get it eventually
-    } finally {
-      setDismissing((d) => {
-        const next = { ...d };
-        delete next[itemName];
-        return next;
-      });
-    }
+  // Purely local — hides this resolved card from this browser only. Never
+  // touches the server, so nobody else's board is affected.
+  function onDismiss(itemName: string) {
+    setDismissedKeys((prev) => {
+      const next = new Set(prev);
+      next.add(itemName);
+      saveDismissed(next);
+      return next;
+    });
   }
 
-  const liveCount = rounds.filter((r) => r.status === "live").length;
-  const resolvedCount = rounds.filter((r) => r.status === "resolved").length;
+  // Drop any dismissed key that's no longer a currently-resolved round —
+  // either the server swept it, or it went live again under the same item
+  // name — so a re-announced item isn't hidden forever and the stored set
+  // doesn't grow across a long session.
+  useEffect(() => {
+    setDismissedKeys((prev) => {
+      if (prev.size === 0) return prev;
+      const stillResolved = new Set(rounds.filter((r) => r.status === "resolved").map((r) => r.itemName));
+      const next = new Set([...prev].filter((k) => stillResolved.has(k)));
+      if (next.size !== prev.size) saveDismissed(next);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rounds]);
+
+  const visibleRounds = useMemo(
+    () => rounds.filter((r) => r.status !== "resolved" || !dismissedKeys.has(r.itemName)),
+    [rounds, dismissedKeys],
+  );
+
+  const liveCount = visibleRounds.filter((r) => r.status === "live").length;
+  const resolvedCount = visibleRounds.filter((r) => r.status === "resolved").length;
 
   let pill: { text: string; cls: string };
   if (connection !== "open") {
     pill = { text: connection === "connecting" ? "Connecting…" : "Reconnecting…", cls: "bg-amber-500/15 text-amber-400" };
-  } else if (rounds.length === 0) {
+  } else if (visibleRounds.length === 0) {
     pill = { text: "No live rounds", cls: "bg-neutral-700/40 text-neutral-400" };
   } else {
     const parts: string[] = [];
@@ -228,13 +268,13 @@ export function LiveBidsView() {
         </button>
       </div>
 
-      {rounds.length === 0 ? (
+      {visibleRounds.length === 0 ? (
         <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
           No live bid rounds right now — this fills in the moment an officer starts collecting tells.
         </div>
       ) : (
         <div className="grid justify-start gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 480px))" }}>
-          {rounds.map((round) => {
+          {visibleRounds.map((round) => {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";
             const winnerNames = new Set(round.winners.map((w) => w.characterName.toLowerCase()));
@@ -272,10 +312,10 @@ export function LiveBidsView() {
                       <button
                         type="button"
                         onClick={() => onDismiss(round.itemName)}
-                        disabled={dismissing[round.itemName]}
-                        className="rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60 disabled:opacity-60"
+                        title="Hides this card for you only — everyone else watching keeps seeing it"
+                        className="rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60"
                       >
-                        {dismissing[round.itemName] ? "…" : "Dismiss"}
+                        Dismiss
                       </button>
                     </div>
                   )}

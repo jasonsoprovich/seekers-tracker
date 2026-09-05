@@ -27,9 +27,9 @@ export function LedgerTable(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "" });
 
-  // EP: Date, Character, Activity, Zone, Points, Source, Recorded by.
-  // GP: Date, Character, Item, Bid, Points, Source, Recorded by.
-  const baseCols = 7;
+  // EP: Date, Character, Activity, Zone, Points, Source, Recorded by, Note.
+  // GP: Date, Character, Item, Bid, Points, Source, Recorded by, Note.
+  const baseCols = 8;
   const totalCols = props.canManage ? baseCols + 1 : baseCols;
 
   function startEdit(row: EpRow | GpRow) {
@@ -107,7 +107,7 @@ export function LedgerTable(props: Props) {
     <>
       {error && <p className="mb-2 text-sm text-red-400">{error}</p>}
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[900px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
               <th className="px-3 py-2 font-medium">Date</th>
@@ -126,6 +126,7 @@ export function LedgerTable(props: Props) {
               <th className="px-3 py-2 font-medium">Points</th>
               <th className="px-3 py-2 font-medium">Source</th>
               <th className="px-3 py-2 font-medium">Recorded by</th>
+              <th className="px-3 py-2 font-medium">Note</th>
               {props.canManage && <th className="px-3 py-2 font-medium">Actions</th>}
             </tr>
           </thead>
@@ -194,6 +195,14 @@ export function LedgerTable(props: Props) {
                       <td className="px-3 py-2 text-neutral-500">{r.source}</td>
                       <td className="px-3 py-2 text-neutral-500">{r.enteredByName ?? "—"}</td>
                       <td className="px-3 py-2">
+                        <input
+                          value={draft.note}
+                          onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
+                          className={`${fieldClasses({ size: "sm" })} min-w-[10rem]`}
+                          placeholder="Note"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -227,6 +236,9 @@ export function LedgerTable(props: Props) {
                       <td className={`px-3 py-2 font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>{r.points}</td>
                       <td className="px-3 py-2 text-neutral-500">{r.source}</td>
                       <td className="px-3 py-2 text-neutral-500">{r.enteredByName ?? "—"}</td>
+                      <td className="max-w-[16rem] truncate px-3 py-2 text-neutral-500" title={r.note ?? undefined}>
+                        {r.note || "—"}
+                      </td>
                       {props.canManage && (
                         <td className="px-3 py-2">
                           <div className="flex gap-2">

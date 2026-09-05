@@ -81,9 +81,15 @@ async function handleLiveBidsState(request: Request, env: CloudflareEnv): Promis
   return new Response(await resp.text(), { headers: { "Content-Type": "application/json" } });
 }
 
-// POST /api/live-bids/dismiss — every member (same bar as /state). Phase 16:
-// lets a viewer clear a resolved round's card off the dashboard once
-// everyone's seen the winner.
+// POST /api/live-bids/dismiss — every member (same bar as /state). Removes
+// a resolved round from the shared board for EVERY viewer, not just the
+// caller — that's exactly the "one person closes it, it's gone for
+// everyone" behavior the leader flagged (2026-09-05). The member-facing
+// Dismiss button (LiveBidsView.tsx) no longer calls this — it hides a
+// resolved card locally (localStorage), per-viewer, and never touches the
+// server. This endpoint is kept as a manual, shared "force clear" escape
+// hatch (e.g. an officer clearing a stuck card for everyone via a direct
+// call) — nothing in the UI wires it up as of this comment.
 async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Promise<Response> {
   const auth = createAuth(env, cfOf(request));
   const session = await auth.api.getSession({ headers: request.headers });

@@ -116,12 +116,41 @@ function key(itemName: string): string {
   return itemName.trim().toLowerCase();
 }
 
+// ctx.storage key prefix for a persisted resolved round — see the
+// constructor's comment for why only resolved rounds get this.
+const RESOLVED_STORAGE_PREFIX = "resolved:";
+
 export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   private rounds = new Map<string, Round>();
   // The alarm time currently scheduled, so markSeen can skip re-arming for
   // small forward moves. Resets to null on DO eviction — the next markSeen
   // just re-arms once, which is fine.
   private alarmAt: number | null = null;
+
+  constructor(ctx: DurableObjectState, env: CloudflareEnv) {
+    super(ctx, env);
+    // Collecting rounds are deliberately never persisted (see the class
+    // comment) — losing one on eviction is fine, bounded, and cheap to
+    // rebuild from the next push. A RESOLVED round is a different promise:
+    // Phase 16 explicitly says it "never times out... stays on the board
+    // until a member dismisses it" — but a plain class-field Map does not
+    // survive this Durable Object being evicted from memory, which the
+    // Hibernatable WebSockets API this class uses (`ctx.acceptWebSocket`)
+    // allows even while a viewer's socket stays connected, independent of
+    // any dismiss/clear action. That silently broke the "never times out"
+    // promise (leader, 2026-09-05: "live bids still seem to disappear
+    // without me clearing anything") — every collecting round is cheap and
+    // hot-path-frequent (a push every few seconds per officer) so those
+    // still skip storage, but a resolve is a single, infrequent write, and
+    // hydrating on construction is what makes the "until dismissed"
+    // guarantee actually hold across an eviction.
+    ctx.blockConcurrencyWhile(async () => {
+      const stored = await ctx.storage.list<Round>({ prefix: RESOLVED_STORAGE_PREFIX });
+      for (const [storageKey, round] of stored) {
+        this.rounds.set(storageKey.slice(RESOLVED_STORAGE_PREFIX.length), round);
+      }
+    });
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -187,6 +216,10 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
           round.bids = [];
           round.winners = [];
           round.startedAt = now;
+          // No longer resolved — drop its persisted copy too, or it would
+          // reappear (stale) after a future eviction even once this fresh
+          // round finishes collecting and gets its own resolve+persist.
+          await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + k);
         }
         round.state = "collecting";
         round.resolvedAt = 0;
@@ -309,6 +342,10 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       round.lastSeenAt = now;
       if (typeof officerName === "string" && officerName) round.officerName = officerName;
       if (typeof officerId === "string" && officerId) round.officerId = officerId;
+      // Persist so this survives a DO eviction — see the constructor's
+      // comment. One write per resolve (rare — once per finalized item),
+      // never on the push/heartbeat hot path.
+      await this.ctx.storage.put(RESOLVED_STORAGE_PREFIX + k, round);
       this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
@@ -324,6 +361,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       const { itemName } = body as DismissBody;
       if (typeof itemName === "string" && itemName.trim()) {
         this.rounds.delete(key(itemName));
+        await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + key(itemName));
       }
       if (this.rounds.size === 0) {
         this.alarmAt = null;
@@ -343,8 +381,11 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       const { itemName } = body as ClearBody;
       if (typeof itemName === "string" && itemName.trim()) {
         this.rounds.delete(key(itemName)); // one round cancelled/discarded
+        await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + key(itemName));
       } else {
         this.rounds.clear(); // officer app quit — drop all their rounds' worth
+        const stored = await this.ctx.storage.list({ prefix: RESOLVED_STORAGE_PREFIX });
+        await this.ctx.storage.delete([...stored.keys()]);
       }
       if (this.rounds.size === 0) {
         this.alarmAt = null;
