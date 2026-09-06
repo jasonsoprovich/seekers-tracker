@@ -50,7 +50,13 @@ one, check whether a change needs a matching change in another.
   Worker (see below)
 - Tailwind for styling
 
-Custom domain: `seekers.fetchinglogic.com`. Worker name: `seekers-tracker`.
+Custom domain: **`seekersofsouls.com`** (apex, canonical — the guild's live
+domain). `www.seekersofsouls.com` and the old `seekers.fetchinglogic.com`
+both still resolve but 301/308-redirect to the apex (`canonicalRedirect` in
+`custom-worker.ts`); the app, its cookies, and the Discord OAuth callback
+only ever run on the apex. `BETTER_AUTH_URL` (prod secret) pins the auth
+base URL / Discord `redirect_uri` to `https://seekersofsouls.com`. Worker
+name: `seekers-tracker`.
 
 ## Commands
 

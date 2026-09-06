@@ -54,6 +54,20 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
 
   return betterAuth({
     baseURL,
+    // Origins allowed to POST to the auth handler and to be used as an
+    // OAuth callback origin. In production the app is served only from
+    // seekersofsouls.com (www + the old seekers.fetchinglogic.com host
+    // 301/308 to it in custom-worker.ts), but a stale bookmark can still
+    // land a sign-in POST on one of those hosts before the redirect, and
+    // BETTER_AUTH_URL pins the Discord redirect_uri to the canonical host
+    // regardless. localhost covers `npm run preview` / `next dev`.
+    trustedOrigins: [
+      "https://seekersofsouls.com",
+      "https://www.seekersofsouls.com",
+      "https://seekers.fetchinglogic.com",
+      "http://localhost:8787",
+      "http://localhost:3000",
+    ],
     ...withCloudflare(
       {
         d1: db ? { db, options: { usePlural: true } } : undefined,

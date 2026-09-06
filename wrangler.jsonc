@@ -16,10 +16,17 @@
 	"compatibility_flags": [
 		"global_fetch_strictly_public"
 	],
-	// Placeholder guild subdomain until the guild has its own domain. Requires
-	// fetchinglogic.com to already be an active zone on this Cloudflare
-	// account — Wrangler provisions the DNS record and cert on deploy.
+	// seekersofsouls.com (apex) is the guild's live domain and the canonical
+	// host — see custom-worker.ts, which 301/308s the other two here so the
+	// app only ever runs on one origin. www.seekersofsouls.com and the old
+	// placeholder seekers.fetchinglogic.com are kept as redirecting backups.
+	// Each zone must already be active on this Cloudflare account (all three
+	// are — seekersofsouls.com via Cloudflare Registrar, fetchinglogic.com
+	// pre-existing); Wrangler provisions the DNS record + edge cert per
+	// custom_domain on deploy.
 	"routes": [
+		{ "pattern": "seekersofsouls.com", "custom_domain": true },
+		{ "pattern": "www.seekersofsouls.com", "custom_domain": true },
 		{ "pattern": "seekers.fetchinglogic.com", "custom_domain": true }
 	],
 	"assets": {

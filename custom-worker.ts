@@ -269,6 +269,29 @@ function liveAuctionStub(env: CloudflareEnv) {
   return env.LIVE_AUCTION_SESSION.get(env.LIVE_AUCTION_SESSION.idFromName("global"));
 }
 
+// The guild's live domain. seekersofsouls.com (apex) is canonical; every
+// other hostname that routes to this Worker in production — www, plus the
+// old placeholder seekers.fetchinglogic.com host, kept alive only as a
+// redirecting backup — 301/308s here so there's exactly one origin the app,
+// its cookies, and the Discord OAuth callback ever run on. Anything not in
+// this set (the canonical host itself, *.workers.dev preview builds,
+// localhost dev) passes straight through.
+const CANONICAL_HOST = "seekersofsouls.com";
+const REDIRECT_HOSTS = new Set(["www.seekersofsouls.com", "seekers.fetchinglogic.com", "www.fetchinglogic.com"]);
+
+function canonicalRedirect(request: Request, url: URL): Response | null {
+  if (!REDIRECT_HOSTS.has(url.hostname)) return null;
+  const target = new URL(url.toString());
+  target.hostname = CANONICAL_HOST;
+  target.protocol = "https:";
+  target.port = "";
+  // 308 for non-idempotent methods so a POST (a login submit, an officer
+  // API call from a not-yet-updated parser) keeps its method, body, and
+  // headers across the hop instead of being downgraded to GET.
+  const status = request.method === "GET" || request.method === "HEAD" ? 301 : 308;
+  return new Response(null, { status, headers: { Location: target.toString() } });
+}
+
 async function resolveOfficerName(db: ReturnType<typeof drizzle>, userId: string): Promise<string> {
   const [row] = await db.select({ username: users.username }).from(users).where(eq(users.id, userId));
   return row?.username?.trim() || "An officer";
@@ -277,6 +300,9 @@ async function resolveOfficerName(db: ReturnType<typeof drizzle>, userId: string
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const redirect = canonicalRedirect(request, url);
+    if (redirect) return redirect;
 
     if (url.pathname === "/api/live-bids/ws") return handleLiveBidsWebSocket(request, env);
     if (url.pathname === "/api/live-bids/state" && request.method === "GET") return handleLiveBidsState(request, env);
