@@ -320,6 +320,62 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Production restore/undo tooling for the parallel-testing weeks, 2026-09-05
+(commit `2e8883c`, pushed to `main`; no migration — reuses existing tables.
+`tsc` + `npm run build` clean; `npm run recompute:standings` OK 255/255;
+`npm run verify` 13/13. `reverseRaid` verified against local D1 with a
+synthetic parsed raid behind a snapshot/restore — rows deleted, 3
+`ledger_audit_log` "delete" rows written, standings recomputed, an
+idempotent second call returns a clean error. Not browser-verified — no
+Chrome extension connected this session).** Prep for running the app
+alongside the Google Sheet on live Cloudflare (PLAN.md Phase 14):
+production needs to be re-syncable and undo-able each raid-test week
+without a full reseed. Three additions plus a runbook:
+
+- **Rebuild standings on remote.** `rebuildAllStandings(db)`
+  (`src/lib/epgp/standings.ts`) wraps the existing
+  `refreshStandings(db, { all: true })` and returns a player count. Exposed
+  two ways: a leader-only **"Rebuild standings"** button in a new
+  **Maintenance** section on `/epgp/settings` (`rebuildStandingsAction` in
+  that page's `actions.ts`, `RebuildStandingsButton.tsx`), and
+  `POST /api/officer/standings/rebuild` (`canManageEpgpConfig` — same bar
+  as `/api/officer/decay/*`). Why it's needed: a sheet-sync `.sql` applied
+  with `wrangler d1 execute --remote` writes ledger rows as plain INSERTs
+  that never run `refreshStandings`, so `/roster` and the officer read
+  paths show stale numbers until this runs. `npm run recompute:standings`
+  stays deliberately local-only (`getPlatformProxy`); this is its
+  in-Worker, remote-safe counterpart.
+- **Reverse a raid.** `reverseRaid(db, raidDate, reversedBy)`
+  (`src/lib/epgp/raids.ts`) — a "raid" is still not a stored row, so this
+  takes the guild-local day bounds (`guildDayBounds`) and deletes every
+  `source='parse'` `ep_ledger`/`gp_ledger` row in that window plus the
+  `loot_events` and `bids` there, writes a `recordLedgerChange` "delete"
+  entry per ledger row, and calls `refreshStandings({ all: true })` — the
+  same shape as `reverseDecayEvent`. The `raids` meta row (officer-set
+  name/note) is kept, like a reversed `decay_events` row. UI:
+  `reverseRaidAction` (`epgp/raids/actions.ts`, `canManageEpgpConfig` —
+  leader/admin, a step above the officer-level `updateRaidMeta` next to
+  it), `ReverseRaidButton.tsx`, rendered in a **Danger zone** block on
+  `/epgp/raids/[date]`. For discarding a test night without touching manual
+  entries or sheet-imported rows. Not one D1 transaction — same
+  parent-first, sequential-delete shape as the codebase's other bulk
+  writes; `loot_events.winning_bid_id` is nulled before the `bids` go.
+- **Remote restore points.** `scripts/remote-bookmark.sh`
+  (`npm run bookmark -- {mark|list|restore}`) — the counterpart to
+  `scripts/snapshot.sh`, which stays local-only. `mark "label"` records the
+  current D1 Time Travel bookmark to `data/restore-points.log` (gitignored)
+  with a label; `restore "label"` resolves it and runs
+  `wrangler d1 time-travel restore` after making you type the database name
+  to confirm. 7-day history on the Free plan, 30 on Paid.
+- **"Seekers Cloudflare Runbook" artifact** — the production-ops companion
+  to the existing local-testing runbook: the one-time update sequence
+  (migrations, deploy, first `--mode reset --remote` seed, rebuild
+  standings), the weekly before/during/after-raid rhythm, the sheet→D1
+  sync, Time Travel + the bookmark helper, the undo ladder (edit one row →
+  reverse raid → reverse decay → rebuild standings → bookmark restore), a
+  Monday first-live-test checklist, a command glossary, and
+  troubleshooting.
+
 **Leader-requested batch 6 — post-batch-5 browser testing fixes, 2026-09-05
 (no migration; `tsc` + `npm run build` + `npx opennextjs-cloudflare build`
 clean, `npm run verify` 13/13 — not browser-verified, no Chrome extension
