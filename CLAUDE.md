@@ -326,6 +326,54 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Live domain moved to `seekersofsouls.com`, 2026-09-06 (deployed — Worker
+version `3ca2bdb9-c408-4947-95fc-6e14bf3aae41`).** The guild bought
+`seekersofsouls.com` through Cloudflare Registrar (zone already active on
+the account). It's now the canonical live host; the old placeholder
+`seekers.fetchinglogic.com` is kept only as a redirecting backup.
+- `wrangler.jsonc` `routes`: `seekersofsouls.com` + `www.seekersofsouls.com`
+  added as `custom_domain` routes alongside the old host. Wrangler
+  provisioned the proxied DNS records + edge certs on deploy (nothing set
+  by hand in the dashboard).
+- `custom-worker.ts` `canonicalRedirect()`: `www.seekersofsouls.com`,
+  `seekers.fetchinglogic.com`, `www.fetchinglogic.com` → 301 (GET/HEAD) or
+  308 (other methods, so a login POST / a not-yet-updated parser's officer
+  API call keeps method + body + `x-api-key` across the hop) to
+  `https://seekersofsouls.com`, preserving path + query. Canonical host,
+  `*.workers.dev`, localhost pass through. Runs ahead of the live-bids
+  routing and Next.
+- `src/auth/index.ts`: explicit `trustedOrigins` (both `seekersofsouls`
+  hosts, the old host, `localhost:8787`/`:3000`).
+- **`BETTER_AUTH_URL` prod secret** — STILL TO DO. Set it to
+  `https://seekersofsouls.com`
+  (`echo -n "https://seekersofsouls.com" | npx wrangler secret put BETTER_AUTH_URL`).
+  It's currently unset in prod, so auth falls back to the request origin —
+  which already resolves correctly to `https://seekersofsouls.com` for
+  requests to the canonical host (verified below), so login works without
+  it. Setting it just pins the base URL + Discord `redirect_uri` to the
+  apex deterministically regardless of which host a request arrives on
+  (e.g. a raw `*.workers.dev` hit). Takes effect immediately, no redeploy.
+- Discord Developer Portal → OAuth2 → Redirects gained
+  `https://seekersofsouls.com/api/auth/callback/discord` (leader added it;
+  the old `seekers.fetchinglogic.com` redirect entry can be removed once
+  confident).
+- **Verified live**: `https://seekersofsouls.com/` 200, `/roster` 307,
+  `/api/live-bids/ws` (no upgrade) 426, `/api/officer/totals` (no key) 401,
+  `/api/live-bids/state` (no session) 401; `www` + old host 301/308 to the
+  apex with path/query intact; `POST /api/auth/sign-in/social` from the new
+  origin returns a `discord.com` authorize URL with
+  `redirect_uri=https://seekersofsouls.com/api/auth/callback/discord` and
+  `scope=identify guilds guilds.members.read`. Bundle 2622 KiB gzipped
+  (under the 3072 cap). Not verified: a full real Discord login round-trip
+  (no Discord creds in this session — same standing gap).
+- **`../seekers-epgp-parser`** commit `a64d1c6`: `defaultServerURL` →
+  `https://seekersofsouls.com` (+ 2 cosmetic `/epgp/settings` strings).
+  The old host still works via the 308 redirect (Go's client re-sends
+  `x-api-key` across a 308), but **a parser release is still needed** so
+  officers' installed apps hit the canonical domain directly.
+  `SEEKERS_TRACKER_URL` still overrides for local dev. `../seekers-bot`
+  needs no change (talks to D1 directly, no site URL).
+
 **Production restore/undo tooling for the parallel-testing weeks, 2026-09-05
 (commit `2e8883c`, pushed to `main`; no migration — reuses existing tables.
 `tsc` + `npm run build` clean; `npm run recompute:standings` OK 255/255;
