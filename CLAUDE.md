@@ -326,53 +326,106 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
-**Live domain moved to `seekersofsouls.com`, 2026-09-06 (deployed — Worker
-version `3ca2bdb9-c408-4947-95fc-6e14bf3aae41`).** The guild bought
-`seekersofsouls.com` through Cloudflare Registrar (zone already active on
-the account). It's now the canonical live host; the old placeholder
-`seekers.fetchinglogic.com` is kept only as a redirecting backup.
-- `wrangler.jsonc` `routes`: `seekersofsouls.com` + `www.seekersofsouls.com`
-  added as `custom_domain` routes alongside the old host. Wrangler
-  provisioned the proxied DNS records + edge certs on deploy (nothing set
-  by hand in the dashboard).
+**FULL PRODUCTION GO-LIVE on `seekersofsouls.com`, 2026-09-06 (deployed —
+Worker version `8ac05e90-fa2d-4f45-a692-c86e03e7fa6a`; migrations 0024–0030
+applied to remote D1; remote D1 wholesale-reseeded from local).** This is
+the first time everything from batches 1–6 + the `player_epgp_totals`
+materialization actually reached production. Prod had been stuck on
+`84be7bdf` (2026-08-30) the whole time. Domain + Cloudflare Paid plan +
+full data cutover, done together for the parallel-testing period (running
+alongside the Google Sheet; first live raid test the day after).
+
+**The domain move (Cloudflare Registrar, zone already active):**
+- `wrangler.jsonc` `routes`: `seekersofsouls.com` (apex, canonical) +
+  `www.seekersofsouls.com` added as `custom_domain` routes alongside the
+  old placeholder `seekers.fetchinglogic.com`. Wrangler provisioned the
+  proxied DNS records + edge certs on deploy — nothing set by hand in the
+  dashboard.
 - `custom-worker.ts` `canonicalRedirect()`: `www.seekersofsouls.com`,
   `seekers.fetchinglogic.com`, `www.fetchinglogic.com` → 301 (GET/HEAD) or
-  308 (other methods, so a login POST / a not-yet-updated parser's officer
-  API call keeps method + body + `x-api-key` across the hop) to
+  308 (other methods, so a login POST / an un-updated parser's officer API
+  call keeps method + body + `x-api-key` across the hop) →
   `https://seekersofsouls.com`, preserving path + query. Canonical host,
-  `*.workers.dev`, localhost pass through. Runs ahead of the live-bids
-  routing and Next.
+  `*.workers.dev`, localhost pass through untouched. Runs ahead of the
+  live-bids routing and Next.
 - `src/auth/index.ts`: explicit `trustedOrigins` (both `seekersofsouls`
   hosts, the old host, `localhost:8787`/`:3000`).
-- **`BETTER_AUTH_URL` prod secret** — STILL TO DO. Set it to
-  `https://seekersofsouls.com`
-  (`echo -n "https://seekersofsouls.com" | npx wrangler secret put BETTER_AUTH_URL`).
-  It's currently unset in prod, so auth falls back to the request origin —
-  which already resolves correctly to `https://seekersofsouls.com` for
-  requests to the canonical host (verified below), so login works without
-  it. Setting it just pins the base URL + Discord `redirect_uri` to the
-  apex deterministically regardless of which host a request arrives on
-  (e.g. a raw `*.workers.dev` hit). Takes effect immediately, no redeploy.
+- **`BETTER_AUTH_URL` prod secret set** to `https://seekersofsouls.com`
+  (was unset before — auth had been falling back to request origin). Pins
+  the auth base URL + Discord `redirect_uri` to the apex regardless of
+  which host a request arrives on. `wrangler secret put` auto-deployed a
+  new version.
 - Discord Developer Portal → OAuth2 → Redirects gained
-  `https://seekersofsouls.com/api/auth/callback/discord` (leader added it;
-  the old `seekers.fetchinglogic.com` redirect entry can be removed once
+  `https://seekersofsouls.com/api/auth/callback/discord` (the old
+  `seekers.fetchinglogic.com` redirect entry can be removed once
   confident).
-- **Verified live**: `https://seekersofsouls.com/` 200, `/roster` 307,
-  `/api/live-bids/ws` (no upgrade) 426, `/api/officer/totals` (no key) 401,
-  `/api/live-bids/state` (no session) 401; `www` + old host 301/308 to the
-  apex with path/query intact; `POST /api/auth/sign-in/social` from the new
-  origin returns a `discord.com` authorize URL with
-  `redirect_uri=https://seekersofsouls.com/api/auth/callback/discord` and
-  `scope=identify guilds guilds.members.read`. Bundle 2622 KiB gzipped
-  (under the 3072 cap). Not verified: a full real Discord login round-trip
-  (no Discord creds in this session — same standing gap).
-- **`../seekers-epgp-parser`** commit `a64d1c6`: `defaultServerURL` →
-  `https://seekersofsouls.com` (+ 2 cosmetic `/epgp/settings` strings).
-  The old host still works via the 308 redirect (Go's client re-sends
-  `x-api-key` across a 308), but **a parser release is still needed** so
-  officers' installed apps hit the canonical domain directly.
-  `SEEKERS_TRACKER_URL` still overrides for local dev. `../seekers-bot`
-  needs no change (talks to D1 directly, no site URL).
+- `../seekers-epgp-parser` **v0.1.2** cut (commit `a64d1c6`):
+  `defaultServerURL` → `https://seekersofsouls.com`. Old host still works
+  via the 308 redirect (Go re-sends `x-api-key` across 308).
+  `SEEKERS_TRACKER_URL` still overrides for local dev. Officers auto-update
+  via the Wails-v3 built-in updater. `../seekers-bot` needs no change
+  (talks D1 directly).
+
+**The data cutover — remote D1 was FAR behind, not just missing migrations:**
+- **Finding:** remote D1 had only **259 characters, 3 players, 0 ledger
+  `player_id` links** — i.e. it was at *pre-Phase-3* state. None of the
+  Phase 3 data work (Toryn's dump → `derive:players` → ledger `player_id`
+  backfill) had ever run against production; only the schema migrations
+  had. Since `84be7bdf`'s `computeEpgpTotals` groups by `ep_ledger.player_id`,
+  **production `/roster` standings had been silently blank since the
+  2026-08-25 deploy.** The pending-remote-deploy checklist assumed remote
+  just needed migrations + a standings backfill; it needed the whole data
+  layer.
+- The Phase 3 seed scripts (`import:sos-bot-dump`, `derive:players`,
+  `backfill:expansion-decay`) are `getPlatformProxy` **local-only** — no
+  `--remote` path. So the cutover was done by **wholesale-cloning the
+  verified local DB's app-domain tables into remote**, preserving only the
+  5 real auth rows (`users`/`accounts`/`apikeys` — never touched; 43
+  `sessions` + 1 `verification` dropped, users just re-login).
+- First reseed attempt **failed on a FK constraint** — `wrangler d1 execute
+  --remote --file` splits a big file across multiple transactions, so a
+  single leading `PRAGMA defer_foreign_keys=TRUE` doesn't hold, and
+  `wrangler d1 export`'s own table order (`characters` before `players`,
+  alts before mains) then violates FKs. D1 auto-rolled-back cleanly.
+  **Fix:** `scratchpad/build_reseed.py` rebuilds the dump dependency-ordered
+  (parents before children) with the circular `main_character_id` refs
+  (players↔characters, characters self-ref) NULLed in the INSERTs and
+  restored via trailing `UPDATE`s — so batch-split points no longer matter.
+  → **keep this pattern for any future local→remote D1 clone.**
+- Reseed landed: 49,903 queries, 377k rows written, remote now mirrors
+  local (**791 characters, 331 players, 41,061 ep_ledger / 5,204 gp_ledger
+  fully `player_id`-linked bar the 1,637 orphaned §1e rows, 256
+  `player_epgp_totals`, 72 cycles**). `owner_id`/`*_by` user-FK columns
+  were NULLed pre-export (local's 1 test user ≠ prod's 5).
+- **`decay_model` is `global` / 0.1 on remote** (leader's call — the
+  go-live config, not the sheet-matching `legacy`/0.2). Consequence for the
+  parallel test: veteran EP on `/roster` reads *higher* than the sheet's
+  Totals tab (no pre-cycle §1a haircut under global). Expected, not a bug.
+- Fresh sheet seed was `SoS - EPGP (2).xlsx` (2026-09-06 export);
+  import reconciled 157/158 vs the sheet's own Totals. `npm run verify`
+  10/13 — the 3 "fails" (Aransur +100, Takkisina/Kaalos +50) are drift
+  since the harness's pinned `FIXTURES_AS_OF 2026-08-21`, not a regression.
+
+**Pre-reseed D1 Time Travel bookmark (restore point):**
+`000000a3-00000000-000050de-6277f5d8b67c705312eb0fefc7ff582b`. Post-reseed
+bookmark `000000a7-0000131e-000050de-0d3903199a72e47af81e9cc0a38bffec`.
+
+**Verified live (unauthenticated / read-only — no Discord creds this
+session):** `https://seekersofsouls.com/` 200, `/login` 200, `/roster` &
+`/progression` 307, `/api/live-bids/ws` (no upgrade) 426, `/api/officer/totals`
+(no key) 401; `www` + old host 301→apex with path/query intact;
+`POST /api/auth/sign-in/social` builds
+`redirect_uri=https://seekersofsouls.com/api/auth/callback/discord`;
+`wrangler tail` clean under test traffic. **Not verified: authenticated
+`/roster` actually rendering standings** — needs a real login.
+
+**Manual follow-ups after the reseed (data that didn't survive the clone):**
+- 3 character claims to re-do: Avenn→`Avenn`, Atoh→`Luna`, Sandrian→`Santhral`.
+- Osui: re-tick ~10 PoP flags on `/progression`.
+- Backups in this session's scratchpad: `remote-auth-backup.sql` (all 5
+  users/accounts/key + sessions), `remote-claims-resolved.txt`,
+  `remote-popflags-backup.txt`, `remote-reseed2.sql` (the applied file),
+  `build_reseed.py`.
 
 **Production restore/undo tooling for the parallel-testing weeks, 2026-09-05
 (commit `2e8883c`, pushed to `main`; no migration — reuses existing tables.
