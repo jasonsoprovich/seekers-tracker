@@ -326,6 +326,48 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Post-go-live fixes, 2026-09-06 (Worker `12eacb2a`).**
+- **`decay_model` design flaw — flagged, not yet fixed.** `decay_model` does
+  two jobs: (1) the default rate/label for a cycle-decay entry on
+  `/epgp/decay` — fine; (2) a **read-time switch inside `computeEpgpTotals`**
+  — `legacy` derives the sheet's §1a 20% pre-cycle haircut on every render
+  (never stored), `global` trusts raw ledger sums. Job (2) means toggling
+  the setting retroactively shifts every player's EP/GP/priority — which is
+  why the live site (seeded `global`) didn't match the Google Sheet
+  (seeded/formula = legacy). Leader's requirement: toggling `decay_model`
+  must **never** change history, the roster, or ledgers — it's only how a
+  new decay batch is entered.
+  **Planned refactor (~half-day, deliberate — NOT a rushed change):**
+  (a) one-time backfill materialising the current §1a haircut as real
+  negative `ep_ledger`/`gp_ledger` rows under a `decay_events` row (kind
+  `legacy_cutover`), so `raw sum == sheet total` with a line-item trail;
+  (b) delete the `decay_model` branch from `computeEpgpTotals` — always sum
+  raw; (c) `decay_model` becomes purely the decay-form default (`legacy`
+  ⇒ 0.2 rate, `global` ⇒ 0.1, both already write real rows via
+  `commitRateDecay`). After that, switching models is inert for history.
+  **Interim for the parallel-testing window:** a leader sets
+  `decay_model`/`ep_decay`/`gp_decay` → `legacy`/`0.2`/`0.2` on
+  `/epgp/settings` (auto-refreshes standings) so `/roster` matches the
+  sheet. Verified locally: Osui → EP 6304 / GP 960 / priority 6.0887, exact
+  sheet match. Seed + `DEFAULT_SETTINGS` reverted to `legacy`/`0.2` in
+  commit `2cf6ee1` so a fresh import matches the sheet by default; the
+  global cutover is a deliberate `/epgp/settings` change at the expansion
+  go-live.
+- **`characters.class` = Unknown for ~100 rows.** The sheet's Totals tab
+  only lists ~176 mains; the import resolves those (incl. class *titles* via
+  `CLASS_TITLES`). The ~100 Unknowns are almost all alts/mules the Totals
+  tab never lists — the EP-Log-col-16 fallback already ran (rescued 6, 84
+  genuinely have no class anywhere). Only 1 real main (Osui) was wrong, from
+  stale local-DB state the go-live clone copied; fixable in `/admin` or via
+  a regenerated `epgp-import.sql` (its `UPDATE characters SET class = N …
+  WHERE … AND class = 99` lines, dropping the `owner_id IS NULL` guard).
+- **`/admin` collapsed from 3 stacked lists to search-first** (commit
+  `459da4e`). "Player Main Characters" section deleted — the main swap is
+  now inline on each player's main-character row in the Characters list
+  (2+-character players only), beside the role picker. The Characters list
+  renders nothing until a search term / non-default filter is set. Members
+  & Roles unchanged.
+
 **FULL PRODUCTION GO-LIVE on `seekersofsouls.com`, 2026-09-06 (deployed —
 Worker version `8ac05e90-fa2d-4f45-a692-c86e03e7fa6a`; migrations 0024–0030
 applied to remote D1; remote D1 wholesale-reseeded from local).** This is
