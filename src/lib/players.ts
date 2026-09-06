@@ -1,7 +1,7 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { characters, players } from "@/db";
+import { characters, epLedger, gpLedger, playerEpgpTotals, players } from "@/db";
 
 // PLAN.md §11 Phase 10 — character claiming rework, built on the `players`
 // table Phase 3 introduced. Four entry points:
@@ -62,6 +62,36 @@ export async function resolvePlayerForUser(
   return created.id;
 }
 
+// A character being attached to a player can already sit on a *different*
+// player. If that old player is a pure import artefact — no site user, no
+// discord_id: a standalone created by derive:players / the sheet import /
+// createStandalonePlayer — it's the same real person, so absorb it
+// wholesale: its characters AND its ledger history move to the target, and
+// the defunct row is deleted. Without this, claiming a character that has
+// EP history strands that history on the old player_id and the roster
+// zeroes out (found 2026-09-06 — the first real claim on production, Osui,
+// did exactly this).
+//
+// If the old player has a user_id or a discord_id it's a real account —
+// never merged silently here (a genuine character transfer between two
+// people is a leader decision, not a side effect of a claim).
+async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: number): Promise<boolean> {
+  if (fromPlayerId === toPlayerId) return false;
+  const [from] = await db
+    .select({ userId: players.userId, discordId: players.discordId })
+    .from(players)
+    .where(eq(players.id, fromPlayerId));
+  if (!from || from.userId !== null || from.discordId !== null) return false;
+
+  const now = new Date();
+  await db.update(characters).set({ playerId: toPlayerId, updatedAt: now }).where(eq(characters.playerId, fromPlayerId));
+  await db.update(epLedger).set({ playerId: toPlayerId }).where(eq(epLedger.playerId, fromPlayerId));
+  await db.update(gpLedger).set({ playerId: toPlayerId }).where(eq(gpLedger.playerId, fromPlayerId));
+  await db.delete(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, fromPlayerId));
+  await db.delete(players).where(eq(players.id, fromPlayerId));
+  return true;
+}
+
 export type AttachResult = { error?: string };
 
 // Links a character to a player (PLAN.md §10 "claiming an unassigned
@@ -77,10 +107,16 @@ export type AttachResult = { error?: string };
 // (swapMainCharacter), not a guess.
 export async function attachCharacterToPlayer(db: Db, characterId: number, playerId: number): Promise<AttachResult> {
   const [character] = await db
-    .select({ id: characters.id, charType: characters.charType })
+    .select({ id: characters.id, charType: characters.charType, playerId: characters.playerId })
     .from(characters)
     .where(eq(characters.id, characterId));
   if (!character) return { error: "Character not found." };
+
+  // Character already belongs to a defunct standalone player — pull that
+  // player's characters + ledger history across before repointing.
+  if (character.playerId !== null && character.playerId !== playerId) {
+    await absorbStandalonePlayer(db, character.playerId, playerId);
+  }
 
   await db.update(characters).set({ playerId, updatedAt: new Date() }).where(eq(characters.id, characterId));
 

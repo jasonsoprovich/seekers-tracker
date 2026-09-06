@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { characterClaims, characters, users } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { refreshStandings } from "@/lib/epgp/standings";
 import { attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
@@ -51,7 +52,13 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
     .where(eq(users.id, claim.requesterId));
   if (requester) {
     const playerId = await resolvePlayerForUser(db, requester);
-    if (playerId) await attachCharacterToPlayer(db, claim.characterId, playerId);
+    if (playerId) {
+      // attachCharacterToPlayer may absorb a defunct standalone player
+      // (its ledger history moves onto `playerId`), so the standings for
+      // this player need recomputing from the migrated ledger.
+      await attachCharacterToPlayer(db, claim.characterId, playerId);
+      await refreshStandings(db, { playerIds: [playerId] });
+    }
   }
 
   // Any other still-pending claim on this character (from a different
