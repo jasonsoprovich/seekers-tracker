@@ -113,6 +113,21 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
   }
 }
 
+// One-call "recompute everyone" for the /epgp/settings "Rebuild standings"
+// button and the POST /api/officer/standings/rebuild route — the in-Worker
+// equivalent of `npm run recompute:standings`, which only ever runs against
+// local D1 (getPlatformProxy). Use it after applying a raw sheet-sync .sql
+// to remote with `wrangler d1 execute --remote` (those plain INSERTs never
+// go through refreshStandings, so the materialized table is left stale), or
+// any time the roster looks out of step with the ledger. Returns the row
+// count so the caller can report "rebuilt N players". Writes ~one row per
+// player — trivial against D1's 100K/day write cap.
+export async function rebuildAllStandings(db: ReturnType<typeof drizzle>): Promise<{ players: number }> {
+  await refreshStandings(db, { all: true });
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(playerEpgpTotals);
+  return { players: Number(row?.n ?? 0) };
+}
+
 // The read path that replaces getCachedEpgpTotals — one scan of a
 // ~one-row-per-player table, always current. Shape-compatible with what
 // computeEpgpTotals returned (a Map keyed by playerId) so callers only

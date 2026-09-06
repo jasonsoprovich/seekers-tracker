@@ -3,8 +3,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
+import { ReverseRaidButton } from "@/components/epgp/ReverseRaidButton";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
+import { canManageEpgp, canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { users } from "@/db";
 import { getDb } from "@/lib/db";
 import { getRaidDetail } from "@/lib/epgp/raids";
@@ -38,7 +39,9 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
   ]);
   if (!detail) notFound();
 
-  const canManage = canManageEpgp(await getUserRole(session.user.id));
+  const role = await getUserRole(session.user.id);
+  const canManage = canManageEpgp(role);
+  const canReverse = canManageEpgpConfig(role);
   const timeLocal = localTimeFormatterFor(me?.timezone || GUILD_TIMEZONE);
 
   return (
@@ -131,6 +134,17 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {canReverse && (
+        <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+          <p className="text-sm font-medium text-red-300">Danger zone</p>
+          <p className="mt-1 mb-2 text-xs text-neutral-400">
+            Remove this whole night from the ledger — every parsed attendance award, GP charge, loot event and bid dated {detail.raidDate}. Use
+            it when a raid was captured against stale test data and needs to be redone. Standings recompute automatically.
+          </p>
+          <ReverseRaidButton raidDate={detail.raidDate} />
         </div>
       )}
 

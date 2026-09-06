@@ -6,9 +6,10 @@ import { setSetting, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { rebuildAllStandings, refreshStandings } from "@/lib/epgp/standings";
 
 export type UpdateSettingResult = { error?: string };
+export type RebuildStandingsResult = { players?: number; error?: string };
 
 // decay_model is the only non-numeric setting — everything else must parse
 // as a finite number, since totals.ts (and every later phase's cap/decay
@@ -49,4 +50,24 @@ export async function updateSetting(key: string, value: string, note: string): P
   await refreshStandings(db, { all: true });
 
   return {};
+}
+
+// Recompute every player's materialized standings row from the ledgers.
+// Same leader-only bar as changing a setting (it lives on this page).
+// Mainly for after a remote sheet-sync .sql apply — those INSERTs write
+// ledger rows straight to D1 without going through refreshStandings, so the
+// roster stays stale until this runs. Safe to run any time: it only
+// rewrites the derived table, never a ledger row.
+export async function rebuildStandingsAction(): Promise<RebuildStandingsResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const role = await getUserRole(session.user.id);
+  if (!canManageEpgpConfig(role)) {
+    return { error: "Only leaders can rebuild standings." };
+  }
+
+  const db = await getDb();
+  const result = await rebuildAllStandings(db);
+  return { players: result.players };
 }

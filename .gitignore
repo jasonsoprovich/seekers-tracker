@@ -60,6 +60,8 @@ data/imports/**
 !data/imports/**/
 !data/imports/**/README.md
 data/snapshots/
+# remote Time Travel restore-point log written by scripts/remote-bookmark.sh
+data/restore-points.log
 
 # generated seed SQL (regenerate with `npm run seed:xlsx`, see CLAUDE.md)
 drizzle/seed/

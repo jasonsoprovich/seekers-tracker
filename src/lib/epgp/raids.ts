@@ -1,7 +1,9 @@
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, raids } from "@/db";
+import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
+import { refreshStandings } from "@/lib/epgp/standings";
 
 import { guildDayBounds, toGuildDateString } from "../guild-timezone";
 
@@ -210,6 +212,66 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     captures,
     loot,
   };
+}
+
+export type ReverseRaidResult =
+  | { ok: true; epRows: number; gpRows: number; lootEvents: number; bids: number }
+  | { error: string };
+
+// Undo an entire raid night as a unit: delete every `source='parse'`
+// ep_ledger and gp_ledger row inside that guild-local calendar day, plus
+// the loot_events and bids in the same window. Mirrors reverseDecayEvent
+// (src/lib/epgp/decay.ts) — each deleted ledger row gets a ledger_audit_log
+// "delete" entry (the audit table has no FK to the row, so it survives),
+// and standings are rebuilt with { all: true } at the end the same way a
+// decay reverse does. Not one D1 transaction — same parent-first,
+// sequential-delete shape as this codebase's other bulk writes.
+//
+// The optional `raids` meta row (officer-set name/note) is left in place,
+// like a reversed decay_events row is kept: it's the record that the night
+// happened. A re-parse or re-import of the same date repopulates the
+// ledger rows under it. `getRaidDetail` returns non-null while that lone
+// meta row exists, so the detail page still renders (empty) — harmless.
+export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: string, reversedBy: string): Promise<ReverseRaidResult> {
+  const bounds = guildDayBounds(raidDate);
+  if (!bounds) return { error: "Bad raid date." };
+  const { start, end } = bounds;
+
+  const [epRows, gpRows, loot] = await Promise.all([
+    db.select().from(epLedger).where(and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end))),
+    db.select().from(gpLedger).where(and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end))),
+    db.select({ id: lootEvents.id }).from(lootEvents).where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
+  ]);
+
+  if (epRows.length === 0 && gpRows.length === 0 && loot.length === 0) {
+    return { error: "No parsed attendance, GP, or loot rows on that date — nothing to reverse." };
+  }
+
+  // loot_events.winning_bid_id -> bids.id, so null it out before the bids go
+  // (in case FK enforcement is on). Chunked well under SQLite's variable
+  // limit, same discipline as refreshStandings' prune.
+  const lootIds = loot.map((r) => r.id);
+  let bidCount = 0;
+  for (let i = 0; i < lootIds.length; i += 100) {
+    const chunk = lootIds.slice(i, i + 100);
+    await db.update(lootEvents).set({ winningBidId: null }).where(inArray(lootEvents.id, chunk));
+    const deletedBids = await db.delete(bids).where(inArray(bids.lootEventId, chunk)).returning({ id: bids.id });
+    bidCount += deletedBids.length;
+    await db.delete(lootEvents).where(inArray(lootEvents.id, chunk));
+  }
+
+  for (const row of gpRows) {
+    await db.delete(gpLedger).where(eq(gpLedger.id, row.id));
+    await recordLedgerChange(db, "gp", row.id, "delete", row, null, reversedBy);
+  }
+  for (const row of epRows) {
+    await db.delete(epLedger).where(eq(epLedger.id, row.id));
+    await recordLedgerChange(db, "ep", row.id, "delete", row, null, reversedBy);
+  }
+
+  await refreshStandings(db, { all: true });
+
+  return { ok: true, epRows: epRows.length, gpRows: gpRows.length, lootEvents: lootIds.length, bids: bidCount };
 }
 
 export async function setRaidMeta(

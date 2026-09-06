@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
+import { RebuildStandingsButton } from "@/components/epgp/RebuildStandingsButton";
 import { SettingRow, type SettingHistoryEntry } from "@/components/epgp/SettingRow";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { epgpSettings, users } from "@/db";
@@ -101,6 +102,16 @@ export default async function EpgpSettingsPage() {
           );
         })}
       </ul>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Maintenance</h2>
+        <p className="mt-1 mb-3 text-sm text-neutral-400">
+          Recompute the standings table (EP, GP and priority for every player) from the raw ledger rows. Run this after applying a sheet-sync{" "}
+          <code>.sql</code> file to the database directly, or any time the roster numbers look out of step with the ledger. It never changes
+          ledger data.
+        </p>
+        <RebuildStandingsButton />
+      </section>
     </div>
   );
 }
