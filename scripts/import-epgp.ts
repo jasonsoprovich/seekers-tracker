@@ -255,19 +255,27 @@ const POINT_VALUES: { kind: "ep" | "gp"; activity: string; points: number; retir
 // What gets SEEDED into epgp_settings as the effective_from=0 baseline
 // (PLAN.md §4i). base_ep/base_gp/ep_cap_per_cycle are straight off the
 // Overview/Point Values tabs (2026-08-18). min_attendance/decay_model are
-// website-only (not on the sheet — §4h/§1c). ep_decay/gp_decay were a sheet
-// cell (historically 0.2) but the guild goes live on global cycle decay
-// only — legacy §1a is never exercised past cutover — and voted the rate to
-// 10%, so the seed is the post-cutover rule: 0.1 / "global". Keep
+// website-only (not on the sheet — §4h/§1c).
+//
+// decay_model / ep_decay / gp_decay seed as the **pre-cutover rule**
+// (`legacy` / 0.2 / 0.2) — the same math the Google Sheet's Totals tab
+// uses, so a fresh seed's `/roster` matches the sheet during the
+// parallel-testing window. `legacy` derives the §1a 20% pre-cycle haircut
+// at read time (never stored); `global` trusts raw ledger sums and expects
+// cycle decay to exist as real stored negative rows. The guild's global
+// cutover (rate → 10%, model → `global`) happens at the expansion go-live
+// as a **deliberate leader change on `/epgp/settings`** — an effective-
+// dated row, not something baked into the seed — because flipping the model
+// retroactively changes every historical total's derivation. Keep
 // src/lib/epgp/settings.ts DEFAULT_SETTINGS in sync with this.
 const SETTINGS: Record<string, string> = {
-  ep_decay: "0.1",
-  gp_decay: "0.1",
+  ep_decay: "0.2",
+  gp_decay: "0.2",
   base_ep: "150",
   base_gp: "100",
   ep_cap_per_cycle: "900",
   min_attendance: "12",
-  decay_model: "global",
+  decay_model: "legacy",
 };
 
 // The sheet's Totals tab was computed with legacy §1a decay at 20%, so the

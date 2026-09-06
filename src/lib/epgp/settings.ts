@@ -16,21 +16,24 @@ export type SettingKey = (typeof SETTING_KEYS)[number];
 // SETTING_KEYS that hasn't been seeded). See scripts/import-epgp.ts, which
 // seeds real effective-dated rows.
 //
-// decay_model / ep_decay / gp_decay were seeded from the sheet as
-// "legacy" / 0.2 / 0.2, but the guild is going live on global cycle decay
-// only (§1c) — legacy is never exercised past cutover — and voted the
-// per-cycle rate down to 10%. These defaults reflect that; the live
-// epgp_settings rows are updated to match in the same change (a leader
-// setting-change with a note, so the history still shows the sheet's
-// originals).
+// decay_model / ep_decay / gp_decay default to the **pre-cutover rule**
+// ("legacy" / 0.2 / 0.2) — the same math the Google Sheet's Totals tab
+// uses, so standings match the sheet during the parallel-testing window.
+// The guild's global cutover (model → "global", per-cycle rate → 10%, §1c)
+// is a deliberate leader change on /epgp/settings at the expansion go-live
+// — an effective-dated row with a note — NOT a default, because switching
+// the model retroactively re-derives every historical total (legacy
+// applies the §1a 20% pre-cycle haircut at read time; global trusts raw
+// ledger sums and expects stored decay rows instead). Keep in sync with
+// scripts/import-epgp.ts SETTINGS.
 export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
-  ep_decay: "0.1",
-  gp_decay: "0.1",
+  ep_decay: "0.2",
+  gp_decay: "0.2",
   base_ep: "150",
   base_gp: "100",
   ep_cap_per_cycle: "900",
   min_attendance: "12",
-  decay_model: "global",
+  decay_model: "legacy",
 };
 
 // Resolves the value in force for `key` at `date` — the row with the
