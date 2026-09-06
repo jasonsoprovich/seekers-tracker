@@ -2,10 +2,9 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AdminCharacterList, type AdminCharacterRow } from "@/components/admin/AdminCharacterList";
+import { AdminCharacterList, type AdminCharacterRow, type PlayerMainInfo } from "@/components/admin/AdminCharacterList";
 import { MembersRolesList } from "@/components/admin/MembersRolesList";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
-import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, players, users } from "@/db";
 import {
@@ -88,6 +87,7 @@ export default async function AdminPage() {
       status: c.status,
       mainCharacterId: c.mainCharacterId,
       mainName: c.charType === "alt" && c.mainCharacterId ? (nameById.get(c.mainCharacterId) ?? "(unknown)") : null,
+      playerId: c.playerId,
       ownerUsername: c.ownerUsername,
       ownerId: c.ownerId,
       ownerRole: c.ownerRole,
@@ -114,11 +114,12 @@ export default async function AdminPage() {
         .orderBy(users.username)
     : [];
 
-  // PLAN.md §11 Phase 10 task 10.3 — leader-only "main swap" section. Only
-  // worth showing a player here if they have 2+ non-mule characters to
-  // choose between (the common one-character case has nothing to swap).
+  // PLAN.md §11 Phase 10 task 10.3 — leader-only main swap. Used to be its
+  // own hundreds-of-rows section; now folded inline onto each player's
+  // main-character row in the list below. Only players with 2+ non-mule
+  // characters have anything to swap.
   const playerRows = canEditRoles
-    ? await db.select({ id: players.id, displayName: players.displayName, mainCharacterId: players.mainCharacterId }).from(players)
+    ? await db.select({ id: players.id, mainCharacterId: players.mainCharacterId }).from(players)
     : [];
   const charactersByPlayer = new Map<number, { id: number; name: string }[]>();
   if (canEditRoles) {
@@ -128,10 +129,13 @@ export default async function AdminPage() {
       charactersByPlayer.get(c.playerId)!.push({ id: c.id, name: c.name });
     }
   }
-  const playersWithChoices = playerRows
-    .map((p) => ({ ...p, options: charactersByPlayer.get(p.id) ?? [] }))
-    .filter((p) => p.options.length >= 2)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const playerMains: PlayerMainInfo = {};
+  if (canEditRoles) {
+    for (const p of playerRows) {
+      const options = (charactersByPlayer.get(p.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+      if (options.length >= 2) playerMains[String(p.id)] = { currentMainCharacterId: p.mainCharacterId, options };
+    }
+  }
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -171,12 +175,11 @@ export default async function AdminPage() {
 
       {realRole === "admin" && <ViewAsControls />}
 
-      {/* Members & Roles and Player Main Characters come first, ABOVE All
-          Characters — that list can run into the hundreds/thousands of rows
-          (790 here) and used to bury the one control leaders/admins most
-          need (promoting/demoting someone) below all of it (leader,
-          2026-09-05: "i dont see how guild leader or admin can adjust the
-          officer status"). It wasn't missing, just unreachable. */}
+      {/* Members & Roles: the people-level controls (role, remove/reinstate).
+          Small list, its own section, kept first so it's never buried. The
+          old standalone "Player Main Characters" list is gone — the main
+          swap now lives inline on each player's main-character row in the
+          Characters list below. */}
       {canEditRoles && (
         <section>
           <h2 className="text-lg font-semibold">Members &amp; Roles</h2>
@@ -189,48 +192,24 @@ export default async function AdminPage() {
         </section>
       )}
 
-      {canEditRoles && (
-        <section className="mt-10">
-          <h2 className="text-lg font-semibold">Player Main Characters</h2>
-          <p className="mt-1 text-sm text-neutral-400">
-            Which character each player&apos;s EP/GP priority and roster identity is anchored to. Swapping never
-            touches EP/GP — those are tracked per player, not per character (PLAN.md §4a) — it only relabels which
-            character is &quot;main&quot; and which are alts. Only players with more than one character are listed
-            here.
-          </p>
-          {playersWithChoices.length === 0 ? (
-            <p className="mt-4 text-neutral-400">No player currently has more than one character to choose between.</p>
-          ) : (
-            <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
-              {playersWithChoices.map((p) => (
-                <li key={p.id} className="flex items-center justify-between px-4 py-3">
-                  <p className="font-medium">{p.displayName}</p>
-                  <MainCharacterSelect playerId={p.id} options={p.options} currentMainCharacterId={p.mainCharacterId} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
       <section className="mt-10">
-        <h2 className="text-lg font-semibold">All Characters</h2>
+        <h2 className="text-lg font-semibold">Characters</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          As {role}, you can view and edit any member&apos;s character. Edit a character to change its
-          main/alt status or link an alt to its main.
-          {canEditRoles && " A main character's row also has a role picker, to promote/demote its owner."}
+          Search for a character to view or edit it — main/alt status, alt→main link, class.
+          {canEditRoles &&
+            " A main-character row also carries its owner's role picker, and (for players with more than one character) which one is the main."}
         </p>
         {unresolvedClassCount > 0 && (
           <p className="mt-2 text-sm text-amber-400">
-            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} have an unresolved class — editable per-character
-            below.
+            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} have an unresolved class — search to find and
+            edit them per-character.
           </p>
         )}
         {roster.length === 0 ? (
           <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
         ) : (
           <div className="mt-4">
-            <AdminCharacterList rows={rows} canEditRoles={canEditRoles} selfUserId={session.user.id} />
+            <AdminCharacterList rows={rows} canEditRoles={canEditRoles} selfUserId={session.user.id} playerMains={playerMains} />
           </div>
         )}
       </section>

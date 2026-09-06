@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 
+import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { fieldClasses } from "@/components/ui/Field";
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
@@ -24,6 +25,7 @@ export type AdminCharacterRow = {
   status: CharacterStatus;
   mainCharacterId: number | null;
   mainName: string | null;
+  playerId: number | null;
   ownerUsername: string | null;
   ownerId: string | null;
   ownerRole: Role | null;
@@ -31,16 +33,24 @@ export type AdminCharacterRow = {
   popTotal: number;
 };
 
+// playerId -> the main-swap choices for that player (only players with 2+
+// non-mule characters). Folded in here so the old standalone "Player Main
+// Characters" section — a second hundreds-of-rows list — is gone: the
+// swap now lives inline on the player's main-character row.
+export type PlayerMainInfo = Record<string, { currentMainCharacterId: number | null; options: { id: number; name: string }[] }>;
+
 // Same search/filter set as RosterTable, so admins can find a character here
 // the same way they'd look it up on /roster.
 export function AdminCharacterList({
   rows,
   canEditRoles,
   selfUserId,
+  playerMains = {},
 }: {
   rows: AdminCharacterRow[];
   canEditRoles: boolean;
   selfUserId: string;
+  playerMains?: PlayerMainInfo;
 }) {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState<string>("all");
@@ -50,6 +60,19 @@ export function AdminCharacterList({
   const [minLevel, setMinLevel] = useState("");
   const [maxLevel, setMaxLevel] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  // 790+ rows: don't render the whole list on load (it buried Members &
+  // Roles and made the page an endless scroll — leader, 2026-09-06). Show
+  // it only once the admin has actually narrowed it with a search or a
+  // filter.
+  const isDefaultView =
+    search.trim() === "" &&
+    classFilter === "all" &&
+    raceFilter === "all" &&
+    typeFilter === "all" &&
+    statusFilter === "active" &&
+    minLevel === "" &&
+    maxLevel === "";
 
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -227,7 +250,12 @@ export function AdminCharacterList({
         </span>
       </div>
 
-      {visibleGroups.length === 0 ? (
+      {isDefaultView ? (
+        <p className="mt-4 rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-neutral-400">
+          {rows.length} character{rows.length === 1 ? "" : "s"} in the guild. Search by name or owner, or pick a filter, to
+          list them.
+        </p>
+      ) : visibleGroups.length === 0 ? (
         <p className="mt-4 text-neutral-400">No characters match these filters.</p>
       ) : (
         <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
@@ -247,6 +275,7 @@ export function AdminCharacterList({
   );
 
   function renderCard(c: AdminCharacterRow, toggle?: { open: boolean; onClick: () => void }) {
+    const mainInfo = c.playerId !== null ? playerMains[String(c.playerId)] : undefined;
     return (
       <li key={c.id} className="flex items-center justify-between px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -291,7 +320,20 @@ export function AdminCharacterList({
           {canEditRoles && c.charType === "main" && c.ownerId && (
             // ownerId is truthy here, so the leftJoin matched a users row —
             // ownerRole can't actually be null in this branch.
-            <RoleSelect userId={c.ownerId} role={c.ownerRole!} isSelf={c.ownerId === selfUserId} />
+            <span className="flex items-center gap-2 text-xs text-neutral-500">
+              Role
+              <RoleSelect userId={c.ownerId} role={c.ownerRole!} isSelf={c.ownerId === selfUserId} />
+            </span>
+          )}
+          {canEditRoles && c.charType === "main" && c.playerId !== null && mainInfo && mainInfo.options.length >= 2 && (
+            <span className="flex items-center gap-2 text-xs text-neutral-500">
+              Main
+              <MainCharacterSelect
+                playerId={c.playerId}
+                options={mainInfo.options}
+                currentMainCharacterId={mainInfo.currentMainCharacterId}
+              />
+            </span>
           )}
         </div>
       </li>
