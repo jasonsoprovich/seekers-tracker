@@ -21,7 +21,7 @@ type TabType = "totals" | "ep" | "gp" | "bids" | "audit";
 type SearchParams = { type?: string; q?: string; page?: string };
 
 const TABS: { key: TabType; label: string; officerOnly?: boolean; searchPlaceholder?: string }[] = [
-  { key: "totals", label: "Totals" },
+  { key: "totals", label: "Totals", searchPlaceholder: "Main character…" },
   { key: "ep", label: "EP Ledger", searchPlaceholder: "Character or activity…" },
   { key: "gp", label: "GP Ledger", searchPlaceholder: "Character, item, or tier…" },
   { key: "bids", label: "Bids History", searchPlaceholder: "Character or item…" },
@@ -94,7 +94,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   let hasNext = false;
 
   if (type === "totals") {
-    totalsRows = await getTotalsRows(db);
+    totalsRows = await getTotalsRows(db, { q: term });
   } else if (type === "ep") {
     const result = await listLedgerRows(db, { kind: "ep", q: term, page, pageSize: PAGE_SIZE });
     epRows = result.rows;
@@ -185,7 +185,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
       )}
 
       <div className="mt-4">
-        {type === "totals" && <TotalsTable rows={totalsRows} />}
+        {type === "totals" && <TotalsTable rows={totalsRows} searching={term.length > 0} />}
         {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} />}
         {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} />}
         {type === "bids" && <BidHistoryTable rows={bidRows} />}

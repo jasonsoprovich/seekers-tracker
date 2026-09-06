@@ -4,7 +4,7 @@ import type { TotalsRow } from "@/lib/epgp/ledger-list";
 // Mirrors the guild sheet's own Totals tab: one row per player (main
 // character name — alt/mule activity is already rolled into these numbers,
 // see getTotalsRows), last activity, EP, GP, priority.
-export function TotalsTable({ rows }: { rows: TotalsRow[] }) {
+export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; searching?: boolean }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[820px] text-left text-sm">
@@ -41,7 +41,7 @@ export function TotalsTable({ rows }: { rows: TotalsRow[] }) {
           {rows.length === 0 && (
             <tr>
               <td colSpan={7} className="px-3 py-6 text-center text-neutral-500">
-                No players with a resolved main character yet.
+                {searching ? "No players match that search." : "No players with a resolved main character yet."}
               </td>
             </tr>
           )}

@@ -172,7 +172,12 @@ export type TotalsRow = {
 // roll-up step here, unlike character-activity.ts's per-character concern.
 // Only players with a resolved main character are listed (Phase 3's
 // ambiguous-main group has none yet — see players.note for those).
-export async function getTotalsRows(db: ReturnType<typeof drizzle>): Promise<TotalsRow[]> {
+// `q` filters by main character name (case-insensitive substring), matching
+// the EP/GP/Bids/Audit tabs' own search — this tab is a small in-memory
+// list (one row per player), so the filter is applied here rather than in
+// SQL, no pagination involved.
+export async function getTotalsRows(db: ReturnType<typeof drizzle>, opts: { q?: string } = {}): Promise<TotalsRow[]> {
+  const term = (opts.q ?? "").trim().toLowerCase();
   const [rows, standings] = await Promise.all([
     db
       .select({ playerId: players.id, mainCharacterName: characters.name, playerStatus: players.status })
@@ -183,6 +188,7 @@ export async function getTotalsRows(db: ReturnType<typeof drizzle>): Promise<Tot
   ]);
 
   return rows
+    .filter((r) => !term || r.mainCharacterName.toLowerCase().includes(term))
     .map((r) => {
       const s = standings.get(r.playerId);
       return {
