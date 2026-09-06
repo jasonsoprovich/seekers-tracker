@@ -50,28 +50,21 @@ export type GoldenFixture = {
 // full float precision. This absorbs that, not real drift.
 export const TOLERANCE = 0.05;
 
-// The harness pins computeEpgpTotals to this date instead of real "now".
-// The `expected` values below were read off the sheet's Totals tab
-// (Effort Points / Gear Points / Loot Priority / EP Decay / GP Decay
-// columns) on 2026-09-03, when the guild's current cycle was 67
-// (2026-08-30 → ~2026-09-12) — so the sheet's cached decay columns reflect
-// a cycle start of 2026-08-30. Without pinning, `computeEpgpTotals` uses the
-// real clock, and every time wall-time crosses a cycle boundary another
-// ~2 weeks of a veteran's EP rolls behind the current-cycle line and picks
-// up the legacy §1a 20% haircut — the ep/epDecay split moves, `rawEp`
-// doesn't, and the veteran-decay fixtures "fail" against numbers that were
-// only ever valid in the cycle-67 window. Pinning makes the harness test
-// the decay *math*, deterministically, forever. Re-point this (and
-// re-baseline `expected` from a fresh sheet export) only as a deliberate
-// act, not to chase drift.
+// The `expected` values below are the sheet's own cached Totals-tab cells
+// (Effort Points / Gear Points / Loot Priority / EP Decay / GP Decay).
 //
-// Re-baselined 2026-09-03 after a fresh sheet snapshot (import-epgp.ts):
-// only the 5 still-active raiders moved (Aransur/Ammaru/Takkisina/Luna/
-// Kaalos — more current-cycle EP earned since 2026-08-21); the 8
-// floor-exempt / departed / inactive fixtures were byte-identical and
-// unchanged. Every re-baselined value equals the fresh sheet's own cached
-// Totals cell.
-export const FIXTURES_AS_OF = new Date("2026-09-03T12:00:00Z");
+// As of the 2026-09-06 decay-model refactor (docs/decay-refactor-plan.md),
+// `computeEpgpTotals` no longer derives the §1a haircut — every decay is a
+// real stored ledger row (the legacy_cycle cutover bake included) and a
+// total is a plain SUM(). So `FIXTURES_AS_OF` no longer gates the decay
+// math; it only fixes which effective-dated `epgp_settings` row supplies
+// base_ep/base_gp (stable at 150/100 since effective_from 0), and the
+// harness now asserts against "now". The `expected` values were last
+// re-read off `SoS - EPGP (2).xlsx` (2026-09-06 export): Aransur/Takkisina/
+// Kaalos ep+priority moved (raids since the 2026-08-21 read); the other 10
+// were byte-identical. Re-baseline only as a deliberate act against a
+// fresh sheet export, not to chase drift.
+export const FIXTURES_AS_OF = new Date("2026-09-06T12:00:00Z");
 
 export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
@@ -83,8 +76,8 @@ export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
     name: "Aransur",
     category: "veteran-all-3-expansion-decays",
-    note: "Guild's top-end lifetime EP (~18.5K raw) — verified against Totals!I4 in PLAN.md §1a.",
-    expected: { ep: 14862.56, gp: 1263.8, epDecay: 3628.14, gpDecay: 283.45, priority: 11.0079 },
+    note: "Guild's top-end lifetime EP (~18.6K raw) — verified against Totals!I4 in PLAN.md §1a. ep/priority re-read off SoS - EPGP (2).xlsx on 2026-09-06 (raids since the original 2026-08-21 read).",
+    expected: { ep: 14962.56, gp: 1263.8, epDecay: 3628.14, gpDecay: 283.45, priority: 11.0812 },
   },
   {
     name: "Ammaru",
@@ -113,8 +106,8 @@ export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
     name: "Takkisina",
     category: "frequently-cap-limited",
-    note: "139 historical cap-limited cycle rows (PLAN.md §5 table) — cap logic itself isn't tested until Phase 2/3, but this exercises a large, decay-heavy ledger.",
-    expected: { ep: 14183.36, gp: 1489.56, epDecay: 3470.84, gpDecay: 369.89, priority: 9.0172 },
+    note: "139 historical cap-limited cycle rows (PLAN.md §5 table) — cap logic itself isn't tested until Phase 2/3, but this exercises a large, decay-heavy ledger. ep/priority re-read off SoS - EPGP (2).xlsx on 2026-09-06.",
+    expected: { ep: 14233.36, gp: 1489.56, epDecay: 3470.84, gpDecay: 369.89, priority: 9.0486 },
   },
   {
     name: "Luna",
@@ -125,8 +118,8 @@ export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
     name: "Kaalos",
     category: "cap-exceeded-historically",
-    note: "Cycle 1 recorded 1,200 (over the 900 cap) per PLAN.md §2. Same caveat as Luna re: per-cycle assertions.",
-    expected: { ep: 11511.72, gp: 1385.8, epDecay: 2815.43, gpDecay: 346.45, priority: 7.8488 },
+    note: "Cycle 1 recorded 1,200 (over the 900 cap) per PLAN.md §2. Same caveat as Luna re: per-cycle assertions. ep/priority re-read off SoS - EPGP (2).xlsx on 2026-09-06.",
+    expected: { ep: 11561.72, gp: 1385.8, epDecay: 2815.43, gpDecay: 346.45, priority: 7.8824 },
   },
   {
     name: "Droctulft",

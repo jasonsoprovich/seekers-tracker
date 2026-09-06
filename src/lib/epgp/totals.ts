@@ -1,10 +1,15 @@
-import { and, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { epLedger, gpLedger } from "@/db";
+import { decayEvents, epLedger, gpLedger } from "@/db";
 
-import { getCurrentCycle } from "./cycles";
-import { DEFAULT_SETTINGS, getSettingAt, getSettingsAt } from "./settings";
+import { getSettingsAt } from "./settings";
+
+// The "EP Decay" / "GP Decay" columns on /roster and the ledger Totals tab
+// mean *cumulative cycle decay* — the same thing the sheet's Totals!I/J
+// show. Expansion decay (§1b) and departure wipes (§1e) are folded into the
+// balance and not surfaced separately, exactly as the sheet does it.
+const CYCLE_DECAY_KINDS = ["legacy_cycle", "global_cycle"] as const;
 
 export type EpgpTotal = {
   playerId: number;
@@ -13,10 +18,11 @@ export type EpgpTotal = {
   epDecay: number;
   gpDecay: number;
   priorityRating: number;
-  // Undecayed ledger sums and the pre-current-cycle portion of each, as of
-  // `asOf`. Carried so src/lib/epgp/standings.ts can persist them and let a
-  // legacy-model read re-derive the §1a haircut against a later cycle
-  // boundary without re-summing the ledger. Unused under decay_model=global.
+  // `rawEp`/`rawGp` are the undecayed sums (ep + epDecay) — a display-only
+  // column on /roster. `preCycleEp`/`preCycleGp` are vestigial (they backed
+  // the old legacy read-time re-derivation, removed with the decay_model
+  // branch — see docs/decay-refactor-plan.md); always 0 now, kept so
+  // src/lib/epgp/standings.ts and player_epgp_totals don't need a migration.
   rawEp: number;
   rawGp: number;
   preCycleEp: number;
@@ -42,88 +48,60 @@ export async function getEpgpSettings(
   return settings;
 }
 
-// Computes live EP/GP/Priority Rating straight from the ledgers — this
-// replaces the old character_epgp mirror table. Confirmed cell-for-cell
-// against the guild's live sheet's Totals tab (columns F/G/I/J — Effort
-// Points, Gear Points, EP Decay, GP Decay — verified 2026-08-19 against
-// Osui's row): the sheet pre-applies the *upcoming* cycle's decay to
-// everything earned before the current cycle started, while decay already
-// applied in past cycles lives as explicit negative ep_ledger/gp_ledger rows
-// (so those are just summed like any other row, no special-casing needed
-// here). The sheet also skips decay entirely for a character whose raw
-// lifetime total hasn't reached the base value yet (Totals!$L$26/$L$28) —
-// without that guard a brand-new member's tiny pre-cycle balance still gets
-// docked 20%, which the sheet doesn't do.
+// Live EP/GP/Priority Rating straight off the ledgers. A total is a plain
+// SUM(): every decay — the sheet's historical §1a haircut (materialised
+// once by scripts/bake-legacy-decay.ts, kind "legacy_cycle"), an expansion
+// decay, a global cycle decay — is a real negative ep_ledger/gp_ledger row,
+// so there is nothing to derive here.
 //
-//   rawEp = sum of every EP ledger row, undecayed
-//   epDecay = rawEp < base_ep ? 0 : (points before current cycle start) * ep_decay
-//   ep = rawEp - epDecay        (same for gp/gpDecay)
-//   priority = (ep + base_ep) / (gp + base_gp)
+//   ep       = SUM(every EP ledger row for the player)     -- the balance
+//   epDecay  = -SUM(rows linked to a decay_event)          -- display only
+//   rawEp    = ep + epDecay                                -- undecayed, display only
+//   priority = (ep + base_ep) / (gp + base_gp)             -- same for gp
+//
+// `decay_model` no longer changes anything in this function (that
+// retroactive read-time switch was the bug — docs/decay-refactor-plan.md);
+// it is only the /epgp/decay form's default rate/label now.
 //
 // PLAN.md §11 Phase 3 task 3.11: grouped by player_id, not character_id —
 // EP/GP earned on any of a player's characters (main, alt, or a
-// pre-Phase-3 row still keyed to an alt's own id) now rolls up under one
-// account, so a leader-approved main swap (players.main_character_id) no
-// longer needs the old "always redirect an alt's write to its main's
-// character_id" trick to keep totals correct (insertLedgerEntry still does
-// it — harmless now, not load-bearing). Every ep_ledger/gp_ledger row
-// already carries its own player_id (backfilled from characters.player_id
-// at import time, task 3.9), so this groups directly off the ledger rows
-// with no join back through characters.
+// pre-Phase-3 row still keyed to an alt's own id) rolls up under one
+// account. Every ep_ledger/gp_ledger row already carries its own player_id
+// (backfilled from characters.player_id at import time, task 3.9), so this
+// groups directly off the ledger rows with no join back through characters.
 export async function computeEpgpTotals(
   db: ReturnType<typeof drizzle>,
   opts: { asOf?: Date; playerIds?: number[] } = {},
 ): Promise<Map<number, EpgpTotal>> {
   const asOf = opts.asOf ?? new Date();
   // A targeted recompute (src/lib/epgp/standings.ts's per-write refresh)
-  // pushes `player_id IN (...)` into the 4 aggregate scans so a single
-  // ledger insert costs a few hundred index-seeked rows, not a full-table
-  // GROUP BY. An empty array would mean "nobody" — treat it as unfiltered
-  // rather than returning an empty map, so `refreshStandings({ playerIds: []
-  // })` from a NULL-player edge case is a harmless no-op-ish full pass.
+  // pushes `player_id IN (...)` into the aggregate scans so a single ledger
+  // insert costs a few hundred index-seeked rows, not a full-table GROUP
+  // BY. An empty array would mean "nobody" — treat it as unfiltered rather
+  // than returning an empty map, so `refreshStandings({ playerIds: [] })`
+  // from a NULL-player edge case is a harmless no-op-ish full pass.
   const playerFilter = opts.playerIds && opts.playerIds.length > 0 ? opts.playerIds : null;
   const settings = await getEpgpSettings(db, asOf);
-  // PLAN.md §11 Phase 5 task 5.2 / §1c — which cycle-decay model is in
-  // force right now. "legacy" derives the 20% pre-cycle haircut below
-  // (§1a); "global" trusts the raw ledger sums as-is, because 10%
-  // compounding cycle decay (kind: "global_cycle", src/lib/epgp/decay.ts)
-  // is applied as real stored negative rows at commit time — deriving
-  // anything on top of that would double-decay. Both models coexist by
-  // construction: pre-cutover ledger rows never change, so switching this
-  // setting only changes how *this function* reads them, never the rows
-  // themselves.
-  const decayModel = (await getSettingAt(db, "decay_model", asOf)) ?? DEFAULT_SETTINGS.decay_model;
-
-  // See cycles.ts's getCurrentCycle for why "current" isn't simply "most
-  // recent by start date" (the sheet's Cycles tab is pre-populated with
-  // future cycles).
-  const currentCycle = await getCurrentCycle(db, asOf);
-  // No cycles seeded yet (fresh dev DB): treat everything as "current cycle"
-  // rather than crashing — nothing to decay yet.
-  const cycleStart = currentCycle?.startDate ?? new Date(0);
 
   const epScoped = playerFilter ? inArray(epLedger.playerId, playerFilter) : undefined;
   const gpScoped = playerFilter ? inArray(gpLedger.playerId, playerFilter) : undefined;
-  const [prePointsEp, curPointsEp, prePointsGp, curPointsGp] = await Promise.all([
+  const sumPoints = (col: typeof epLedger.points | typeof gpLedger.points) => sql<number>`coalesce(sum(${col}), 0)`;
+  const [epAllRows, epDecayRows, gpAllRows, gpDecayRows] = await Promise.all([
+    // ep — every row for the player (the balance)
+    db.select({ playerId: epLedger.playerId, sum: sumPoints(epLedger.points) }).from(epLedger).where(epScoped).groupBy(epLedger.playerId),
+    // epDecay — only the rows from a cycle-decay event (display; see CYCLE_DECAY_KINDS)
     db
-      .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
+      .select({ playerId: epLedger.playerId, sum: sumPoints(epLedger.points) })
       .from(epLedger)
-      .where(and(lt(epLedger.occurredAt, cycleStart), epScoped))
+      .innerJoin(decayEvents, eq(epLedger.decayEventId, decayEvents.id))
+      .where(and(inArray(decayEvents.kind, [...CYCLE_DECAY_KINDS]), epScoped))
       .groupBy(epLedger.playerId),
+    db.select({ playerId: gpLedger.playerId, sum: sumPoints(gpLedger.points) }).from(gpLedger).where(gpScoped).groupBy(gpLedger.playerId),
     db
-      .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
-      .from(epLedger)
-      .where(and(gte(epLedger.occurredAt, cycleStart), epScoped))
-      .groupBy(epLedger.playerId),
-    db
-      .select({ playerId: gpLedger.playerId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
+      .select({ playerId: gpLedger.playerId, sum: sumPoints(gpLedger.points) })
       .from(gpLedger)
-      .where(and(lt(gpLedger.occurredAt, cycleStart), gpScoped))
-      .groupBy(gpLedger.playerId),
-    db
-      .select({ playerId: gpLedger.playerId, sum: sql<number>`coalesce(sum(${gpLedger.points}), 0)` })
-      .from(gpLedger)
-      .where(and(gte(gpLedger.occurredAt, cycleStart), gpScoped))
+      .innerJoin(decayEvents, eq(gpLedger.decayEventId, decayEvents.id))
+      .where(and(inArray(decayEvents.kind, [...CYCLE_DECAY_KINDS]), gpScoped))
       .groupBy(gpLedger.playerId),
   ]);
 
@@ -133,32 +111,24 @@ export async function computeEpgpTotals(
   // "null" player rather than surfacing) — excluded here, same as
   // decay.ts's balance queries.
   const hasPlayer = <T extends { playerId: number | null }>(r: T) => r.playerId !== null;
-  const preEp = new Map(prePointsEp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
-  const curEp = new Map(curPointsEp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
-  const preGp = new Map(prePointsGp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
-  const curGp = new Map(curPointsGp.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const epAll = new Map(epAllRows.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const epDec = new Map(epDecayRows.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const gpAll = new Map(gpAllRows.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
+  const gpDec = new Map(gpDecayRows.filter(hasPlayer).map((r) => [r.playerId as number, r.sum]));
 
-  const playerIds = new Set([...preEp.keys(), ...curEp.keys(), ...preGp.keys(), ...curGp.keys()]);
+  const playerIds = new Set([...epAll.keys(), ...gpAll.keys()]);
 
   const totals = new Map<number, EpgpTotal>();
   for (const playerId of playerIds) {
-    const preEpAmt = preEp.get(playerId) ?? 0;
-    const curEpAmt = curEp.get(playerId) ?? 0;
-    const preGpAmt = preGp.get(playerId) ?? 0;
-    const curGpAmt = curGp.get(playerId) ?? 0;
-    const rawEp = preEpAmt + curEpAmt;
-    const rawGp = preGpAmt + curGpAmt;
-
-    // global: no derivation — rawEp/rawGp already reflect every
-    // global_cycle decay_events commit as a stored ledger row (§1c).
-    // legacy: derive the flat, non-compounding 20% pre-cycle haircut (§1a),
-    // unchanged from before this branch existed.
-    const epDecay = decayModel === "global" ? 0 : rawEp < settings.base_ep ? 0 : preEpAmt * settings.ep_decay;
-    const gpDecay = decayModel === "global" ? 0 : rawGp < settings.base_gp ? 0 : preGpAmt * settings.gp_decay;
-    const ep = rawEp - epDecay;
-    const gp = rawGp - gpDecay;
+    const ep = epAll.get(playerId) ?? 0;
+    const gp = gpAll.get(playerId) ?? 0;
+    // decay rows are stored negative; report the haircut as a positive number.
+    const epDecay = -(epDec.get(playerId) ?? 0);
+    const gpDecay = -(gpDec.get(playerId) ?? 0);
+    const rawEp = ep + epDecay;
+    const rawGp = gp + gpDecay;
     const priorityRating = (ep + settings.base_ep) / (gp + settings.base_gp);
-    totals.set(playerId, { playerId, ep, gp, epDecay, gpDecay, priorityRating, rawEp, rawGp, preCycleEp: preEpAmt, preCycleGp: preGpAmt });
+    totals.set(playerId, { playerId, ep, gp, epDecay, gpDecay, priorityRating, rawEp, rawGp, preCycleEp: 0, preCycleGp: 0 });
   }
 
   return totals;

@@ -141,6 +141,16 @@ async function main() {
     const startingEp = new Map(expectedEp);
     const startingGp = new Map(expectedGp);
 
+    // Cycle-decay already on file before this test writes any (e.g. the
+    // legacy_cycle cutover bake) — computeEpgpTotals' epDecay reports the
+    // cumulative amount, so the tie-in assertion below has to add this to
+    // the decay the 6 test cycles introduce.
+    const decayBefore = new Map<number, number>();
+    {
+      const t0 = await computeEpgpTotals(db, { playerIds: trackedPlayerIds });
+      for (const pid of trackedPlayerIds) decayBefore.set(pid, t0.get(pid)?.epDecay ?? 0);
+    }
+
     console.log(`Tracking ${trackedPlayerIds.length} player(s), starting EP total ${[...expectedEp.values()].reduce((a, b) => a + b, 0).toFixed(2)}.`);
 
     for (let cycle = 1; cycle <= CYCLES; cycle++) {
@@ -212,23 +222,37 @@ async function main() {
       console.log(`Pre-cutover gp_ledger untouched: ${gpAfter.count} row(s), sum ${gpAfter.sum.toFixed(2)}.`);
     }
 
-    // Task 5.2 tie-in: flip decay_model to "global" (effective now, so
-    // computeEpgpTotals — which always reads settings "as of now" — picks
-    // it up) and confirm a tracked player's total matches the raw ledger
-    // sum with no derived decay layered on top.
-    await setSetting(db, "decay_model", "global", appliedBy);
-    const totals = await computeEpgpTotals(db);
+    // computeEpgpTotals no longer branches on decay_model (that retroactive
+    // read-time switch was removed — docs/decay-refactor-plan.md). Confirm
+    // it: under *either* model a tracked player's `ep` is the full raw
+    // ledger sum and `epDecay` is exactly the committed decay rows' total —
+    // and flipping the setting changes neither.
     const checkPlayerId = trackedPlayerIds[0];
-    const total = totals.get(checkPlayerId);
     const rawEp = (await rawBalances(db, epLedger, [checkPlayerId])).get(checkPlayerId) ?? 0;
-    if (!total) {
-      console.log(`  FAIL computeEpgpTotals returned nothing for player ${checkPlayerId} under decay_model=global`);
-      failures++;
-    } else if (total.epDecay !== 0 || !withinTolerance(total.ep, rawEp)) {
-      console.log(`  FAIL decay_model=global: player ${checkPlayerId} epDecay=${total.epDecay} (want 0), ep=${total.ep.toFixed(2)} (want raw ${rawEp.toFixed(2)})`);
-      failures++;
-    } else {
-      console.log(`decay_model=global totals branch verified: player ${checkPlayerId} ep=${total.ep.toFixed(2)} matches raw ledger sum, epDecay=0.`);
+    // pre-existing cycle decay + what the 6 test cycles removed from the balance
+    const expectedDecay = (decayBefore.get(checkPlayerId) ?? 0) + ((startingEp.get(checkPlayerId) ?? 0) - rawEp);
+    let prevEp: number | null = null;
+    for (const model of ["legacy", "global"] as const) {
+      await setSetting(db, "decay_model", model, appliedBy);
+      const total = (await computeEpgpTotals(db)).get(checkPlayerId);
+      if (!total) {
+        console.log(`  FAIL computeEpgpTotals returned nothing for player ${checkPlayerId} under decay_model=${model}`);
+        failures++;
+        continue;
+      }
+      const epOk = withinTolerance(total.ep, rawEp);
+      const decayOk = withinTolerance(total.epDecay, expectedDecay);
+      const stableOk = prevEp === null || withinTolerance(total.ep, prevEp);
+      if (!epOk || !decayOk || !stableOk) {
+        console.log(
+          `  FAIL decay_model=${model}: player ${checkPlayerId} ep=${total.ep.toFixed(2)} (want raw ${rawEp.toFixed(2)}), ` +
+            `epDecay=${total.epDecay.toFixed(2)} (want ${expectedDecay.toFixed(2)}), stable=${stableOk}`,
+        );
+        failures++;
+      } else {
+        console.log(`decay_model=${model}: ep=${total.ep.toFixed(2)} = raw ledger sum, epDecay=${total.epDecay.toFixed(2)} = committed decay rows.`);
+      }
+      prevEp = total.ep;
     }
 
     if (failures > 0) {
