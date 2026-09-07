@@ -260,10 +260,33 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
       }
     }
 
+    // POST /api/officer/bids ran just before this and charged the winner's
+    // GP + refreshed standings, so getStandings() here is current. Every
+    // OTHER still-collecting round on the board is showing pre-charge
+    // priority for anyone that charge moved — hand the DO a fresh
+    // name→priority map so it can re-price those rounds and an officer
+    // picking a winner elsewhere doesn't do it off a stale number (which is
+    // how one character could sweep several items before EPGP caught up).
+    let repriceAll: Record<string, number> | undefined;
+    try {
+      const s = await getStandings(db);
+      const chars = await db.select({ name: characters.name, playerId: characters.playerId }).from(characters);
+      const m: Record<string, number> = {};
+      for (const c of chars) {
+        if (c.playerId == null) continue;
+        const pr = s.get(c.playerId)?.priorityRating;
+        if (typeof pr === "number") m[c.name.toLowerCase()] = pr;
+      }
+      repriceAll = m;
+    } catch {
+      // best-effort — the resolve still goes through without the reprice
+    }
+
     return forwardToDO(env, "resolve", {
       itemName: body.itemName.trim(),
       winners,
       bids,
+      repriceAll,
       officerId: auth.userId,
       officerName,
     });
@@ -277,9 +300,12 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
     });
   }
 
-  // clear
+  // clear — officerId scopes a bare (no itemName) clear to just this
+  // officer's rounds, so one officer quitting their app can't wipe every
+  // other officer's live round off the board.
   return forwardToDO(env, "clear", {
     itemName: typeof body.itemName === "string" ? body.itemName : undefined,
+    officerId: auth.userId,
   });
 }
 

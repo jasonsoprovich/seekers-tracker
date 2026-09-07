@@ -101,7 +101,7 @@ type ValidPushBody = {
   officerName?: unknown;
 };
 type HeartbeatBody = { itemName?: unknown; officerId?: unknown; officerName?: unknown };
-type ClearBody = { itemName?: unknown };
+type ClearBody = { itemName?: unknown; officerId?: unknown };
 type DismissBody = { itemName?: unknown };
 type ResolveWinnerBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown };
 type ResolveBidBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown; occurredAt?: unknown };
@@ -359,6 +359,25 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       // comment. One write per resolve (rare — once per finalized item),
       // never on the push/heartbeat hot path.
       await this.ctx.storage.put(RESOLVED_STORAGE_PREFIX + k, round);
+
+      // custom-worker sends a fresh name→priority map post-charge (see its
+      // /resolve handler). Re-price every OTHER still-collecting round so an
+      // officer picking a winner elsewhere sees this winner's *now* lower
+      // priority — not the pre-charge number that would let them sweep a
+      // second item before EPGP catches up. The just-resolved round keeps
+      // its own bids' snapshot priorities untouched.
+      const repriceAll = (body as { repriceAll?: unknown }).repriceAll;
+      if (repriceAll && typeof repriceAll === "object") {
+        const pr = repriceAll as Record<string, unknown>;
+        for (const r of this.rounds.values()) {
+          if (r.state !== "collecting") continue;
+          for (const b of r.bids) {
+            const v = pr[b.characterName.toLowerCase()];
+            if (typeof v === "number") b.priorityRating = v;
+          }
+        }
+      }
+
       this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
@@ -391,15 +410,29 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       } catch {
         // no body is fine
       }
-      const { itemName } = body as ClearBody;
+      const { itemName, officerId } = body as ClearBody;
+      const oid = typeof officerId === "string" && officerId ? officerId : "";
       if (typeof itemName === "string" && itemName.trim()) {
-        this.rounds.delete(key(itemName)); // one round cancelled/discarded
+        // One named round cancelled/discarded (End Round & Review, or the
+        // Bids-tab "Clear" button).
+        this.rounds.delete(key(itemName));
         await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + key(itemName));
-      } else {
-        this.rounds.clear(); // officer app quit — drop all their rounds' worth
-        const stored = await this.ctx.storage.list({ prefix: RESOLVED_STORAGE_PREFIX });
-        await this.ctx.storage.delete([...stored.keys()]);
+      } else if (oid) {
+        // Officer app quit with no item named — drop only THAT officer's
+        // rounds. It used to be this.rounds.clear(), which wiped every
+        // other officer's live round too: during a raid with several
+        // officers collecting in parallel, one of them closing their app
+        // took the whole board down (leader, 2026-09-07).
+        for (const [k, round] of this.rounds) {
+          if (round.officerId !== oid) continue;
+          this.rounds.delete(k);
+          await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + k);
+        }
       }
+      // A bare clear with neither itemName nor officerId is ignored — the
+      // idle sweep reaps abandoned collecting rounds, and a resolved one
+      // needs an explicit dismiss anyway. Never nuke the guild-wide board
+      // on an under-specified request.
       if (this.rounds.size === 0) {
         this.alarmAt = null;
         await this.ctx.storage.deleteAlarm();
