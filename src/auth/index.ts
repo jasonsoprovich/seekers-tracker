@@ -77,6 +77,23 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
         geolocationTracking: false,
       },
       {
+        // Cache the session identity in a short-lived signed cookie so a
+        // normal page load doesn't hit D1 just to answer "is this a valid
+        // session, and whose". Added 2026-09-07 after officers got bounced
+        // to /login during the two deploys that day — a cold Worker isolate
+        // plus a slow first D1 query was enough for getSession() to come
+        // back empty and redirect. This makes the common case stateless.
+        // Safe here because the things that MUST stay fresh are read
+        // straight from D1 regardless of this cache: role via getUserRole
+        // (authz.ts explicitly re-reads users.role every request), and the
+        // guild-membership / denied-role / departed-player gate via its own
+        // query in (app)/layout.tsx. The only cost — a revoked session
+        // lingering up to maxAge — doesn't apply: nothing in this app
+        // revokes a session out from under a device (sign-out clears the
+        // cookie on that device itself).
+        session: {
+          cookieCache: { enabled: true, maxAge: 5 * 60 },
+        },
         socialProviders: {
           discord: {
             clientId: process.env.DISCORD_CLIENT_ID as string,
