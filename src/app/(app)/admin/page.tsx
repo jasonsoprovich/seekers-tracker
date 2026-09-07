@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -14,11 +14,26 @@ import {
   canManageRoles,
   getRealUserRole,
   getUserRole,
+  type Role,
 } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
+
+// Latest published officer-app build — the release page always redirects to
+// the newest tag, so this never goes stale.
+const OFFICER_APP_RELEASE_URL = "https://github.com/jasonsoprovich/seekers-epgp-parser/releases/latest";
+
+const ADMIN_TABS: { href: string; label: string; external?: boolean; show: (r: Role | null) => boolean }[] = [
+  { href: "/admin/claims", label: "Claim Requests", show: () => true },
+  { href: "/admin/imports", label: "Import Audit Trail", show: () => true },
+  { href: OFFICER_APP_RELEASE_URL, label: "Officer App", external: true, show: canManageEpgp },
+  { href: "/epgp/app-key", label: "App Key", show: canManageEpgp },
+  { href: "/epgp/sql", label: "SQL Sandbox", show: canManageEpgp },
+  { href: "/epgp/settings", label: "EPGP Settings", show: canManageEpgpConfig },
+  { href: "/epgp/decay", label: "EPGP Decay", show: canManageEpgpConfig },
+];
 
 export default async function AdminPage() {
   const session = await getSession();
@@ -52,6 +67,14 @@ export default async function AdminPage() {
     .from(characters)
     .leftJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
+
+  // Owner → guild status ('departed' == removed by a leader). Small table
+  // (one row per signed-in account), so a plain map, not a join.
+  const playerStatusByUser = new Map(
+    (await db.select({ userId: players.userId, status: players.status }).from(players).where(isNotNull(players.userId))).map(
+      (r) => [r.userId as string, r.status],
+    ),
+  );
 
   const nameById = new Map(roster.map((c) => [c.id, c.name]));
   const unresolvedClassCount = roster.filter((c) => c.class === UNKNOWN_CLASS_ID).length;
@@ -91,6 +114,7 @@ export default async function AdminPage() {
       ownerUsername: c.ownerUsername,
       ownerId: c.ownerId,
       ownerRole: c.ownerRole,
+      ownerDeparted: c.ownerId ? playerStatusByUser.get(c.ownerId) === "departed" : false,
       popDone: resolved.done,
       popTotal: resolved.total,
     };
@@ -113,6 +137,12 @@ export default async function AdminPage() {
         .leftJoin(players, eq(players.userId, users.id))
         .orderBy(users.username)
     : [];
+
+  // Members & Roles is merged into the character list (role picker + remove
+  // on each main-character row). This fallback catches the rare account
+  // that's signed in but has claimed nothing yet — otherwise unmanageable.
+  const ownerIds = new Set(roster.map((c) => c.ownerId).filter((id): id is string => id !== null));
+  const membersNoCharacter = members.filter((m) => !ownerIds.has(m.id));
 
   // PLAN.md §11 Phase 10 task 10.3 — leader-only main swap. Used to be its
   // own hundreds-of-rows section; now folded inline onto each player's
@@ -139,65 +169,34 @@ export default async function AdminPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader
-        title="Admin"
-        actions={
-          <>
-            <Link href="/admin/claims" className="text-emerald-400 hover:text-emerald-300">
-              Claim Requests
-            </Link>
-            <Link href="/admin/imports" className="text-emerald-400 hover:text-emerald-300">
-              Import Audit Trail
-            </Link>
-            {canManageEpgp(role) && (
-              <Link href="/epgp/app-key" className="text-emerald-400 hover:text-emerald-300">
-                App Key
-              </Link>
-            )}
-            {canManageEpgp(role) && (
-              <Link href="/epgp/sql" className="text-emerald-400 hover:text-emerald-300">
-                SQL Sandbox
-              </Link>
-            )}
-            {canManageEpgpConfig(role) && (
-              <Link href="/epgp/settings" className="text-emerald-400 hover:text-emerald-300">
-                EPGP Settings
-              </Link>
-            )}
-            {canManageEpgpConfig(role) && (
-              <Link href="/epgp/decay" className="text-emerald-400 hover:text-emerald-300">
-                EPGP Decay
-              </Link>
-            )}
-          </>
-        }
-      />
+      <PageHeader title="Admin" />
 
-      {realRole === "admin" && <ViewAsControls />}
+      <nav className="mt-1 flex flex-wrap gap-2">
+        {ADMIN_TABS.filter((t) => t.show(role)).map((t) => (
+          <Link
+            key={t.href}
+            href={t.href}
+            {...(t.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            className="rounded-full border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 transition-colors hover:border-emerald-500/60 hover:bg-neutral-900/60 hover:text-emerald-300"
+          >
+            {t.label}
+            {t.external && <span aria-hidden className="ml-1 text-xs text-neutral-500">↗</span>}
+          </Link>
+        ))}
+      </nav>
 
-      {/* Members & Roles: the people-level controls (role, remove/reinstate).
-          Small list, its own section, kept first so it's never buried. The
-          old standalone "Player Main Characters" list is gone — the main
-          swap now lives inline on each player's main-character row in the
-          Characters list below. */}
-      {canEditRoles && (
-        <section>
-          <h2 className="text-lg font-semibold">Members &amp; Roles</h2>
-          <p className="mt-1 text-sm text-neutral-400">
-            Promote or demote members, or remove someone from the guild (strips their role, blocks all
-            site access, and zeroes their EP — GP is kept — until reinstated, which restores the EP and
-            access but not the role). Character records stay. Only leaders can do either.
-          </p>
-          <MembersRolesList members={members} selfUserId={session.user.id} />
-        </section>
+      {realRole === "admin" && (
+        <div className="mt-6">
+          <ViewAsControls />
+        </div>
       )}
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold">Characters</h2>
+        <h2 className="text-lg font-semibold">Members &amp; Characters</h2>
         <p className="mt-1 text-sm text-neutral-400">
           Search for a character to view or edit it — main/alt status, alt→main link, class.
           {canEditRoles &&
-            " A main-character row also carries its owner's role picker, and (for players with more than one character) which one is the main."}
+            " A main-character row also carries its owner's role picker, remove-from-guild, and (for players with more than one character) which one is the main."}
         </p>
         {unresolvedClassCount > 0 && (
           <p className="mt-2 text-sm text-amber-400">
@@ -213,6 +212,17 @@ export default async function AdminPage() {
           </div>
         )}
       </section>
+
+      {canEditRoles && membersNoCharacter.length > 0 && (
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold">Members without a claimed character</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            Signed in, but haven&apos;t claimed a character yet — so they don&apos;t appear in the list above. Same role /
+            remove controls.
+          </p>
+          <MembersRolesList members={membersNoCharacter} selfUserId={session.user.id} />
+        </section>
+      )}
     </div>
   );
 }

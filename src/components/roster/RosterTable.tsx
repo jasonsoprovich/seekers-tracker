@@ -36,12 +36,18 @@ export type RosterRow = {
 };
 
 const ACTIVE_WINDOWS: { key: string; label: string; ms: number | null }[] = [
-  { key: "any", label: "Any time", ms: null },
   { key: "24h", label: "Last 24 hours", ms: 24 * 60 * 60 * 1000 },
   { key: "7d", label: "Last 7 days", ms: 7 * 24 * 60 * 60 * 1000 },
   { key: "30d", label: "Last 30 days", ms: 30 * 24 * 60 * 60 * 1000 },
+  { key: "90d", label: "Last 90 days", ms: 90 * 24 * 60 * 60 * 1000 },
   { key: "365d", label: "Last year", ms: 365 * 24 * 60 * 60 * 1000 },
+  { key: "any", label: "Any time", ms: null },
 ];
+
+// Default to the last 90 days — the guild's active roster, not everyone
+// who's ever earned a point (leader, 2026-09-06). "Any time" is still one
+// click away.
+const DEFAULT_ACTIVE_WINDOW = "90d";
 
 const TYPE_LABEL: Record<RosterRow["charType"], string> = { main: "Main", alt: "Alt", mule: "Mule" };
 
@@ -82,7 +88,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   const [raceFilter, setRaceFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
-  const [activeFilter, setActiveFilter] = useState<string>("any");
+  const [activeFilter, setActiveFilter] = useState<string>(DEFAULT_ACTIVE_WINDOW);
   const [minLevel, setMinLevel] = useState("");
   const [maxLevel, setMaxLevel] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");

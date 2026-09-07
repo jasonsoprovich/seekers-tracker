@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 
+import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
 import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { fieldClasses } from "@/components/ui/Field";
@@ -29,6 +30,7 @@ export type AdminCharacterRow = {
   ownerUsername: string | null;
   ownerId: string | null;
   ownerRole: Role | null;
+  ownerDeparted: boolean;
   popDone: number;
   popTotal: number;
 };
@@ -320,10 +322,18 @@ export function AdminCharacterList({
           {canEditRoles && c.charType === "main" && c.ownerId && (
             // ownerId is truthy here, so the leftJoin matched a users row —
             // ownerRole can't actually be null in this branch.
-            <span className="flex items-center gap-2 text-xs text-neutral-500">
-              Role
-              <RoleSelect userId={c.ownerId} role={c.ownerRole!} isSelf={c.ownerId === selfUserId} />
-            </span>
+            <>
+              <span className="flex items-center gap-2 text-xs text-neutral-500">
+                Role
+                <RoleSelect userId={c.ownerId} role={c.ownerRole!} isSelf={c.ownerId === selfUserId} />
+              </span>
+              <RemoveMemberButton
+                userId={c.ownerId}
+                username={c.ownerUsername ?? c.name}
+                departed={c.ownerDeparted}
+                isSelf={c.ownerId === selfUserId}
+              />
+            </>
           )}
           {canEditRoles && c.charType === "main" && c.playerId !== null && mainInfo && mainInfo.options.length >= 2 && (
             <span className="flex items-center gap-2 text-xs text-neutral-500">
