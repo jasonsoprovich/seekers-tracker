@@ -10,6 +10,15 @@ import type { Role } from "@/lib/authz";
 import { characterStatusLabel, type CharacterStatus } from "@/lib/character-status";
 import { CHAR_CLASSES, CHAR_RACES } from "@/lib/eq/enums";
 
+// The Class and Race filter dropdowns list alphabetically with "Unknown"
+// pinned last (it's a catch-all, not a real class/race). The enums stay in
+// their canonical EQ order everywhere else — this ordering is display-only
+// for these two <select>s.
+const byNameUnknownLast = (a: { name: string }, b: { name: string }) =>
+  a.name === "Unknown" ? 1 : b.name === "Unknown" ? -1 : a.name.localeCompare(b.name);
+const CLASS_FILTER_OPTIONS = [...CHAR_CLASSES].sort(byNameUnknownLast);
+const RACE_FILTER_OPTIONS = [...CHAR_RACES].sort(byNameUnknownLast);
+
 export type RosterRow = {
   id: number;
   name: string;
@@ -261,7 +270,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <span className="text-neutral-400">Class</span>
           <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
             <option value="all">All classes</option>
-            {CHAR_CLASSES.map((c) => (
+            {CLASS_FILTER_OPTIONS.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
@@ -273,7 +282,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <span className="text-neutral-400">Race</span>
           <select value={raceFilter} onChange={(e) => setRaceFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
             <option value="all">All races</option>
-            {CHAR_RACES.map((r) => (
+            {RACE_FILTER_OPTIONS.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
               </option>

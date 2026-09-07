@@ -14,6 +14,13 @@ import type { Role } from "@/lib/authz";
 import { characterStatusLabel, type CharacterStatus } from "@/lib/character-status";
 import { CHAR_CLASSES, CHAR_RACES } from "@/lib/eq/enums";
 
+// Class/Race filter dropdowns list alphabetically with "Unknown" last —
+// display-only ordering for these two <select>s, same as RosterTable.
+const byNameUnknownLast = (a: { name: string }, b: { name: string }) =>
+  a.name === "Unknown" ? 1 : b.name === "Unknown" ? -1 : a.name.localeCompare(b.name);
+const CLASS_FILTER_OPTIONS = [...CHAR_CLASSES].sort(byNameUnknownLast);
+const RACE_FILTER_OPTIONS = [...CHAR_RACES].sort(byNameUnknownLast);
+
 export type AdminCharacterRow = {
   id: number;
   name: string;
@@ -170,7 +177,7 @@ export function AdminCharacterList({
           <span className="text-neutral-400">Class</span>
           <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
             <option value="all">All classes</option>
-            {CHAR_CLASSES.map((c) => (
+            {CLASS_FILTER_OPTIONS.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
@@ -182,7 +189,7 @@ export function AdminCharacterList({
           <span className="text-neutral-400">Race</span>
           <select value={raceFilter} onChange={(e) => setRaceFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
             <option value="all">All races</option>
-            {CHAR_RACES.map((r) => (
+            {RACE_FILTER_OPTIONS.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
               </option>
