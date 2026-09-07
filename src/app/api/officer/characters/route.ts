@@ -4,6 +4,7 @@ import { characters } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
 import { getStandings } from "@/lib/epgp/standings";
+import { characterName } from "@/lib/validate";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
 import { createStandalonePlayer } from "@/lib/players";
 
@@ -91,9 +92,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) return Response.json({ error: "Character name is required." }, { status: 400 });
-  if (name.length > 64) return Response.json({ error: "Name must be 64 characters or fewer." }, { status: 400 });
+  // EQ character names are a single letters-only word — a captured "no
+  // match" row with anything else in it (digits, punctuation, a whole
+  // chat line pasted by accident) is a parse error, not a character.
+  const nameCheck = characterName(body.name, "name");
+  if (!nameCheck.ok) return Response.json({ error: nameCheck.error }, { status: 400 });
+  const name = nameCheck.value;
 
   const db = await getDb();
 

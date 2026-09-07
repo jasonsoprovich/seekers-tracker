@@ -6,6 +6,11 @@ import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { getStandings } from "@/lib/epgp/standings";
+import { boundedString, isoDate, LIMITS } from "@/lib/validate";
+
+// One item's bid round — every character who tell-bid, winner or not.
+// Anything past this is a malformed or duplicated payload.
+const MAX_BID_ENTRIES = 200;
 
 type BidEntryBody = { characterName?: unknown; tier?: unknown; occurredAt?: unknown; isWinner?: unknown };
 type BidsRequestBody = { itemName?: unknown; entries?: unknown; note?: unknown; confirmDuplicate?: unknown };
@@ -60,8 +65,9 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  if (typeof body.itemName !== "string" || !body.itemName.trim()) {
-    return Response.json({ error: "`itemName` is required." }, { status: 400 });
+  const itemCheck = boundedString(body.itemName, { max: LIMITS.itemName, min: 1, field: "itemName" });
+  if (!itemCheck.ok) {
+    return Response.json({ error: itemCheck.error }, { status: 400 });
   }
   if (!Array.isArray(body.entries) || body.entries.length === 0 || !body.entries.every(isBidEntry)) {
     return Response.json(
@@ -69,9 +75,18 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  if (body.entries.length > MAX_BID_ENTRIES) {
+    return Response.json({ error: `Too many bid entries (limit ${MAX_BID_ENTRIES}).` }, { status: 400 });
+  }
   const entries = body.entries;
-  const itemName = body.itemName.trim();
-  const note = typeof body.note === "string" ? body.note.trim() || null : null;
+  const badField = entries.find(
+    (e) => e.characterName.length > LIMITS.characterName || e.tier.length > LIMITS.activity || !isoDate(e.occurredAt).ok,
+  );
+  if (badField) {
+    return Response.json({ error: `Invalid name, tier, or time on ${badField.characterName || "an entry"}.` }, { status: 400 });
+  }
+  const itemName = itemCheck.value;
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, LIMITS.note) || null : null;
 
   const winners = entries.filter((e) => e.isWinner);
   if (winners.length === 0) {

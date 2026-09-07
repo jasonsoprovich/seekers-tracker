@@ -8,6 +8,11 @@ import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
 import { refreshStandings } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
+import { boundedString, isoDate, LIMITS } from "@/lib/validate";
+
+// One `/who guild` snapshot is at most the raid cap plus stragglers; well
+// above that is a malformed or duplicated paste, not a real capture.
+const MAX_ATTENDEES = 200;
 
 type AttendanceRequestBody = {
   activity?: unknown;
@@ -37,26 +42,33 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  if (typeof body.activity !== "string" || !body.activity.trim()) {
-    return Response.json({ error: "`activity` is required." }, { status: 400 });
+  const activityCheck = boundedString(body.activity, { max: LIMITS.activity, min: 1, field: "activity" });
+  if (!activityCheck.ok) {
+    return Response.json({ error: activityCheck.error }, { status: 400 });
   }
-  if (typeof body.occurredAt !== "string" || !body.occurredAt) {
-    return Response.json({ error: "`occurredAt` is required." }, { status: 400 });
+  const dateCheck = isoDate(body.occurredAt, "occurredAt");
+  if (!dateCheck.ok) {
+    return Response.json({ error: dateCheck.error }, { status: 400 });
   }
-  const occurredAt = new Date(body.occurredAt);
-  if (Number.isNaN(occurredAt.getTime())) {
-    return Response.json({ error: "`occurredAt` is not a valid date." }, { status: 400 });
-  }
+  const occurredAt = dateCheck.value;
+  const occurredAtIso = occurredAt.toISOString();
   if (!Array.isArray(body.characterNames) || body.characterNames.some((n) => typeof n !== "string")) {
     return Response.json({ error: "`characterNames` must be an array of strings." }, { status: 400 });
   }
-  const note = typeof body.note === "string" ? body.note : "";
+  if (body.characterNames.length > MAX_ATTENDEES) {
+    return Response.json({ error: `Too many names in one capture (limit ${MAX_ATTENDEES}).` }, { status: 400 });
+  }
+  const longName = body.characterNames.find((n) => (n as string).length > LIMITS.characterName);
+  if (longName !== undefined) {
+    return Response.json({ error: `"${(longName as string).slice(0, 20)}…" isn't a valid character name.` }, { status: 400 });
+  }
+  const note = typeof body.note === "string" ? body.note.slice(0, LIMITS.note) : "";
   // The zone the `/who` was run in, straight off the capture's own "There
   // are N players in <Zone>" line — says what this Raid-Start/Mid/End award
   // was actually for. Optional: an older client, or a manual resubmit,
   // won't send it.
-  const zone = typeof body.zone === "string" && body.zone.trim() ? body.zone.trim() : null;
-  const activity = body.activity;
+  const zone = typeof body.zone === "string" && body.zone.trim() ? body.zone.trim().slice(0, LIMITS.zone) : null;
+  const activity = activityCheck.value;
 
   const db = await getDb();
   const points = await getActivePointValue(db, "ep", activity);
@@ -113,7 +125,7 @@ export async function POST(request: Request) {
 
     if (seenPlayerKeys.has(playerKey)) {
       duplicates.push(name);
-      console.warn(`attendance: skipped "${name}" — player ${playerKey} already awarded "${activity}" at ${body.occurredAt} in this submission`);
+      console.warn(`attendance: skipped "${name}" — player ${playerKey} already awarded "${activity}" at ${occurredAtIso} in this submission`);
       continue;
     }
 
@@ -123,7 +135,7 @@ export async function POST(request: Request) {
       .where(and(eq(epLedger.playerId, playerKey), eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt)));
     if (existing) {
       duplicates.push(name);
-      console.warn(`attendance: skipped "${name}" — player ${playerKey} already has an "${activity}" row at ${body.occurredAt} (duplicate capture?)`);
+      console.warn(`attendance: skipped "${name}" — player ${playerKey} already has an "${activity}" row at ${occurredAtIso} (duplicate capture?)`);
       continue;
     }
 
@@ -133,7 +145,7 @@ export async function POST(request: Request) {
     // whole batch below beats one recompute per name.
     const result = await insertLedgerEntry(
       db,
-      { kind: "ep", characterId, activity, points, occurredAt: body.occurredAt, note, zone },
+      { kind: "ep", characterId, activity, points, occurredAt: occurredAtIso, note, zone },
       auth.userId,
       "parse",
       { deferStandingsRefresh: true },

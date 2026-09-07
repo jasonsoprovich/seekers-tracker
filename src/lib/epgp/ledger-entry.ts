@@ -5,6 +5,7 @@ import { characters, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
 import { refreshStandings } from "@/lib/epgp/standings";
+import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/lib/validate";
 
 // Shared by the website's manual-entry Server Action
 // (src/app/(app)/epgp/ledger/actions.ts) and the officer app's
@@ -33,11 +34,6 @@ export type InsertLedgerEntryInput =
 // instead of one per row. NULL only for a character with no player_id yet.
 export type InsertLedgerEntryResult = { ok: true; playerId: number | null } | { ok: false; error: string };
 
-function parseOccurredAt(raw: string): Date | null {
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 export async function insertLedgerEntry(
   db: ReturnType<typeof drizzle>,
   input: InsertLedgerEntryInput,
@@ -45,11 +41,35 @@ export async function insertLedgerEntry(
   source: LedgerEntrySource = "manual",
   opts: { deferStandingsRefresh?: boolean } = {},
 ): Promise<InsertLedgerEntryResult> {
-  if (!Number.isFinite(input.points)) return { ok: false, error: "Points must be a number." };
-  const occurredAt = parseOccurredAt(input.occurredAt);
-  if (!occurredAt) return { ok: false, error: "Invalid date." };
-  const activityOrTier = (input.kind === "ep" ? input.activity : input.tier).trim();
-  if (!activityOrTier) return { ok: false, error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
+  // Range sanity on the values that reach D1 — every write path (site form,
+  // officer manual-entry / attendance / bids routes) funnels through here,
+  // so a non-finite or absurd points value, an epoch-0 date, or an
+  // unbounded activity/tier string is rejected in one place. See
+  // src/lib/validate.ts.
+  const pointsCheck = boundedNumber(input.points, { field: "points" });
+  if (!pointsCheck.ok) return { ok: false, error: pointsCheck.error };
+  const dateCheck = isoDate(input.occurredAt, "occurredAt");
+  if (!dateCheck.ok) return { ok: false, error: dateCheck.error };
+  const occurredAt = dateCheck.value;
+  const activityCheck = boundedString(input.kind === "ep" ? input.activity : input.tier, {
+    max: LIMITS.activity,
+    min: 1,
+    field: input.kind === "ep" ? "activity" : "tier",
+  });
+  if (!activityCheck.ok) {
+    return { ok: false, error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
+  }
+  const activityOrTier = activityCheck.value;
+  const noteCheck = optionalText(input.note, LIMITS.note, "note");
+  if (!noteCheck.ok) return { ok: false, error: noteCheck.error };
+  if (input.kind === "gp") {
+    const itemCheck = optionalText(input.itemName, LIMITS.itemName, "itemName");
+    if (!itemCheck.ok) return { ok: false, error: itemCheck.error };
+  }
+  if (input.kind === "ep") {
+    const zoneCheck = optionalText(input.zone, LIMITS.zone, "zone");
+    if (!zoneCheck.ok) return { ok: false, error: zoneCheck.error };
+  }
 
   const [character] = await db
     .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId, playerId: characters.playerId })
