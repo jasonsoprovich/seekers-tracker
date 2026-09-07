@@ -39,15 +39,17 @@ type ServerMessage = { type: "state"; rounds: RoundView[] };
 
 type ConnectionStatus = "connecting" | "open" | "closed";
 
-// Dismiss is per-viewer (leader, 2026-09-05: one member closing a resolved
-// card must not close it for everyone else watching). The board itself
-// (the Durable Object) has no per-viewer concept, so "dismissed" lives
-// entirely in this browser's localStorage, keyed by item name, and only
-// ever hides a *currently resolved* round from this render — it's never
-// sent to the server. A round naturally reappears if the same item name
-// goes live again later (a fresh round object, no longer "resolved"), and
-// dismissed keys are pruned to whatever's still actually resolved so this
-// doesn't grow unbounded over a long session.
+// Dismiss is per-viewer (leader, 2026-09-05: one member closing a card
+// must not close it for everyone else watching). The board itself (the
+// Durable Object) has no per-viewer concept, so "dismissed" lives entirely
+// in this browser's localStorage, keyed by item name, and is never sent to
+// the server. It hides a card from this render — a *resolved* round the
+// viewer is done reviewing, or (leader, 2026-09-07) a *collecting* round
+// that looks stuck because an officer never finalized it. A dismissed
+// collecting round reappears the moment it resolves (so the viewer still
+// sees the winner) or if the same item goes live again; a dismissed
+// resolved round reappears only if it goes live again. Keys are pruned to
+// what's still on the board so the set can't grow unbounded.
 const DISMISSED_STORAGE_KEY = "seekers.liveBids.dismissedItems";
 
 function loadDismissed(): Set<string> {
@@ -205,8 +207,9 @@ export function LiveBidsView() {
     }
   }
 
-  // Purely local — hides this resolved card from this browser only. Never
-  // touches the server, so nobody else's board is affected.
+  // Purely local — hides this card from this browser only. Never touches
+  // the server, so nobody else's board is affected and a live round keeps
+  // running for everyone else.
   function onDismiss(itemName: string) {
     setDismissedKeys((prev) => {
       const next = new Set(prev);
@@ -216,22 +219,24 @@ export function LiveBidsView() {
     });
   }
 
-  // Drop any dismissed key that's no longer a currently-resolved round —
-  // either the server swept it, or it went live again under the same item
-  // name — so a re-announced item isn't hidden forever and the stored set
-  // doesn't grow across a long session.
+  // Prune a dismissed key once hiding it no longer makes sense: the round
+  // left the board entirely (server swept or /clear), or a round dismissed
+  // *while collecting* has now resolved — in which case the viewer should
+  // see the winner, so let the resolved card back through (they can
+  // re-dismiss it). Keeps the stored set from growing over a long session
+  // and stops a re-announced item from staying hidden forever.
   useEffect(() => {
     setDismissedKeys((prev) => {
       if (prev.size === 0) return prev;
-      const stillResolved = new Set(rounds.filter((r) => r.status === "resolved").map((r) => r.itemName));
-      const next = new Set([...prev].filter((k) => stillResolved.has(k)));
+      const keepHidden = new Set(rounds.filter((r) => r.status !== "resolved").map((r) => r.itemName));
+      const next = new Set([...prev].filter((k) => keepHidden.has(k)));
       if (next.size !== prev.size) saveDismissed(next);
       return next.size === prev.size ? prev : next;
     });
   }, [rounds]);
 
   const visibleRounds = useMemo(
-    () => rounds.filter((r) => r.status !== "resolved" || !dismissedKeys.has(r.itemName)),
+    () => rounds.filter((r) => !dismissedKeys.has(r.itemName)),
     [rounds, dismissedKeys],
   );
 
@@ -300,6 +305,16 @@ export function LiveBidsView() {
                     <span className="ml-auto">
                       {resolved ? "finalized" : "updated"} {relativeTime(round.lastSeenAt, now)}
                     </span>
+                    {!resolved && (
+                      <button
+                        type="button"
+                        onClick={() => onDismiss(round.itemName)}
+                        title="Hides this card for you only until it resolves or is cleared — the round keeps running for everyone else"
+                        className="self-center rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60"
+                      >
+                        Hide
+                      </button>
+                    )}
                   </div>
                   {resolved && (
                     <div className="mt-2 flex items-center gap-2">

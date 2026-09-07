@@ -58,6 +58,11 @@ type Round = {
   officerName: string;
   bids: LiveBidTell[];
   lastSeenAt: number;
+  // When a real bid tell last landed (NOT bumped by a heartbeat). A
+  // collecting round's expiry is measured from this, so an officer's
+  // parser that keeps heartbeating a round it never finalized can't pin
+  // it on the board forever — see expiryOf.
+  lastBidAt: number;
   startedAt: number;
   // "collecting" until the officer finalizes; "resolved" after, with
   // winners set and resolvedAt stamped.
@@ -147,6 +152,10 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.list<Round>({ prefix: RESOLVED_STORAGE_PREFIX });
       for (const [storageKey, round] of stored) {
+        // Rounds persisted before lastBidAt existed won't carry it. It's
+        // never read for a resolved round (expiryOf returns Infinity), but
+        // keep the type honest in case this item goes live again.
+        if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
         this.rounds.set(storageKey.slice(RESOLVED_STORAGE_PREFIX.length), round);
       }
     });
@@ -196,6 +205,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
           officerName,
           bids: [],
           lastSeenAt: now,
+          lastBidAt: now,
           startedAt: now,
           state: "collecting",
           winners: [],
@@ -216,6 +226,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
           round.bids = [];
           round.winners = [];
           round.startedAt = now;
+          round.lastBidAt = now;
           // No longer resolved — drop its persisted copy too, or it would
           // reappear (stale) after a future eviction even once this fresh
           // round finishes collecting and gets its own resolve+persist.
@@ -240,6 +251,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       else round.bids.push(tell);
 
       round.lastSeenAt = now;
+      round.lastBidAt = now; // a real tell — resets the abandon timer (heartbeats don't)
       this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
@@ -299,6 +311,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
           officerName: typeof officerName === "string" && officerName ? officerName : "An officer",
           bids: [],
           lastSeenAt: now,
+          lastBidAt: now,
           startedAt: now,
           state: "collecting",
           winners: [],
@@ -425,9 +438,15 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   }
 
   // When this expires, in ms since epoch. A resolved round never expires on
-  // its own (Infinity) — only /dismiss or /clear removes it.
+  // its own (Infinity) — only /dismiss or /clear removes it. A collecting
+  // round expires ROUND_EXPIRY_MS after its last real bid tell — NOT after
+  // its last heartbeat: an officer who announces a round and walks away
+  // with the parser still open keeps heartbeating it, which used to pin it
+  // on the board forever (leader, 2026-09-07). 5 min with no new tell means
+  // it was abandoned; the officer can still Submit from the parser (that
+  // recreates the round with its winner) and a viewer can hide it sooner.
   private expiryOf(round: Round): number {
-    return round.state === "resolved" ? Infinity : round.lastSeenAt + ROUND_EXPIRY_MS;
+    return round.state === "resolved" ? Infinity : round.lastBidAt + ROUND_EXPIRY_MS;
   }
 
   // Drops rounds past their expiry. Returns whether anything was removed.
