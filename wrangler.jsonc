@@ -83,12 +83,14 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
+	"upload_source_maps": true,
+	// Every (app) page render makes 2-5 D1 round trips (session, role,
+	// standings, the page's own query). D1 lives in one region; without
+	// this a request served from an isolate far from it pays that latency
+	// per query. Smart Placement moves the isolate next to D1 —
+	// straightforward win for a DB-heavy dynamic app.
+	// https://developers.cloudflare.com/workers/configuration/smart-placement/
+	"placement": { "mode": "smart" }
 	/**
 	 * Bindings
 	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
