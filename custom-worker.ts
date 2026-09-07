@@ -26,12 +26,12 @@
 // /clear from its Next route: that's one call per round, not a loop, so it
 // doesn't have the sustained-load problem.
 
-import { eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import { createAuth } from "./src/auth";
 import * as schema from "./src/db";
-import { characters, users } from "./src/db";
+import { bids as bidsTable, characters, lootEvents, users } from "./src/db";
 import { verifyOfficerApiKey } from "./src/lib/api-key-auth";
 import { fetchIsMemberAllowed } from "./src/lib/discord-verify";
 import { getStandings, rebuildAllStandings } from "./src/lib/epgp/standings";
@@ -170,15 +170,47 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
     // `winners` — still supported.
     const rawBids = Array.isArray(body.bids) ? body.bids : [];
     const rawWinners = Array.isArray(body.winners) ? body.winners : [];
-    // One totals fetch, then resolve each name's current priority the same
-    // way /push does — so the card shows the same numbers the officer's
-    // Determine Winner used.
-    const totals = rawBids.length || rawWinners.length ? await getStandings(db) : null;
+
+    // Prefer the Priority Rating snapshotted at bid time. POST
+    // /api/officer/bids runs immediately before this and writes
+    // bids.priority_snapshot for every bidder *before* the winner's GP
+    // charge lands. If we recomputed PR here from live standings instead,
+    // the winner would show post-charge (lower) while the losers stay
+    // pre-charge — making the winner look like they had the worst
+    // priority on the resolved card. Read the snapshot back, keyed by
+    // character name, and only fall back to a live lookup for a name that
+    // has no bid row (e.g. an unmatched bid).
+    const snapshotByName = new Map<string, number>();
+    try {
+      const itemLower = body.itemName.trim().toLowerCase();
+      const [latestEvent] = await db
+        .select({ id: lootEvents.id })
+        .from(lootEvents)
+        .where(sql`lower(${lootEvents.itemName}) = ${itemLower}`)
+        .orderBy(desc(lootEvents.id))
+        .limit(1);
+      if (latestEvent) {
+        const snapRows = await db
+          .select({ name: characters.name, snap: bidsTable.prioritySnapshot })
+          .from(bidsTable)
+          .innerJoin(characters, eq(characters.id, bidsTable.characterId))
+          .where(eq(bidsTable.lootEventId, latestEvent.id));
+        for (const r of snapRows) if (typeof r.snap === "number") snapshotByName.set(r.name.toLowerCase(), r.snap);
+      }
+    } catch {
+      // best-effort — fall back to the live lookup below
+    }
+
+    // Live standings, only fetched if some name has no snapshot to use.
+    let totals: Awaited<ReturnType<typeof getStandings>> | null = null;
     const priorityCache = new Map<string, number | null>();
     async function priorityFor(name: string): Promise<number | null> {
+      const snap = snapshotByName.get(name.toLowerCase());
+      if (snap !== undefined) return snap;
       const cached = priorityCache.get(name.toLowerCase());
       if (cached !== undefined) return cached;
       let priorityRating: number | null = null;
+      if (!totals && (rawBids.length || rawWinners.length)) totals = await getStandings(db);
       const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.name, name));
       if (character?.playerId != null && totals) priorityRating = totals.get(character.playerId)?.priorityRating ?? null;
       priorityCache.set(name.toLowerCase(), priorityRating);
