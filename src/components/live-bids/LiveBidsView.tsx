@@ -346,16 +346,32 @@ export function LiveBidsView() {
                       </thead>
                       <tbody className="divide-y divide-border">
                         {ranked.map((b, i) => {
-                          const isWinner = resolved
-                            ? winnerNames.has(b.characterName.toLowerCase())
-                            : i === 0;
+                          // Green (with a ✓) means "won" — only ever on a
+                          // resolved round, after the officer has ended
+                          // bidding and picked the winner. While a round is
+                          // still collecting, the top-ranked row is just
+                          // *leading* (amber) — it can still change, and a
+                          // member shouldn't read it as "I won".
+                          const isWinner = resolved && winnerNames.has(b.characterName.toLowerCase());
+                          const isLeading = !resolved && i === 0;
                           return (
                             <tr
                               key={`${b.characterName}-${i}`}
-                              className={isWinner ? "bg-emerald-500/10" : "hover:bg-neutral-900/40"}
+                              className={
+                                isWinner
+                                  ? "bg-emerald-500/10"
+                                  : isLeading
+                                    ? "bg-amber-500/10"
+                                    : "hover:bg-neutral-900/40"
+                              }
                             >
                               <td className="px-4 py-2 font-medium">
-                                {isWinner && resolved && <span className="mr-1 text-emerald-400">✓</span>}
+                                {isWinner && <span className="mr-1 text-emerald-400">✓</span>}
+                                {isLeading && (
+                                  <span className="mr-1.5 rounded bg-amber-500/15 px-1 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-amber-400">
+                                    leading
+                                  </span>
+                                )}
                                 {b.characterName}
                               </td>
                               <td className="px-4 py-2 text-neutral-400">{b.tier}</td>
