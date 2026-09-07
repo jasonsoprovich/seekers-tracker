@@ -161,6 +161,17 @@ export const characters = sqliteTable("characters", {
   // gear/stat detail beyond what this app's own hover cards show — see
   // GearList.tsx.
   quarmyUrl: text("quarmy_url"),
+  // Denormalized "last non-decay ep_ledger/gp_ledger occurred_at for this
+  // character" — the value the roster/dashboard/progression "recently
+  // active" filters need per-CHARACTER (not per-player; see
+  // character-activity.ts for why an alt must not inherit its main's).
+  // Maintained by insertLedgerEntry on every award and recomputed on
+  // ledger edit/delete + the nightly rebuild; kept here so those three
+  // pages read one column instead of a full-year GROUP BY max() scan of
+  // both ledgers (~46K rows) on every load. Decay rows are excluded — a
+  // decay isn't the player doing something. NULL until backfilled / for a
+  // character with no ledger history.
+  lastActivityAt: integer("last_activity_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -470,6 +481,9 @@ export const gpLedger = sqliteTable(
     index("gp_ledger_occurred_at_idx").on(table.occurredAt),
     index("gp_ledger_decay_event_id_idx").on(table.decayEventId),
     uniqueIndex("gp_ledger_source_key_unique").on(table.sourceKey),
+    // Backs GET /api/officer/items (the officer app's item-name
+    // autocomplete): SELECT DISTINCT item_name — a full scan without this.
+    index("gp_ledger_item_name_idx").on(table.itemName),
   ],
 );
 

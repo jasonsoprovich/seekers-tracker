@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { PopProgressionView, type ProgressionRow } from "@/components/progression/PopProgressionView";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, users } from "@/db";
-import { getCharacterLastActivitySince } from "@/lib/epgp/character-activity";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getZoneCatalog, resolveFlags, tierLabel, zoneStatuses } from "@/lib/pop-flags";
 import { getDb } from "@/lib/db";
@@ -27,18 +26,14 @@ export default async function ProgressionPage() {
       level: characters.level,
       charType: characters.charType,
       status: characters.status,
+      // Materialized per-character last activity (schema.ts) — backs the
+      // "Recently active" default so 790 rows aren't rendered at once.
+      lastActivityAt: characters.lastActivityAt,
       ownerUsername: users.username,
     })
     .from(characters)
     .leftJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
-
-  // Per-character last ledger activity over the widest window the filter
-  // offers (1 year), so the view can default to "active in the last 90
-  // days" — 790 rows is an endless scroll otherwise (leader). Same helper
-  // and same reasoning the roster's Recently-active filter uses.
-  const activitySince = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-  const lastActivity = await getCharacterLastActivitySince(db, activitySince);
 
   // Guild-wide table, not filtered by character ID list — same D1
   // bound-parameter-limit dodge as the dashboard and admin pages.
@@ -64,7 +59,7 @@ export default async function ProgressionPage() {
       status: c.status,
       done: resolved.done,
       total: resolved.total,
-      lastActivityAt: lastActivity.get(c.id)?.getTime() ?? null,
+      lastActivityAt: c.lastActivityAt?.getTime() ?? null,
       tiers: resolved.tiers.map((t) => ({ tier: t.tier ?? 0, label: tierLabel(t.tier ?? 0), done: t.done, total: t.total })),
       zones: zoneStatuses(resolved),
     };

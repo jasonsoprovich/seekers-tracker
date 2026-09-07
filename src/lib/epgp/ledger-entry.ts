@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, lt, or, isNull } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
@@ -145,6 +145,23 @@ export async function insertLedgerEntry(
       .returning();
     if (source === "manual") await recordLedgerChange(db, "gp", row.id, "create", null, row, enteredBy);
   }
+
+  // Keep characters.last_activity_at current for the roster/dashboard/
+  // progression "recently active" filters — bump the character the row was
+  // written against (targetCharacterId — an alt's award lands on its main,
+  // matching how the old GROUP BY grouped) if this award is newer. Only
+  // moves forward; a ledger edit/delete that could move it back calls
+  // recomputeCharacterLastActivity instead. Never a decay row here
+  // (decay.ts writes those directly, not through this function).
+  await db
+    .update(characters)
+    .set({ lastActivityAt: occurredAt })
+    .where(
+      and(
+        eq(characters.id, targetCharacterId),
+        or(isNull(characters.lastActivityAt), lt(characters.lastActivityAt, occurredAt)),
+      ),
+    );
 
   // Every EPGP-affecting write goes through this function (website form,
   // officer manual-entry/attendance/bids routes), so refreshing the

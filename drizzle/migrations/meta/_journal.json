@@ -218,6 +218,13 @@
       "when": 1788570311365,
       "tag": "0030_jazzy_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1788748928728,
+      "tag": "0031_foamy_apocalypse",
+      "breakpoints": true
     }
   ]
 }

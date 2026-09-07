@@ -1,52 +1,57 @@
-import { and, gte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { epLedger, gpLedger } from "@/db";
+import { characters, epLedger, gpLedger } from "@/db";
 
-// Per-CHARACTER last-activity, for "recently active" filters/widgets
-// (roster's Recently-active dropdown, dashboard's Active-by-Class board).
-//
-// Deliberately distinct from player_epgp_totals.lastActivityAt, which is
-// per-PLAYER by design (EP/GP truly is a player-level concept — PLAN.md
-// §4a). Using that player-level value for a "who's recently active"
-// character list means every alt/mule silently inherits its main's most
-// recent ledger row, inflating "98 characters active in 24h" when maybe
-// 20 real people actually did anything (leader, 2026-09-05) — the fix is
-// to ask each ledger row which CHARACTER it actually happened to.
-//
-// Bounded by `since` (always the widest UI window, 1 year today) rather
-// than an unfiltered scan of the full ledger — index-assisted via each
-// table's existing occurred_at index, not the kind of full-table
-// aggregate PLAN.md §6 eliminated for totals (which had no filter at
-// all). Still two full aggregation passes over up to a year of rows, so
-// don't call this from a hot per-request path without caching if it ever
-// shows up in D1 read-budget monitoring.
-export async function getCharacterLastActivitySince(
-  db: ReturnType<typeof drizzle>,
-  since: Date,
-): Promise<Map<number, Date>> {
-  const [epRows, gpRows] = await Promise.all([
+type Db = ReturnType<typeof drizzle>;
+
+// Recompute one character's denormalized `characters.last_activity_at` from
+// its non-decay ledger rows. Called after a ledger edit/delete
+// (src/app/(app)/epgp/ledger/actions.ts), where the changed row might have
+// been that character's most recent — a plain "bump if newer" (what
+// insertLedgerEntry does on an award) can't move the value *backwards*.
+export async function recomputeCharacterLastActivity(db: Db, characterId: number): Promise<void> {
+  const [ep, gp] = await Promise.all([
     db
-      .select({ characterId: epLedger.characterId, lastMs: sql<number>`max(${epLedger.occurredAt})` })
+      .select({ t: sql<number | null>`max(${epLedger.occurredAt})` })
       .from(epLedger)
-      .where(and(isNotNull(epLedger.characterId), gte(epLedger.occurredAt, since)))
-      .groupBy(epLedger.characterId),
+      .where(and(eq(epLedger.characterId, characterId), isNull(epLedger.decayEventId))),
     db
-      .select({ characterId: gpLedger.characterId, lastMs: sql<number>`max(${gpLedger.occurredAt})` })
+      .select({ t: sql<number | null>`max(${gpLedger.occurredAt})` })
       .from(gpLedger)
-      .where(and(isNotNull(gpLedger.characterId), gte(gpLedger.occurredAt, since)))
-      .groupBy(gpLedger.characterId),
+      .where(and(eq(gpLedger.characterId, characterId), isNull(gpLedger.decayEventId))),
   ]);
-
-  const result = new Map<number, Date>();
-  for (const row of [...epRows, ...gpRows]) {
-    if (row.characterId == null || row.lastMs == null) continue;
-    // sql<>`max(...)` returns the raw stored integer (unix seconds), not a
-    // Date — drizzle's timestamp-mode conversion only applies to plain
-    // column selects.
-    const d = new Date(row.lastMs * 1000);
-    const existing = result.get(row.characterId);
-    if (!existing || d > existing) result.set(row.characterId, d);
-  }
-  return result;
+  // occurred_at is stored in unix seconds; drizzle's timestamp conversion
+  // only applies to plain column selects, not sql`max(...)`.
+  const maxSec = Math.max(ep[0]?.t ?? 0, gp[0]?.t ?? 0);
+  await db
+    .update(characters)
+    .set({ lastActivityAt: maxSec > 0 ? new Date(maxSec * 1000) : null })
+    .where(eq(characters.id, characterId));
 }
+
+// Full recompute of `characters.last_activity_at` for every character —
+// the same statement migration 0031 runs as its backfill. The nightly
+// scheduled job (custom-worker.ts) re-runs this so the column self-heals
+// any drift, and rebuildAllStandings calls it too. One pass over each
+// ledger's occurred_at index; not a per-request path.
+export async function recomputeAllCharacterLastActivity(db: Db): Promise<void> {
+  await db.run(sql`
+    UPDATE characters SET last_activity_at = (
+      SELECT MAX(t) FROM (
+        SELECT MAX(occurred_at) AS t FROM ep_ledger WHERE character_id = characters.id AND decay_event_id IS NULL
+        UNION ALL
+        SELECT MAX(occurred_at) AS t FROM gp_ledger WHERE character_id = characters.id AND decay_event_id IS NULL
+      )
+    )
+  `);
+}
+
+// NOTE: the old `getCharacterLastActivitySince(db, since)` — a full-year
+// GROUP BY max() over both ledgers, run per request by roster / dashboard /
+// progression — was replaced by the materialized `characters.last_activity_at`
+// column (migration 0031). Those pages now read that column directly; this
+// module only recomputes it. The per-CHARACTER (not per-player) distinction
+// still matters: an alt must not inherit its main's most recent ledger row,
+// which is why the value lives on `characters` and not `player_epgp_totals`
+// (leader, 2026-09-05 — "98 active in 24h" was inflated by exactly that).

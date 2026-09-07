@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
-import { getCharacterLastActivitySince } from "@/lib/epgp/character-activity";
 import { getStandings } from "@/lib/epgp/standings";
 import { getSession } from "@/lib/session";
 
@@ -27,7 +26,7 @@ export default async function RosterPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [rows, totals, characterActivity] = await Promise.all([
+  const [rows, totals] = await Promise.all([
     db
       .select({
         id: characters.id,
@@ -40,18 +39,18 @@ export default async function RosterPage() {
         status: characters.status,
         mainCharacterId: characters.mainCharacterId,
         playerId: characters.playerId,
+        // Per-CHARACTER last activity, materialized (schema.ts) — not the
+        // player-level total's lastActivityAt, which every alt inherits
+        // from its main (see character-activity.ts).
+        lastActivityAt: characters.lastActivityAt,
         ownerUsername: users.username,
         ownerRole: users.role,
       })
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
       .orderBy(characters.name),
-    // Materialized standings — one ~255-row scan, always current. EP/GP/
-    // priority still come from here (genuinely per-player). `lastActivityAt`
-    // does NOT — see character-activity.ts for why the "Recently active"
-    // filter needs the per-character value instead.
+    // Materialized standings — one ~255-row scan, always current.
     getStandings(db),
-    getCharacterLastActivitySince(db, new Date(Date.now() - 365 * 86_400_000)),
   ]);
 
   // Every character sharing a player (main, alt, mule) reads the same
@@ -79,9 +78,7 @@ export default async function RosterPage() {
       epDecay: total?.epDecay ?? null,
       gpDecay: total?.gpDecay ?? null,
       priorityRating: total?.priorityRating ?? null,
-      // Per-character, not the player-level total's lastActivityAt — see
-      // character-activity.ts. The client works in ms.
-      lastActivityAt: characterActivity.get(r.id)?.getTime() ?? null,
+      lastActivityAt: r.lastActivityAt?.getTime() ?? null,
     };
   });
 

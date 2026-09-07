@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { epLedger, gpLedger } from "@/db";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
 import { refreshStandings } from "@/lib/epgp/standings";
@@ -65,10 +66,12 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   // An edit never reassigns the character (that's a delete + re-add), so
   // the row's own player_id is the only standings that can move.
   let affectedPlayerId: number | null = null;
+  let affectedCharacterId: number | null = null;
   if (input.kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
+    affectedCharacterId = before.characterId;
     const [after] = await db
       .update(epLedger)
       .set({
@@ -87,6 +90,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
+    affectedCharacterId = before.characterId;
     const [after] = await db
       .update(gpLedger)
       .set({
@@ -108,6 +112,9 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   // one and delete's below were the two that used to forget (then only
   // invalidating a cache; found auditing this file, 2026-08-25).
   if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
+  // The edit may have moved this character's most recent ledger row (a
+  // date change), which "bump if newer" can't walk back — recompute it.
+  if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);
 
   return {};
 }
@@ -123,21 +130,26 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
 
   const db = await getDb();
   let affectedPlayerId: number | null = null;
+  let affectedCharacterId: number | null = null;
   if (kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, id));
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
+    affectedCharacterId = before.characterId;
     await db.delete(epLedger).where(eq(epLedger.id, id));
     await recordLedgerChange(db, "ep", id, "delete", before, null, session.user.id);
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, id));
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
+    affectedCharacterId = before.characterId;
     await db.delete(gpLedger).where(eq(gpLedger.id, id));
     await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
   }
 
   if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
+  // Deleting a row can drop this character's most recent activity — recompute.
+  if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);
 
   return {};
 }

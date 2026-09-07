@@ -8,7 +8,6 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, users } from "@/db";
 import { LEADERSHIP_ROLES } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { getCharacterLastActivitySince } from "@/lib/epgp/character-activity";
 import { getStandings } from "@/lib/epgp/standings";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
@@ -47,8 +46,6 @@ export default async function DashboardPage() {
   const db = await getDb();
   const allCharacters = await db.select().from(characters);
   const standings = await getStandings(db);
-  const oneYearAgo = new Date(Date.now() - 365 * 86_400_000);
-  const characterActivity = await getCharacterLastActivitySince(db, oneYearAgo);
 
   // Shared roster feed for RosterOverview's combined Characters/Mains/Alts
   // card, Roster-by-Class chart, and Active-by-Class list — one filter
@@ -65,7 +62,7 @@ export default async function DashboardPage() {
       classId: c.class,
       charType: c.charType === "main" ? "main" : "alt",
       priority: standings.get(c.playerId as number)?.priorityRating ?? 0,
-      lastActivityMs: characterActivity.get(c.id)?.getTime() ?? null,
+      lastActivityMs: c.lastActivityAt?.getTime() ?? null,
     }));
 
   // Guild-wide table, not filtered by character ID list — an inArray() of

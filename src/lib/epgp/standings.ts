@@ -3,6 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { epLedger, gpLedger, playerEpgpTotals } from "@/db";
 
+import { recomputeAllCharacterLastActivity } from "./character-activity";
 import { computeEpgpTotals, type EpgpTotal } from "./totals";
 
 // Maintains the `player_epgp_totals` materialized table (see its schema
@@ -124,6 +125,10 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
 // player — trivial against D1's 100K/day write cap.
 export async function rebuildAllStandings(db: ReturnType<typeof drizzle>): Promise<{ players: number }> {
   await refreshStandings(db, { all: true });
+  // Heal characters.last_activity_at drift too (the roster/dashboard/
+  // progression "recently active" filter reads it) — same recompute
+  // migration 0031 ran; the nightly scheduled job goes through here.
+  await recomputeAllCharacterLastActivity(db);
   const [row] = await db.select({ n: sql<number>`count(*)` }).from(playerEpgpTotals);
   return { players: Number(row?.n ?? 0) };
 }
