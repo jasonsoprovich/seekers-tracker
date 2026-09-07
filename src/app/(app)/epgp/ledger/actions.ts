@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { epLedger, gpLedger } from "@/db";
+import { epLedger, gpLedger, ledgerAuditLog } from "@/db";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
@@ -11,6 +11,7 @@ import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
 import { refreshStandings } from "@/lib/epgp/standings";
 import { getSession } from "@/lib/session";
+import { boundedString } from "@/lib/validate";
 
 export type LedgerActionResult = { error?: string };
 
@@ -150,6 +151,40 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
   if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
   // Deleting a row can drop this character's most recent activity — recompute.
   if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);
+
+  return {};
+}
+
+// The audit trail's one editable field. `action`/`before`/`after` on a
+// ledger_audit_log row are the immutable record of what changed; this note
+// is the "why", added or corrected after the fact by an officer/leader/
+// admin. Empty string clears it. See AuditLogTable / AuditNoteCell.
+export async function setAuditNote(auditId: number, note: string): Promise<LedgerActionResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const role = await getUserRole(session.user.id);
+  if (!canManageEpgp(role)) {
+    return { error: "Only officers, leaders, and admins can add audit notes." };
+  }
+  if (!Number.isInteger(auditId) || auditId <= 0) return { error: "Invalid audit entry." };
+
+  const checked = boundedString(note, { max: 1000, field: "note" });
+  if (!checked.ok) return { error: checked.error };
+  const trimmed = checked.value;
+
+  const db = await getDb();
+  const [row] = await db.select({ id: ledgerAuditLog.id }).from(ledgerAuditLog).where(eq(ledgerAuditLog.id, auditId));
+  if (!row) return { error: "Audit entry not found." };
+
+  await db
+    .update(ledgerAuditLog)
+    .set({
+      note: trimmed || null,
+      noteUpdatedBy: session.user.id,
+      noteUpdatedAt: new Date(),
+    })
+    .where(eq(ledgerAuditLog.id, auditId));
 
   return {};
 }

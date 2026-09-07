@@ -598,6 +598,14 @@ export const ledgerAuditLog = sqliteTable(
       .default(sql`(unixepoch())`),
     before: text("before", { mode: "json" }).notNull(),
     after: text("after", { mode: "json" }),
+    // Officer/leader/admin-editable free-text explaining *why* an edit or
+    // delete was made — the audit row itself (action/before/after) stays
+    // immutable, this is the one field that can be added or corrected after
+    // the fact (leader request, 2026-09-07). noteUpdatedBy/At give the note
+    // its own provenance since it's the mutable part of an audit record.
+    note: text("note"),
+    noteUpdatedBy: text("note_updated_by").references(() => users.id),
+    noteUpdatedAt: integer("note_updated_at", { mode: "timestamp" }),
   },
   (table) => [
     index("ledger_audit_log_ledger_idx").on(table.ledgerType, table.ledgerId),

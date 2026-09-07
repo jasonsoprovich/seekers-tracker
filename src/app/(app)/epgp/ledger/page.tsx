@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -122,6 +123,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
           like(sql`lower(${ledgerAuditLog.ledgerType})`, `%${term.toLowerCase()}%`),
         )
       : undefined;
+    const noteAuthor = alias(users, "note_author");
     const rows = await db
       .select({
         id: ledgerAuditLog.id,
@@ -133,9 +135,13 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         characterName: characters.name,
         before: ledgerAuditLog.before,
         after: ledgerAuditLog.after,
+        note: ledgerAuditLog.note,
+        noteUpdatedAt: ledgerAuditLog.noteUpdatedAt,
+        noteUpdatedByName: noteAuthor.username,
       })
       .from(ledgerAuditLog)
       .leftJoin(users, eq(ledgerAuditLog.changedBy, users.id))
+      .leftJoin(noteAuthor, eq(ledgerAuditLog.noteUpdatedBy, noteAuthor.id))
       .leftJoin(characters, eq(characters.id, auditCharId))
       .where(auditWhere)
       .orderBy(desc(ledgerAuditLog.changedAt))
@@ -157,6 +163,10 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
             <Link
               key={tab.key}
               href={pageHref({ type: tab.key, page: 1 })}
+              // Every tab is a fully dynamic server render; prefetching all
+              // five on mount just fires five slow RSC renders the viewer
+              // may never need. Fetch on click instead.
+              prefetch={false}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${type === tab.key ? "bg-accent text-black" : "border border-field text-neutral-300 hover:bg-neutral-900/60"}`}
             >
               {tab.label}
@@ -189,7 +199,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} />}
         {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} />}
         {type === "bids" && <BidHistoryTable rows={bidRows} />}
-        {type === "audit" && <AuditLogTable rows={auditRows} />}
+        {type === "audit" && <AuditLogTable rows={auditRows} canManage={canManage} />}
       </div>
 
       {type !== "totals" && (

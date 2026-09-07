@@ -1,3 +1,4 @@
+import { AuditNoteCell } from "@/components/epgp/AuditNoteCell";
 import { ledgerDate } from "@/lib/format-date";
 
 export type AuditLogRow = {
@@ -10,6 +11,9 @@ export type AuditLogRow = {
   characterName: string | null;
   before: unknown;
   after: unknown;
+  note: string | null;
+  noteUpdatedAt: Date | null;
+  noteUpdatedByName: string | null;
 };
 
 // Fields worth showing in the trail, in display order. Everything else on
@@ -69,13 +73,15 @@ const ACTION_STYLE: Record<AuditLogRow["action"], string> = {
   delete: "text-red-400",
 };
 
-// Read-only — edit/delete/add of ep_ledger/gp_ledger rows happens on the EP
-// Ledger / GP Ledger tabs; this tab is purely the trail those actions leave
-// via recordLedgerChange (src/lib/epgp/ledger-audit.ts).
-export function AuditLogTable({ rows }: { rows: AuditLogRow[] }) {
+// The action/before/after of each row is the immutable trail that
+// recordLedgerChange (src/lib/epgp/ledger-audit.ts) leaves on every
+// ep_ledger/gp_ledger create/edit/delete. The one thing that IS editable
+// — for officers/leaders/admins — is the Notes cell: a "why" that can be
+// added or corrected after the fact (setAuditNote in the ledger actions).
+export function AuditLogTable({ rows, canManage }: { rows: AuditLogRow[]; canManage: boolean }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[880px] text-left text-sm">
+      <table className="w-full min-w-[980px] text-left text-sm">
         <thead>
           <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
             <th className="px-3 py-2 font-medium">When</th>
@@ -84,6 +90,7 @@ export function AuditLogTable({ rows }: { rows: AuditLogRow[] }) {
             <th className="px-3 py-2 font-medium">Action</th>
             <th className="px-3 py-2 font-medium">Character</th>
             <th className="px-3 py-2 font-medium">Change</th>
+            <th className="px-3 py-2 font-medium">Notes</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -109,12 +116,31 @@ export function AuditLogTable({ rows }: { rows: AuditLogRow[] }) {
                     ))}
                   </div>
                 </td>
+                <td className="px-3 py-2 align-top">
+                  {canManage ? (
+                    <AuditNoteCell
+                      auditId={r.id}
+                      note={r.note}
+                      updatedByName={r.noteUpdatedByName}
+                      updatedAt={r.noteUpdatedAt ? r.noteUpdatedAt.toISOString() : null}
+                    />
+                  ) : r.note ? (
+                    <div className="max-w-[22rem] whitespace-pre-wrap text-neutral-300">
+                      {r.note}
+                      {r.noteUpdatedByName && (
+                        <span className="mt-0.5 block text-[11px] text-neutral-500">— {r.noteUpdatedByName}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-neutral-600">—</span>
+                  )}
+                </td>
               </tr>
             );
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-3 py-6 text-center text-neutral-500">
+              <td colSpan={7} className="px-3 py-6 text-center text-neutral-500">
                 No ledger edits recorded yet.
               </td>
             </tr>
