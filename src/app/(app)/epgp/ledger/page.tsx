@@ -51,8 +51,12 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   const canManage = canManageEpgp(role);
 
   const { type: typeParam, q = "", page: pageParam } = await searchParams;
+  // Totals is the landing tab — it's the "where does everyone stand" view
+  // people actually come here for (and mirrors the guild sheet's own Totals
+  // tab). EP Ledger is a drill-down, not a default (leader request,
+  // 2026-09-07).
   const type: TabType =
-    typeParam === "totals" || typeParam === "gp" || typeParam === "bids" || typeParam === "audit" ? typeParam : "ep";
+    typeParam === "ep" || typeParam === "gp" || typeParam === "bids" || typeParam === "audit" ? typeParam : "totals";
   const page = Math.max(1, Number(pageParam) || 1);
   const term = q.trim();
 
