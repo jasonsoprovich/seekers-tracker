@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
 import { MainCharacterSelect } from "@/components/MainCharacterSelect";
@@ -63,18 +63,16 @@ export function AdminCharacterList({
   const [maxLevel, setMaxLevel] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  // 790+ rows: don't render the whole list on load (it buried Members &
-  // Roles and made the page an endless scroll — leader, 2026-09-06). Show
-  // it only once the admin has actually narrowed it with a search or a
-  // filter.
-  const isDefaultView =
-    search.trim() === "" &&
-    classFilter === "all" &&
-    raceFilter === "all" &&
-    typeFilter === "all" &&
-    statusFilter === "active" &&
-    minLevel === "" &&
-    maxLevel === "";
+  // 790+ rows would bury Members & Roles and make the page an endless
+  // scroll (leader, 2026-09-06). Officers still need to browse — they don't
+  // know every character's name to search for — so render the list
+  // main-groups at a time with a "Show more" rather than hiding it behind a
+  // search. Any change to a filter or the search box resets this.
+  const PAGE_SIZE = 100;
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [search, classFilter, raceFilter, typeFilter, statusFilter, minLevel, maxLevel]);
 
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -130,8 +128,14 @@ export function AdminCharacterList({
     return result;
   }, [groups, matches]);
 
-  const groupsWithAlts = useMemo(() => visibleGroups.filter((g) => g.alts.length > 0), [visibleGroups]);
-  const visibleCount = visibleGroups.reduce((n, g) => n + 1 + g.alts.length, 0);
+  // Page by main-group, not by row, so a main and its alts never split
+  // across the "Show more" boundary.
+  const pagedGroups = useMemo(() => visibleGroups.slice(0, limit), [visibleGroups, limit]);
+  const hasMore = visibleGroups.length > pagedGroups.length;
+
+  const groupsWithAlts = useMemo(() => pagedGroups.filter((g) => g.alts.length > 0), [pagedGroups]);
+  const shownCount = pagedGroups.reduce((n, g) => n + 1 + g.alts.length, 0);
+  const totalCount = visibleGroups.reduce((n, g) => n + 1 + g.alts.length, 0);
 
   function toggleExpanded(id: number) {
     setExpanded((prev) => {
@@ -248,30 +252,36 @@ export function AdminCharacterList({
         </div>
 
         <span className="pb-1.5 text-sm text-neutral-500">
-          {visibleCount} of {rows.length} character{rows.length === 1 ? "" : "s"}
+          {hasMore ? `${shownCount} of ${totalCount}` : `${totalCount} of ${rows.length}`} character{rows.length === 1 ? "" : "s"}
         </span>
       </div>
 
-      {isDefaultView ? (
-        <p className="mt-4 rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-neutral-400">
-          {rows.length} character{rows.length === 1 ? "" : "s"} in the guild. Search by name or owner, or pick a filter, to
-          list them.
-        </p>
-      ) : visibleGroups.length === 0 ? (
+      {visibleGroups.length === 0 ? (
         <p className="mt-4 text-neutral-400">No characters match these filters.</p>
       ) : (
-        <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
-          {visibleGroups.map((group) => {
-            const hasAlts = group.alts.length > 0;
-            const isOpen = hasAlts && (expanded.has(group.main.id) || !matches(group.main));
-            return (
-              <Fragment key={group.main.id}>
-                {renderCard(group.main, hasAlts ? { open: isOpen, onClick: () => toggleExpanded(group.main.id) } : undefined)}
-                {hasAlts && isOpen && group.alts.map((alt) => renderCard(alt))}
-              </Fragment>
-            );
-          })}
-        </ul>
+        <>
+          <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
+            {pagedGroups.map((group) => {
+              const hasAlts = group.alts.length > 0;
+              const isOpen = hasAlts && (expanded.has(group.main.id) || !matches(group.main));
+              return (
+                <Fragment key={group.main.id}>
+                  {renderCard(group.main, hasAlts ? { open: isOpen, onClick: () => toggleExpanded(group.main.id) } : undefined)}
+                  {hasAlts && isOpen && group.alts.map((alt) => renderCard(alt))}
+                </Fragment>
+              );
+            })}
+          </ul>
+          {hasMore && (
+            <button
+              type="button"
+              onClick={() => setLimit((l) => l + PAGE_SIZE)}
+              className="mt-3 w-full rounded-lg border border-dashed border-border px-4 py-2.5 text-sm font-medium text-neutral-300 hover:border-emerald-500/60 hover:bg-neutral-900/60 hover:text-emerald-300"
+            >
+              Show more ({visibleGroups.length - pagedGroups.length} more group{visibleGroups.length - pagedGroups.length === 1 ? "" : "s"})
+            </button>
+          )}
+        </>
       )}
     </div>
   );

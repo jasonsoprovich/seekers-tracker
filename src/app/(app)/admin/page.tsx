@@ -6,7 +6,7 @@ import { AdminCharacterList, type AdminCharacterRow, type PlayerMainInfo } from 
 import { MembersRolesList } from "@/components/admin/MembersRolesList";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characterPopFlags, characters, players, users } from "@/db";
+import { characterClaims, characterPopFlags, characters, players, users } from "@/db";
 import {
   canManageAnyCharacter,
   canManageEpgp,
@@ -25,8 +25,8 @@ import { getSession } from "@/lib/session";
 // the newest tag, so this never goes stale.
 const OFFICER_APP_RELEASE_URL = "https://github.com/jasonsoprovich/seekers-epgp-parser/releases/latest";
 
-const ADMIN_TABS: { href: string; label: string; external?: boolean; show: (r: Role | null) => boolean }[] = [
-  { href: "/admin/claims", label: "Claim Requests", show: () => true },
+const ADMIN_TABS: { href: string; label: string; external?: boolean; badgeKey?: "pendingClaims"; show: (r: Role | null) => boolean }[] = [
+  { href: "/admin/claims", label: "Claim Requests", badgeKey: "pendingClaims", show: () => true },
   { href: "/admin/imports", label: "Import Audit Trail", show: () => true },
   { href: OFFICER_APP_RELEASE_URL, label: "Officer App", external: true, show: canManageEpgp },
   { href: "/epgp/app-key", label: "App Key", show: canManageEpgp },
@@ -48,6 +48,12 @@ export default async function AdminPage() {
   const realRole = await getRealUserRole(session.user.id);
 
   const db = await getDb();
+
+  const pendingClaimRows = await db
+    .select({ id: characterClaims.id })
+    .from(characterClaims)
+    .where(eq(characterClaims.status, "pending"));
+  const pendingClaimCount = pendingClaimRows.length;
 
   const roster = await db
     .select({
@@ -121,28 +127,36 @@ export default async function AdminPage() {
   });
 
   const canEditRoles = canManageRoles(role);
-  const members = canEditRoles
-    ? await db
-        .select({
-          id: users.id,
-          username: users.username,
-          role: users.role,
-          discordVerified: users.discordVerified,
-          createdAt: users.createdAt,
-          // 'departed' == removed from the guild by a leader (blocks all
-          // site access) — see RemoveMemberButton / removeMemberFromGuild.
-          playerStatus: players.status,
-        })
-        .from(users)
-        .leftJoin(players, eq(players.userId, users.id))
-        .orderBy(users.username)
-    : [];
+  // Officers (canManageAnyCharacter — already the page's own access bar) can
+  // assign an unclaimed character to an account, so they need the member
+  // list too; only leaders/admins get the role picker + remove button on
+  // top of that.
+  const members = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      role: users.role,
+      discordVerified: users.discordVerified,
+      createdAt: users.createdAt,
+      // 'departed' == removed from the guild by a leader (blocks all
+      // site access) — see RemoveMemberButton / removeMemberFromGuild.
+      playerStatus: players.status,
+    })
+    .from(users)
+    .leftJoin(players, eq(players.userId, users.id))
+    .orderBy(users.username);
 
   // Members & Roles is merged into the character list (role picker + remove
   // on each main-character row). This fallback catches the rare account
   // that's signed in but has claimed nothing yet — otherwise unmanageable.
   const ownerIds = new Set(roster.map((c) => c.ownerId).filter((id): id is string => id !== null));
   const membersNoCharacter = members.filter((m) => !ownerIds.has(m.id));
+
+  // Unclaimed roster characters an officer can attach to an account here.
+  const unclaimedCharacters = roster
+    .filter((c) => c.ownerId === null && c.status !== "removed")
+    .map((c) => ({ id: c.id, name: c.name, charType: c.charType }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // PLAN.md §11 Phase 10 task 10.3 — leader-only main swap. Used to be its
   // own hundreds-of-rows section; now folded inline onto each player's
@@ -180,6 +194,11 @@ export default async function AdminPage() {
             className="rounded-full border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 transition-colors hover:border-emerald-500/60 hover:bg-neutral-900/60 hover:text-emerald-300"
           >
             {t.label}
+            {t.badgeKey === "pendingClaims" && pendingClaimCount > 0 && (
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
+                {pendingClaimCount}
+              </span>
+            )}
             {t.external && <span aria-hidden className="ml-1 text-xs text-neutral-500">↗</span>}
           </Link>
         ))}
@@ -213,14 +232,19 @@ export default async function AdminPage() {
         )}
       </section>
 
-      {canEditRoles && membersNoCharacter.length > 0 && (
+      {membersNoCharacter.length > 0 && (
         <section className="mt-10">
           <h2 className="text-lg font-semibold">Members without a claimed character</h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Signed in, but haven&apos;t claimed a character yet — so they don&apos;t appear in the list above. Same role /
-            remove controls.
+            Signed in, but haven&apos;t claimed a character yet — so they don&apos;t appear in the list above. Assign one to
+            them directly{canEditRoles ? ", or use the role / remove controls" : ""}.
           </p>
-          <MembersRolesList members={membersNoCharacter} selfUserId={session.user.id} />
+          <MembersRolesList
+            members={membersNoCharacter}
+            selfUserId={session.user.id}
+            canEditRoles={canEditRoles}
+            unclaimedCharacters={unclaimedCharacters}
+          />
         </section>
       )}
     </div>
