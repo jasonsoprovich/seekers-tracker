@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { fieldClasses } from "@/components/ui/Field";
@@ -21,9 +21,21 @@ export interface ProgressionRow {
   status: CharacterStatus;
   done: number;
   total: number;
+  // ms epoch of this character's last EP/GP ledger row within the last
+  // year, or null if none — backs the "recently active" default filter.
+  lastActivityAt: number | null;
   tiers: { tier: number; label: string; done: number; total: number }[];
   zones: ZoneStatus[];
 }
+
+const PAGE_SIZE = 100;
+
+const ACTIVITY_WINDOWS = {
+  "90d": { label: "Active · 90 days", ms: 90 * 24 * 60 * 60 * 1000 },
+  "1y": { label: "Active · 1 year", ms: 365 * 24 * 60 * 60 * 1000 },
+  all: { label: "All", ms: null },
+} as const;
+type ActivityKey = keyof typeof ACTIVITY_WINDOWS;
 
 type SortKey = "name" | "ownerUsername" | "className" | "level" | "charType" | "pct";
 type SortDir = "asc" | "desc";
@@ -184,30 +196,51 @@ function MilestoneGraph({ rows, zoneCatalog }: { rows: ProgressionRow[]; zoneCat
   );
 }
 
-export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow[]; zoneCatalog: ZoneCatalogEntry[] }) {
+export function PopProgressionView({
+  rows,
+  zoneCatalog,
+  nowMs,
+}: {
+  rows: ProgressionRow[];
+  zoneCatalog: ZoneCatalogEntry[];
+  nowMs: number;
+}) {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
+  const [activityFilter, setActivityFilter] = useState<ActivityKey>("90d");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [limit, setLimit] = useState(PAGE_SIZE);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const windowMs = ACTIVITY_WINDOWS[activityFilter].ms;
+    const cutoff = windowMs === null ? null : nowMs - windowMs;
     return rows.filter((r) => {
       if (q && !r.name.toLowerCase().includes(q) && !r.ownerUsername.toLowerCase().includes(q)) return false;
       if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
       if (typeFilter !== "all" && r.charType !== typeFilter) return false;
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (cutoff !== null && (r.lastActivityAt === null || r.lastActivityAt < cutoff)) return false;
       return true;
     });
-  }, [rows, search, classFilter, typeFilter, statusFilter]);
+  }, [rows, search, classFilter, typeFilter, statusFilter, activityFilter, nowMs]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
     copy.sort((a, b) => compare(a, b, sortKey) * (sortDir === "asc" ? 1 : -1));
     return copy;
   }, [filtered, sortKey, sortDir]);
+
+  // Render a page at a time — 790 rows across this table AND the milestone
+  // grid below was the slow part on navigation (leader).
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [search, classFilter, typeFilter, statusFilter, activityFilter, sortKey, sortDir]);
+  const visible = useMemo(() => sorted.slice(0, limit), [sorted, limit]);
+  const hasMore = sorted.length > visible.length;
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -272,8 +305,24 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
           </select>
         </label>
 
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Recently active</span>
+          <select
+            value={activityFilter}
+            onChange={(e) => setActivityFilter(e.target.value as ActivityKey)}
+            className={fieldClasses({ size: "sm" })}
+          >
+            {(Object.keys(ACTIVITY_WINDOWS) as ActivityKey[]).map((k) => (
+              <option key={k} value={k}>
+                {ACTIVITY_WINDOWS[k].label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <span className="pb-1.5 text-sm text-neutral-500">
-          {sorted.length} of {rows.length} character{rows.length === 1 ? "" : "s"}
+          {hasMore ? `${visible.length} of ${sorted.length}` : `${sorted.length} of ${rows.length}`} character
+          {rows.length === 1 ? "" : "s"}
         </span>
       </div>
 
@@ -292,7 +341,7 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {sorted.map((r) => (
+            {visible.map((r) => (
               <tr key={r.id} className="hover:bg-neutral-900/40">
                 <td className="px-3 py-2 font-medium">
                   <Link href={`/characters/${r.id}`} className="hover:text-emerald-400">
@@ -325,12 +374,23 @@ export function PopProgressionView({ rows, zoneCatalog }: { rows: ProgressionRow
         </table>
       </div>
 
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setLimit((l) => l + PAGE_SIZE)}
+          className="mt-3 w-full rounded-lg border border-dashed border-border px-4 py-2.5 text-sm font-medium text-neutral-300 hover:border-emerald-500/60 hover:bg-neutral-900/60 hover:text-emerald-300"
+        >
+          Show more ({sorted.length - visible.length} more)
+        </button>
+      )}
+
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Zone Milestones</h2>
         <p className="mt-1 text-sm text-neutral-400">
           Which zones are unlocked, in progress, or cleared per character — grouped by tier. Hover a cell for detail.
+          {hasMore && " Showing the same page as the table above."}
         </p>
-        <MilestoneGraph rows={sorted} zoneCatalog={zoneCatalog} />
+        <MilestoneGraph rows={visible} zoneCatalog={zoneCatalog} />
       </section>
     </div>
   );
