@@ -25,7 +25,8 @@
     "verify:global-decay": "tsx scripts/verify-global-decay.ts",
     "verify:player-reconciliation": "tsx scripts/verify-player-reconciliation.ts",
     "verify:quest-flags": "tsx scripts/verify-quest-flags.ts",
-    "recompute:standings": "tsx scripts/recompute-standings.ts"
+    "recompute:standings": "tsx scripts/recompute-standings.ts",
+    "bake-legacy-decay": "tsx scripts/bake-legacy-decay.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.7.1",
