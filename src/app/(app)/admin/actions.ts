@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 
 import { characters, players, users } from "@/db";
 import { revokeApiKeysForUser } from "@/lib/api-key-auth";
-import { canManageEpgp, canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
+import { canManageAnyCharacter, canManageEpgp, canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
-import { swapMainCharacter, type SwapMainResult } from "@/lib/players";
+import { refreshStandings } from "@/lib/epgp/standings";
+import { assignCharacterToUser, swapMainCharacter, type SwapMainResult } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type SetRoleResult = { error?: string };
@@ -90,6 +91,33 @@ export async function setPlayerMainCharacter(playerId: number, characterId: numb
 
   const db = await getDb();
   return swapMainCharacter(db, playerId, characterId, session.user.id);
+}
+
+export type AssignCharacterResult = { error?: string };
+
+// Officer/leader/admin (canManageAnyCharacter — the same bar as approving a
+// claim) attaching an unclaimed roster character straight to a member's
+// account, for when an officer knows whose character it is and the member
+// hasn't filed a claim. Shares approveClaim's core (assignCharacterToUser:
+// re-check unclaimed → set owner → resolve player → attach + carry ledger
+// history), then recomputes that player's standings.
+export async function assignCharacterToMember(userId: string, characterId: number): Promise<AssignCharacterResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const actingRole = await getUserRole(session.user.id);
+  if (!canManageAnyCharacter(actingRole)) {
+    return { error: "Only officers, leaders, and admins can assign characters." };
+  }
+  if (!Number.isInteger(characterId) || characterId <= 0) {
+    return { error: "Invalid character." };
+  }
+
+  const db = await getDb();
+  const assigned = await assignCharacterToUser(db, characterId, userId);
+  if (!assigned.ok) return { error: assigned.error };
+  if (assigned.playerId != null) await refreshStandings(db, { playerIds: [assigned.playerId] });
+  return {};
 }
 
 // Leader/admin action (canManageRoles). "Removed from the guild" is a

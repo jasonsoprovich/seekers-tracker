@@ -3,11 +3,11 @@
 import { and, eq, ne } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characterClaims, characters, users } from "@/db";
+import { characterClaims } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { refreshStandings } from "@/lib/epgp/standings";
-import { attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
+import { assignCharacterToUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type ClaimReviewResult = { error?: string };
@@ -26,40 +26,24 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
   if (!claim) return { error: "Claim not found." };
   if (claim.status !== "pending") return { error: "That claim has already been reviewed." };
 
-  // Re-check the character is still unclaimed — a check-then-write race if
-  // two claims on the same character are approved back to back (same benign
-  // race acknowledged for the character-name uniqueness check and
-  // bootstrap-leader's claim).
-  const [character] = await db.select({ ownerId: characters.ownerId }).from(characters).where(eq(characters.id, claim.characterId));
-  if (!character) return { error: "That character no longer exists." };
-  if (character.ownerId !== null) return { error: "That character has already been claimed by someone else." };
+  // Sets owner_id (re-checking the character is still unclaimed — a benign
+  // check-then-write race if two approvals land together), resolves the
+  // requester's player and attaches the character to it (PLAN.md §11 Phase
+  // 10 task 10.2 — also pulls any stranded ledger history under one
+  // identity). Shared with the "assign a character to a member" admin
+  // action so the two can't drift.
+  const assigned = await assignCharacterToUser(db, claim.characterId, claim.requesterId);
+  if (!assigned.ok) return { error: assigned.error };
 
   const now = new Date();
-  await db.update(characters).set({ ownerId: claim.requesterId, updatedAt: now }).where(eq(characters.id, claim.characterId));
   await db
     .update(characterClaims)
     .set({ status: "approved", reviewedBy: session.user.id, reviewedAt: now })
     .where(eq(characterClaims.id, claimId));
 
-  // PLAN.md §11 Phase 10 task 10.2 — attach the newly-owned character to the
-  // requester's player (normally already resolved by resolvePlayerForUser
-  // on their login, per task 10.1; resolved here too so an approval never
-  // silently skips this for a requester who logged in before that hook
-  // existed, or any other edge case that left it unresolved).
-  const [requester] = await db
-    .select({ id: users.id, discordId: users.discordId, username: users.username })
-    .from(users)
-    .where(eq(users.id, claim.requesterId));
-  if (requester) {
-    const playerId = await resolvePlayerForUser(db, requester);
-    if (playerId) {
-      // attachCharacterToPlayer may absorb a defunct standalone player
-      // (its ledger history moves onto `playerId`), so the standings for
-      // this player need recomputing from the migrated ledger.
-      await attachCharacterToPlayer(db, claim.characterId, playerId);
-      await refreshStandings(db, { playerIds: [playerId] });
-    }
-  }
+  // assignCharacterToUser may have absorbed a defunct standalone player
+  // (its ledger history moved onto this player), so recompute standings.
+  if (assigned.playerId != null) await refreshStandings(db, { playerIds: [assigned.playerId] });
 
   // Any other still-pending claim on this character (from a different
   // requester) is now moot — auto-deny it rather than leaving it stuck

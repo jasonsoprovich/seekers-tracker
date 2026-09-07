@@ -1,7 +1,7 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { characters, epLedger, gpLedger, playerEpgpTotals, players } from "@/db";
+import { characters, epLedger, gpLedger, playerEpgpTotals, players, users } from "@/db";
 
 // PLAN.md §11 Phase 10 — character claiming rework, built on the `players`
 // table Phase 3 introduced. Four entry points:
@@ -128,6 +128,36 @@ export async function attachCharacterToPlayer(db: Db, characterId: number, playe
   }
 
   return {};
+}
+
+export type AssignResult = { ok: true; playerId: number | null } | { ok: false; error: string };
+
+// The core of "this character now belongs to this account" — shared by
+// claim approval (admin/claims/actions.ts) and the officer/leader "assign a
+// character to a member" action (admin/actions.ts). Re-checks the character
+// is still unclaimed (a benign check-then-write race if two assignments
+// land together, same as acknowledged elsewhere), sets owner_id, resolves
+// the user's players row and attaches the character to it — which also
+// pulls any stranded ledger history under the one identity (see
+// attachCharacterToPlayer / absorbStandalonePlayer). The caller does the
+// follow-up refreshStandings({ playerIds: [result.playerId] }); kept out of
+// here so this module doesn't take a dependency on the standings layer.
+export async function assignCharacterToUser(db: Db, characterId: number, userId: string): Promise<AssignResult> {
+  const [character] = await db.select({ ownerId: characters.ownerId }).from(characters).where(eq(characters.id, characterId));
+  if (!character) return { ok: false, error: "That character no longer exists." };
+  if (character.ownerId !== null) return { ok: false, error: "That character has already been claimed by someone else." };
+
+  await db.update(characters).set({ ownerId: userId, updatedAt: new Date() }).where(eq(characters.id, characterId));
+
+  const [user] = await db
+    .select({ id: users.id, discordId: users.discordId, username: users.username })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!user) return { ok: true, playerId: null };
+
+  const playerId = await resolvePlayerForUser(db, user);
+  if (playerId) await attachCharacterToPlayer(db, characterId, playerId);
+  return { ok: true, playerId: playerId ?? null };
 }
 
 export type SwapMainResult = { error?: string };
