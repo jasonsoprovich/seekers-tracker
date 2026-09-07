@@ -149,8 +149,13 @@ export default async function AdminPage() {
   // Members & Roles is merged into the character list (role picker + remove
   // on each main-character row). This fallback catches the rare account
   // that's signed in but has claimed nothing yet — otherwise unmanageable.
+  // discordVerified filters out shell accounts left by a denied sign-in
+  // (someone not in the guild Discord, or with no/denied roles): the
+  // membership gate already blocks them from every page, so they're not
+  // "members" — no reason to surface them here as if they need a character
+  // assigned. They reappear the moment a real login stamps them verified.
   const ownerIds = new Set(roster.map((c) => c.ownerId).filter((id): id is string => id !== null));
-  const membersNoCharacter = members.filter((m) => !ownerIds.has(m.id));
+  const membersNoCharacter = members.filter((m) => !ownerIds.has(m.id) && m.discordVerified);
 
   // Unclaimed roster characters an officer can attach to an account here.
   const unclaimedCharacters = roster
