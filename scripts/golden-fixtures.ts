@@ -76,8 +76,8 @@ export const GOLDEN_FIXTURES: GoldenFixture[] = [
   {
     name: "Aransur",
     category: "veteran-all-3-expansion-decays",
-    note: "Guild's top-end lifetime EP (~18.6K raw) — verified against Totals!I4 in PLAN.md §1a. ep/priority re-read off SoS - EPGP (2).xlsx on 2026-09-06 (raids since the original 2026-08-21 read).",
-    expected: { ep: 14962.56, gp: 1263.8, epDecay: 3628.14, gpDecay: 283.45, priority: 11.0812 },
+    note: "Guild's top-end lifetime EP — verified against Totals!I4 in PLAN.md §1a. ep/priority re-read off SoS - EPGP (3).xlsx on 2026-09-06 (still-active raider — moves most syncs).",
+    expected: { ep: 15012.56, gp: 1263.8, epDecay: 3628.14, gpDecay: 283.45, priority: 11.1179 },
   },
   {
     name: "Ammaru",
