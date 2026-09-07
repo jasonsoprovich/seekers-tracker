@@ -18,6 +18,7 @@
     "derive:players": "tsx scripts/derive-players-from-sos-bot.ts",
     "snapshot": "scripts/snapshot.sh",
     "bookmark": "scripts/remote-bookmark.sh",
+    "sync:apply": "scripts/sync-apply.sh",
     "verify": "tsx scripts/verify-harness.ts",
     "backfill:expansion-decay": "tsx scripts/backfill-expansion-decay.ts",
     "verify:expansion-decay": "tsx scripts/verify-expansion-decay.ts",

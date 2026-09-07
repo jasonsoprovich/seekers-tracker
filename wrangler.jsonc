@@ -72,6 +72,14 @@
 	"migrations": [
 		{ "tag": "v1", "new_sqlite_classes": ["LiveAuctionSession"] }
 	],
+	// Nightly standings + last_activity rebuild — custom-worker.ts's
+	// scheduled() handler. 09:17 UTC ≈ 4-5am US Eastern, safely after any
+	// raid. refreshStandings runs synchronously on every write, so this is
+	// only a safety net (a missed hook, the per-cycle-rollover shift under
+	// decay_model=legacy) — one ~450k-row read/night, negligible.
+	"triggers": {
+		"crons": ["17 9 * * *"]
+	},
 	"observability": {
 		"enabled": true
 	},
