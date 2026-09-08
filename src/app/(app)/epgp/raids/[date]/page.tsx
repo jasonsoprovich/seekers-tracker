@@ -80,28 +80,46 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
         <p className="mt-1 text-sm text-neutral-500">No attendance captures on this date.</p>
       ) : (
         <div className="mt-3 space-y-4">
-          {detail.captures.map((c, i) => (
-            <div key={i} className="rounded-lg border border-border">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-3 py-2 text-sm">
-                <span className="font-medium">{c.activity}</span>
-                <span className="text-neutral-500">
-                  {timeLocal(c.occurredAt)}
-                  {c.zone ? ` · ${c.zone}` : ""} · {c.members.length} member{c.members.length === 1 ? "" : "s"}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-sm">
-                {c.members.map((m, j) => (
-                  <span key={j} className="text-neutral-300">
-                    {m.name}
-                    <span className={`ml-1 font-mono text-xs ${m.ep >= 0 ? "text-emerald-400/80" : "text-red-400/80"}`}>
-                      {m.ep >= 0 ? "+" : ""}
-                      {m.ep} EP
-                    </span>
+          {detail.captures.map((c, i) => {
+            // post-live-test-1 (LT-20): a /who capture almost always awards
+            // every member the same EP, so show it once in the header
+            // instead of repeating "+50 EP" after every name. Only fall
+            // back to the per-name badge if a capture has mixed values.
+            const uniformEp =
+              c.members.length > 0 && c.members.every((m) => m.ep === c.members[0].ep) ? c.members[0].ep : null;
+            return (
+              <div key={i} className="rounded-lg border border-border">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-3 py-2 text-sm">
+                  <span className="font-medium">
+                    {c.activity}
+                    {uniformEp !== null && (
+                      <span className={`ml-2 font-mono text-xs ${uniformEp >= 0 ? "text-emerald-400/80" : "text-red-400/80"}`}>
+                        {uniformEp >= 0 ? "+" : ""}
+                        {uniformEp} EP
+                      </span>
+                    )}
                   </span>
-                ))}
+                  <span className="text-neutral-500">
+                    {timeLocal(c.occurredAt)}
+                    {c.zone ? ` · ${c.zone}` : ""} · {c.members.length} member{c.members.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-sm">
+                  {c.members.map((m, j) => (
+                    <span key={j} className="text-neutral-300">
+                      {m.name}
+                      {uniformEp === null && (
+                        <span className={`ml-1 font-mono text-xs ${m.ep >= 0 ? "text-emerald-400/80" : "text-red-400/80"}`}>
+                          {m.ep >= 0 ? "+" : ""}
+                          {m.ep} EP
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

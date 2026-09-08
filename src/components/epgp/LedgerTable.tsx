@@ -220,7 +220,7 @@ export function LedgerTable(props: Props) {
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt)}</td>
+                      <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt, r.source)}</td>
                       <td className="px-3 py-2 font-medium">{r.characterName}</td>
                       {props.type === "ep" ? (
                         <>

@@ -30,11 +30,13 @@ export function BidHistoryTable({ rows }: { rows: BidHistoryRow[] }) {
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
             <tr key={r.id} className="hover:bg-neutral-900/40">
-              <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt)}</td>
+              {/* Bid history is always parser-origin (loot_events), so its
+                  occurredAt is a real timestamp — render in guild tz (LT-10). */}
+              <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt, "parse")}</td>
               <td className="px-3 py-2 font-medium">{r.itemName}</td>
               <td className="px-3 py-2 text-neutral-400">{r.characterName}</td>
               <td className="px-3 py-2 text-neutral-400">{r.tier}</td>
-              <td className="px-3 py-2 text-neutral-500">{r.prioritySnapshot?.toFixed(2) ?? "—"}</td>
+              <td className="px-3 py-2 text-neutral-500">{r.prioritySnapshot?.toFixed(4) ?? "—"}</td>
               <td className={`px-3 py-2 font-medium capitalize ${STATUS_CLASSES[r.status]}`}>{r.status}</td>
               <td className="px-3 py-2 text-neutral-500">{r.note ?? "—"}</td>
             </tr>

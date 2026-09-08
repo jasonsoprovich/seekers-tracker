@@ -80,18 +80,23 @@ export default async function DashboardPage() {
   const pop = aggregatePop(activeCharacters, flagsByCharacter);
 
   // Guild leadership roster (leader request, 2026-09-05): who currently
-  // holds leadership (leader/admin — LEADERSHIP_ROLES, admin outranks
-  // leader) and officer, by their MAIN character only — an officer's alts
-  // aren't "the officer roster." A user with a role but no main character
-  // row yet (brand new, or one that predates character claiming) simply
-  // doesn't get a row rather than showing a blank name.
+  // holds leadership and officer, by their MAIN character only — an
+  // officer's alts aren't "the officer roster." A user with a role but no
+  // main character row yet (brand new, or one that predates character
+  // claiming) simply doesn't get a row rather than showing a blank name.
+  //
+  // post-live-test-1 (LT-12): on THIS card the `admin` role lists under
+  // Officers, not Leaders. Site-admin is a technical role, not a guild
+  // leadership seat; the leader wants the Leaders column to be the in-game
+  // guild leads only. (authz.ts LEADERSHIP_ROLES still governs permissions
+  // everywhere else — this is display grouping for one dashboard card.)
   const roleHolders = await db
     .select({ username: users.username, role: users.role, mainCharacterName: characters.name })
     .from(users)
     .innerJoin(characters, and(eq(characters.ownerId, users.id), eq(characters.charType, "main")))
     .where(inArray(users.role, [...LEADERSHIP_ROLES, "officer"]));
-  const leadership = roleHolders.filter((r) => (LEADERSHIP_ROLES as readonly string[]).includes(r.role));
-  const officers = roleHolders.filter((r) => r.role === "officer");
+  const leadership = roleHolders.filter((r) => r.role === "leader");
+  const officers = roleHolders.filter((r) => r.role === "officer" || r.role === "admin");
 
   return (
     <div className="mx-auto max-w-6xl">

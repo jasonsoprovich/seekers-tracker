@@ -235,10 +235,17 @@ export function LiveBidsView() {
     });
   }, [rounds]);
 
-  const visibleRounds = useMemo(
-    () => rounds.filter((r) => !dismissedKeys.has(r.itemName)),
-    [rounds, dismissedKeys],
-  );
+  // Active rounds (still collecting) sit above resolved ones; within each
+  // group the most-recently-updated round comes first. (post-live-test-1:
+  // resolved rounds were sorting to the top and pushing the live ones down.)
+  const visibleRounds = useMemo(() => {
+    const shown = rounds.filter((r) => !dismissedKeys.has(r.itemName));
+    const statusOrder = (s: LiveStatus) => (s === "resolved" ? 1 : 0);
+    return shown.sort((a, b) => {
+      const group = statusOrder(a.status) - statusOrder(b.status);
+      return group !== 0 ? group : b.lastSeenAt - a.lastSeenAt;
+    });
+  }, [rounds, dismissedKeys]);
 
   const liveCount = visibleRounds.filter((r) => r.status === "live").length;
   const resolvedCount = visibleRounds.filter((r) => r.status === "resolved").length;
@@ -278,7 +285,14 @@ export function LiveBidsView() {
           No live bid rounds right now — this fills in the moment an officer starts collecting tells.
         </div>
       ) : (
-        <div className="grid justify-start gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 480px))" }}>
+        // items-start: a card only grows to its own content. Without it the
+        // grid stretches every card in a row to match the tallest, so
+        // expanding one resolved card's bid list visually inflated its
+        // neighbours (post-live-test-1 LT-01).
+        <div
+          className="grid items-start justify-start gap-4"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 480px))" }}
+        >
           {visibleRounds.map((round) => {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";

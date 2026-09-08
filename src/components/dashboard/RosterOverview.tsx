@@ -44,8 +44,18 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
   // the guild's actual recent-activity picture behind every character
   // who's ever existed, including long-departed/inactive ones.
   const [win, setWin] = useState<string>("7d");
+  // post-live-test-1 (LT-13): "A–Z" reorders the class columns *and* the
+  // members inside them alphabetically (chart included, so it reads the
+  // same way); "Loot priority" is the original — canonical EQ class order,
+  // members ranked by priority. A toggle, not a replacement.
+  const [sortMode, setSortMode] = useState<"priority" | "az">("priority");
   const windowDef = WINDOWS.find((w) => w.value === win) ?? WINDOWS[WINDOWS.length - 1];
   const cutoff = nowMs - windowDef.ms;
+
+  const orderedClasses = useMemo(
+    () => (sortMode === "az" ? [...CHAR_CLASSES].sort((a, b) => a.name.localeCompare(b.name)) : CHAR_CLASSES),
+    [sortMode],
+  );
 
   const filtered = useMemo(
     () =>
@@ -68,7 +78,7 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
       else cls.alt++;
       byClass.set(e.classId, cls);
     }
-    return CHAR_CLASSES.map((cl) => {
+    return orderedClasses.map((cl) => {
       const c = byClass.get(cl.id) ?? { main: 0, alt: 0 };
       const color = classColor(cl.id);
       return {
@@ -82,14 +92,18 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
         ],
       };
     });
-  }, [filtered]);
+  }, [filtered, orderedClasses]);
 
   const columns = useMemo(() => {
-    return CHAR_CLASSES.map((cls) => ({
-      cls,
-      members: filtered.filter((e) => e.classId === cls.id).sort((a, b) => b.priority - a.priority),
-    })).filter((col) => col.members.length > 0);
-  }, [filtered]);
+    return orderedClasses
+      .map((cls) => ({
+        cls,
+        members: filtered
+          .filter((e) => e.classId === cls.id)
+          .sort((a, b) => (sortMode === "az" ? a.name.localeCompare(b.name) : b.priority - a.priority)),
+      }))
+      .filter((col) => col.members.length > 0);
+  }, [filtered, orderedClasses, sortMode]);
 
   return (
     <div className="mt-4">
@@ -100,14 +114,24 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
           border make the "stuck" state visually obvious rather than a
           near-invisible translucent strip once content scrolls under it. */}
       <div className="sticky top-0 z-20 -mx-6 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-6 py-3">
-        <SegmentedToggle
-          value={showAlts ? "all" : "mains"}
-          onChange={(v) => setShowAlts(v === "all")}
-          options={[
-            { value: "mains", label: "Mains only" },
-            { value: "all", label: "Include alts" },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentedToggle
+            value={showAlts ? "all" : "mains"}
+            onChange={(v) => setShowAlts(v === "all")}
+            options={[
+              { value: "mains", label: "Mains only" },
+              { value: "all", label: "Include alts" },
+            ]}
+          />
+          <SegmentedToggle
+            value={sortMode}
+            onChange={(v) => setSortMode(v === "az" ? "az" : "priority")}
+            options={[
+              { value: "priority", label: "Loot priority" },
+              { value: "az", label: "A–Z" },
+            ]}
+          />
+        </div>
         <SegmentedToggle value={win} onChange={setWin} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} />
       </div>
 
@@ -148,7 +172,9 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
 
       <section className="mt-4">
         <h2 className="text-lg font-semibold">Roster by Class — Members</h2>
-        <p className="mt-1 text-sm text-neutral-400">Ranked by Loot Priority within the filter above.</p>
+        <p className="mt-1 text-sm text-neutral-400">
+          {sortMode === "az" ? "Alphabetical" : "Ranked by Loot Priority"} within the filter above.
+        </p>
         {columns.length === 0 ? (
           <p className="mt-4 text-sm text-neutral-500">No one matches this filter.</p>
         ) : (

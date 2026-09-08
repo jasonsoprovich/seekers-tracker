@@ -3,9 +3,10 @@ export type RoleHolder = { username: string | null; role: string; mainCharacterN
 // Leader request, 2026-09-05: "the dashboard page should also show a
 // listing of the guild leaders and the officers (main chars only)". Main
 // character only — an officer's alts aren't part of "the officer roster".
-// Leadership groups leader + admin together (admin outranks leader,
-// PLAN.md/authz.ts LEADERSHIP_ROLES) rather than listing admin separately,
-// since both hold full leadership authority today.
+// Grouping is decided by the caller (dashboard/page.tsx): post-live-test-1
+// LT-12 puts `leader` under Leaders and `officer` + `admin` under Officers
+// — site-admin is a technical role, not a guild leadership seat. The Admin
+// badge below still tags whichever holders carry that role.
 export function GuildLeadership({ leadership, officers }: { leadership: RoleHolder[]; officers: RoleHolder[] }) {
   if (leadership.length === 0 && officers.length === 0) return null;
 
