@@ -6,7 +6,7 @@ import { CharacterForm } from "@/components/CharacterForm";
 import { ClaimThisCharacterButton } from "@/components/characters/ClaimThisCharacterButton";
 import { Card } from "@/components/ui/Card";
 import { characterClaims, characters, users } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
+import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -30,7 +30,11 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   const { character, ownerUsername, ownerRole } = row;
 
   const isUnclaimed = character.ownerId === null;
-  const canManage = await canManageCharacter(character, session.user.id);
+  const [canManage, viewerRole] = await Promise.all([
+    canManageCharacter(character, session.user.id),
+    getUserRole(session.user.id),
+  ]);
+  const isOfficer = canManageAnyCharacter(viewerRole);
   // An unclaimed character has no owner yet, so canManageCharacter is
   // false for everyone but an officer — that used to redirect any regular
   // member straight back out before they could even see a claim prompt
@@ -41,11 +45,21 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   if (!isUnclaimed && !canManage) redirect(`/characters/${characterId}`);
 
   const [mainCandidates, existingClaim] = await Promise.all([
+    // Officers keep the guild-wide main list (record-keeping for anyone's
+    // character). A regular member only sees their OWN mains — the alt-link
+    // picker is then a short, obvious "tie this to my main" (LT-15), and
+    // updateCharacter enforces the same ownership rule server-side.
     db
       .select({ id: characters.id, name: characters.name, ownerUsername: users.username })
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
-      .where(and(eq(characters.charType, "main"), ne(characters.id, characterId)))
+      .where(
+        and(
+          eq(characters.charType, "main"),
+          ne(characters.id, characterId),
+          isOfficer ? undefined : eq(characters.ownerId, session.user.id),
+        ),
+      )
       .orderBy(characters.name),
     isUnclaimed
       ? db

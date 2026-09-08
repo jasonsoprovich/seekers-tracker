@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characters, users } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
+import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
 import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
 import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
@@ -154,6 +154,22 @@ export async function updateCharacter(
 
   const mainError = await validateMainCharacterId(db, parsed.data.mainCharacterId);
   if (mainError) return { error: mainError };
+
+  // Self-service alt linking (post-live-test-1 LT-15): a member linking one
+  // of their own alts may only point it at a main they also own. Officers
+  // (canManageAnyCharacter) keep the guild-wide picker for record-keeping.
+  if (parsed.data.charType === "alt" && parsed.data.mainCharacterId !== null) {
+    const role = await getUserRole(session.user.id);
+    if (!canManageAnyCharacter(role)) {
+      const [target] = await db
+        .select({ ownerId: characters.ownerId })
+        .from(characters)
+        .where(eq(characters.id, parsed.data.mainCharacterId));
+      if (!target || target.ownerId !== session.user.id) {
+        return { error: "You can only link an alt to a main character you own." };
+      }
+    }
+  }
 
   const status = String(formData.get("status") ?? "");
   if (!isValidCharacterStatus(status)) return { error: "Invalid status." };

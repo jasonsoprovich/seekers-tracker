@@ -35,6 +35,8 @@ export default async function ClaimReviewPage() {
       characterName: characters.name,
       characterClass: characters.class,
       characterLevel: characters.level,
+      characterOwnerId: characters.ownerId,
+      requesterId: characterClaims.requesterId,
       requesterUsername: users.username,
     })
     .from(characterClaims)
@@ -72,6 +74,11 @@ export default async function ClaimReviewPage() {
                     </span>
                   </p>
                   {r.note && <p className="mt-0.5 text-sm text-neutral-400">&ldquo;{r.note}&rdquo;</p>}
+                  {r.characterOwnerId === r.requesterId && (
+                    <p className="mt-0.5 text-xs text-amber-400">
+                      Already assigned to this member — approving just clears the request.
+                    </p>
+                  )}
                   <p className="mt-0.5 text-xs text-neutral-500 tabular-nums">
                     {r.createdAt.toLocaleDateString()} {r.createdAt.toLocaleTimeString()}
                   </p>
