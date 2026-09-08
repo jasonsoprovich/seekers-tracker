@@ -8,6 +8,7 @@ import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
 import { RoleSelect } from "@/components/RoleSelect";
 import { fieldClasses } from "@/components/ui/Field";
 import type { Role } from "@/lib/authz";
+import { guildDate } from "@/lib/guild-timezone";
 
 export type MemberRow = {
   id: string;
@@ -134,7 +135,7 @@ export function MembersRolesList({
                 <p className="font-medium">{m.username ?? "(no username)"}</p>
                 <p className="text-sm text-neutral-500">
                   {m.discordVerified ? "Discord verified" : "Not Discord-verified"} · joined{" "}
-                  {m.createdAt.toLocaleDateString()}
+                  {guildDate(m.createdAt)}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">

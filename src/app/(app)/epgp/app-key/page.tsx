@@ -8,6 +8,7 @@ import { RevokeAppKeyButton } from "@/components/epgp/RevokeAppKeyButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getSession } from "@/lib/session";
+import { guildDate } from "@/lib/guild-timezone";
 
 export default async function AppKeyPage() {
   const session = await getSession();
@@ -46,9 +47,9 @@ export default async function AppKeyPage() {
             {apiKeys.map((k) => (
               <tr key={k.id} className="hover:bg-neutral-900/40">
                 <td className="px-3 py-2 font-medium">{k.name ?? "—"}</td>
-                <td className="px-3 py-2 text-neutral-400">{new Date(k.createdAt).toLocaleDateString()}</td>
-                <td className="px-3 py-2 text-neutral-400">{k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "Never"}</td>
-                <td className="px-3 py-2 text-neutral-400">{k.lastRequest ? new Date(k.lastRequest).toLocaleDateString() : "Never"}</td>
+                <td className="px-3 py-2 text-neutral-400">{guildDate(k.createdAt)}</td>
+                <td className="px-3 py-2 text-neutral-400">{k.expiresAt ? guildDate(k.expiresAt) : "Never"}</td>
+                <td className="px-3 py-2 text-neutral-400">{k.lastRequest ? guildDate(k.lastRequest) : "Never"}</td>
                 <td className="px-3 py-2">
                   <RevokeAppKeyButton keyId={k.id} name={k.name ?? "this key"} />
                 </td>

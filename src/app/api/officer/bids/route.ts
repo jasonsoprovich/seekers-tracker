@@ -7,6 +7,7 @@ import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { getStandings } from "@/lib/epgp/standings";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
+import { guildDateTime } from "@/lib/guild-timezone";
 
 // One item's bid round — every character who tell-bid, winner or not.
 // Anything past this is a malformed or duplicated payload.
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
     if (existing) {
       return Response.json(
         {
-          error: `"${itemName}" was already recorded around ${existing.occurredAt.toLocaleString()}. Resubmit with confirmDuplicate to record it anyway.`,
+          error: `"${itemName}" was already recorded around ${guildDateTime(existing.occurredAt)}. Resubmit with confirmDuplicate to record it anyway.`,
           duplicate: { lootEventId: existing.id, itemName, occurredAt: existing.occurredAt.toISOString() },
         },
         { status: 409 },

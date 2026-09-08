@@ -9,6 +9,8 @@ import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { DEFAULT_SETTINGS, getSettingsAt, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
 import { getSession } from "@/lib/session";
+import { ledgerDate } from "@/lib/format-date";
+import { guildDateTime } from "@/lib/guild-timezone";
 
 const SETTING_META: Record<SettingKey, { label: string; description: string }> = {
   ep_decay: {
@@ -67,9 +69,9 @@ export default async function EpgpSettingsPage() {
   for (const row of historyRows) {
     const entry: SettingHistoryEntry = {
       value: row.value,
-      effectiveFrom: row.effectiveFrom.toLocaleDateString(),
+      effectiveFrom: ledgerDate(row.effectiveFrom),
       changedByName: row.changedByName,
-      changedAt: row.changedAt.toLocaleString(),
+      changedAt: guildDateTime(row.changedAt),
       note: row.note,
     };
     if (!historyByKey.has(row.settingKey)) historyByKey.set(row.settingKey, []);

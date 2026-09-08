@@ -1,4 +1,7 @@
+"use client";
+
 import { ledgerDate } from "@/lib/format-date";
+import { SortableTh, useTableSort } from "@/components/ui/table-sort";
 import type { BidHistoryRow } from "@/lib/epgp/ledger-list";
 
 const STATUS_CLASSES: Record<BidHistoryRow["status"], string> = {
@@ -8,27 +11,39 @@ const STATUS_CLASSES: Record<BidHistoryRow["status"], string> = {
   retracted: "text-neutral-600 line-through",
 };
 
+type Col = "date" | "item" | "character" | "bid" | "priority" | "result";
+
 // Read-only — bids are written exclusively through the officer app's
 // "Determine Winner" flow (POST /api/officer/bids); there's no edit/delete
 // action for a bid row, so unlike LedgerTable/BankBrowseTable this table
-// has no canManage prop and no Actions column.
+// has no canManage prop and no Actions column. Columns are click-to-sort
+// (LT-19); default is newest-first, as it arrives.
 export function BidHistoryTable({ rows }: { rows: BidHistoryRow[] }) {
+  const { sorted, sort, toggle } = useTableSort<BidHistoryRow, Col>(rows, {
+    date: (r) => r.occurredAt.getTime(),
+    item: (r) => r.itemName,
+    character: (r) => r.characterName,
+    bid: (r) => r.tier,
+    priority: (r) => r.prioritySnapshot,
+    result: (r) => r.status,
+  });
+
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[720px] text-left text-sm">
         <thead>
           <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
-            <th className="px-3 py-2 font-medium">Date</th>
-            <th className="px-3 py-2 font-medium">Item</th>
-            <th className="px-3 py-2 font-medium">Character</th>
-            <th className="px-3 py-2 font-medium">Bid</th>
-            <th className="px-3 py-2 font-medium">Priority</th>
-            <th className="px-3 py-2 font-medium">Result</th>
+            <SortableTh className="px-3 py-2" label="Date" sortKey="date" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Item" sortKey="item" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Character" sortKey="character" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Bid" sortKey="bid" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Priority" sortKey="priority" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Result" sortKey="result" sort={sort} onSort={toggle} />
             <th className="px-3 py-2 font-medium">Note</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {rows.map((r) => (
+          {sorted.map((r) => (
             <tr key={r.id} className="hover:bg-neutral-900/40">
               {/* Bid history is always parser-origin (loot_events), so its
                   occurredAt is a real timestamp — render in guild tz (LT-10). */}
@@ -41,7 +56,7 @@ export function BidHistoryTable({ rows }: { rows: BidHistoryRow[] }) {
               <td className="px-3 py-2 text-neutral-500">{r.note ?? "—"}</td>
             </tr>
           ))}
-          {rows.length === 0 && (
+          {sorted.length === 0 && (
             <tr>
               <td colSpan={7} className="px-3 py-6 text-center text-neutral-500">
                 No bids match this search.

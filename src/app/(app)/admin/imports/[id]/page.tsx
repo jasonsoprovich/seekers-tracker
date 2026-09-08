@@ -7,6 +7,7 @@ import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { readImportPayload } from "@/lib/import-archive";
 import { getSession } from "@/lib/session";
+import { guildDateTime } from "@/lib/guild-timezone";
 
 const KIND_LABELS: Record<string, string> = {
   seer_text: "Seer Text",
@@ -56,7 +57,7 @@ export default async function ImportPayloadPage({ params }: { params: Promise<{ 
         title={`${KIND_LABELS[row.kind] ?? row.kind} — ${row.characterName}`}
         subtitle={
           <>
-            Submitted by {row.uploaderUsername} on {row.createdAt.toLocaleString()}
+            Submitted by {row.uploaderUsername} on {guildDateTime(row.createdAt)}
             <br />
             {row.summary}
           </>

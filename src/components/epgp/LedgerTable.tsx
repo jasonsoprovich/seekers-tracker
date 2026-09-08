@@ -6,6 +6,7 @@ import { useState } from "react";
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
+import { SortableTh, useTableSort } from "@/components/ui/table-sort";
 import { ledgerDate } from "@/lib/format-date";
 import type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
@@ -26,6 +27,20 @@ export function LedgerTable(props: Props) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "" });
+
+  // Click-to-sort columns (LT-19). Default order (as fetched: occurredAt
+  // desc) is kept until the officer picks a column. `activityOrItem` /
+  // `zoneOrBid` cover whichever pair the current tab shows.
+  type Col = "date" | "character" | "activityOrItem" | "zoneOrBid" | "points" | "source" | "recordedBy";
+  const { sorted, sort, toggle } = useTableSort<EpRow | GpRow, Col>(props.rows, {
+    date: (r) => r.occurredAt.getTime(),
+    character: (r) => r.characterName,
+    activityOrItem: (r) => (props.type === "ep" ? (r as EpRow).activity : ((r as GpRow).itemName ?? "")),
+    zoneOrBid: (r) => (props.type === "ep" ? ((r as EpRow).zone ?? "") : (r as GpRow).tier),
+    points: (r) => r.points,
+    source: (r) => r.source,
+    recordedBy: (r) => r.enteredByName,
+  });
 
   // EP: Date, Character, Activity, Zone, Points, Source, Recorded by, Note.
   // GP: Date, Character, Item, Bid, Points, Source, Recorded by, Note.
@@ -110,28 +125,28 @@ export function LedgerTable(props: Props) {
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
-              <th className="px-3 py-2 font-medium">Date</th>
-              <th className="px-3 py-2 font-medium">Character</th>
+              <SortableTh className="px-3 py-2" label="Date" sortKey="date" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2" label="Character" sortKey="character" sort={sort} onSort={toggle} />
               {props.type === "ep" ? (
                 <>
-                  <th className="px-3 py-2 font-medium">Activity</th>
-                  <th className="px-3 py-2 font-medium">Zone</th>
+                  <SortableTh className="px-3 py-2" label="Activity" sortKey="activityOrItem" sort={sort} onSort={toggle} />
+                  <SortableTh className="px-3 py-2" label="Zone" sortKey="zoneOrBid" sort={sort} onSort={toggle} />
                 </>
               ) : (
                 <>
-                  <th className="px-3 py-2 font-medium">Item</th>
-                  <th className="px-3 py-2 font-medium">Bid</th>
+                  <SortableTh className="px-3 py-2" label="Item" sortKey="activityOrItem" sort={sort} onSort={toggle} />
+                  <SortableTh className="px-3 py-2" label="Bid" sortKey="zoneOrBid" sort={sort} onSort={toggle} />
                 </>
               )}
-              <th className="px-3 py-2 font-medium">Points</th>
-              <th className="px-3 py-2 font-medium">Source</th>
-              <th className="px-3 py-2 font-medium">Recorded by</th>
+              <SortableTh className="px-3 py-2" label="Points" sortKey="points" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2" label="Source" sortKey="source" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2" label="Recorded by" sortKey="recordedBy" sort={sort} onSort={toggle} />
               <th className="px-3 py-2 font-medium">Note</th>
               {props.canManage && <th className="px-3 py-2 font-medium">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {props.rows.map((r) => {
+            {sorted.map((r) => {
               const editing = editingId === r.id;
               return (
                 <tr key={r.id} className="hover:bg-neutral-900/40">

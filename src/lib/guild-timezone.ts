@@ -44,6 +44,52 @@ export function toGuildDateString(date: Date, timeZone: string = GUILD_TIMEZONE)
   return dateFormatter(timeZone).format(date);
 }
 
+const dateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+function dateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let f = dateTimeFormatterCache.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    dateTimeFormatterCache.set(timeZone, f);
+  }
+  return f;
+}
+
+// Human-readable wall-clock ("9/7/2026, 8:38 PM") for a real event
+// timestamp — audit changed_at, decay applied_at, import created_at, claim
+// requested_at, etc. These pages are Server Components on a Worker, so a
+// bare Date.toLocaleString() emits UTC for every viewer; render them in the
+// guild's zone instead (post-live-test-1 LT-11). Sheet-origin date-only
+// buckets (cycle bounds, decay effective dates) still use ledgerDate().
+export function guildDateTime(value: Date | string | number | null | undefined, timeZone: string = GUILD_TIMEZONE): string {
+  if (value === null || value === undefined) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return dateTimeFormatter(timeZone).format(d);
+}
+
+const usDateFormatterCache = new Map<string, Intl.DateTimeFormat>();
+// Date only ("9/7/2026") in the guild's zone — for "as of" columns on real
+// timestamps (API key created/expires, member joined) where the time of
+// day is noise. Still LT-11: a bare toLocaleDateString() on a Worker is UTC.
+export function guildDate(value: Date | string | number | null | undefined, timeZone: string = GUILD_TIMEZONE): string {
+  if (value === null || value === undefined) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  let f = usDateFormatterCache.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" });
+    usDateFormatterCache.set(timeZone, f);
+  }
+  return f.format(d);
+}
+
 function addDaysUtcDateString(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const next = new Date(Date.UTC(y, m - 1, d + days));

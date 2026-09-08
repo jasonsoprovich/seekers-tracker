@@ -1,5 +1,9 @@
+"use client";
+
 import { AuditNoteCell } from "@/components/epgp/AuditNoteCell";
+import { SortableTh, useTableSort } from "@/components/ui/table-sort";
 import { ledgerDate } from "@/lib/format-date";
+import { guildDateTime } from "@/lib/guild-timezone";
 
 export type AuditLogRow = {
   id: number;
@@ -78,30 +82,40 @@ const ACTION_STYLE: Record<AuditLogRow["action"], string> = {
 // ep_ledger/gp_ledger create/edit/delete. The one thing that IS editable
 // — for officers/leaders/admins — is the Notes cell: a "why" that can be
 // added or corrected after the fact (setAuditNote in the ledger actions).
+type Col = "when" | "officer" | "type" | "action" | "character";
+
 export function AuditLogTable({ rows, canManage }: { rows: AuditLogRow[]; canManage: boolean }) {
+  const { sorted, sort, toggle } = useTableSort<AuditLogRow, Col>(rows, {
+    when: (r) => r.changedAt.getTime(),
+    officer: (r) => r.changedByName,
+    type: (r) => r.ledgerType,
+    action: (r) => r.action,
+    character: (r) => r.characterName,
+  });
+
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[980px] text-left text-sm">
         <thead>
           <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
-            <th className="px-3 py-2 font-medium">When</th>
-            <th className="px-3 py-2 font-medium">Officer</th>
-            <th className="px-3 py-2 font-medium">Type</th>
-            <th className="px-3 py-2 font-medium">Action</th>
-            <th className="px-3 py-2 font-medium">Character</th>
+            <SortableTh className="px-3 py-2" label="When" sortKey="when" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Officer" sortKey="officer" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Type" sortKey="type" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Action" sortKey="action" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Character" sortKey="character" sort={sort} onSort={toggle} />
             <th className="px-3 py-2 font-medium">Change</th>
             <th className="px-3 py-2 font-medium">Notes</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {rows.map((r) => {
+          {sorted.map((r) => {
             const snapshot = asRecord(r.before) ?? asRecord(r.after);
             const charId = snapshot?.characterId;
             const characterName = r.characterName ?? (typeof charId === "number" ? `#${charId}` : "—");
             const parts = describe(r);
             return (
               <tr key={r.id} className="align-top hover:bg-neutral-900/40">
-                <td className="px-3 py-2 whitespace-nowrap text-neutral-400">{r.changedAt.toLocaleString()}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-neutral-400">{guildDateTime(r.changedAt)}</td>
                 <td className="px-3 py-2 font-medium">{r.changedByName ?? "—"}</td>
                 <td className="px-3 py-2 uppercase text-neutral-400">{r.ledgerType}</td>
                 <td className={`px-3 py-2 font-medium ${ACTION_STYLE[r.action]}`}>{r.action}</td>
@@ -138,7 +152,7 @@ export function AuditLogTable({ rows, canManage }: { rows: AuditLogRow[]; canMan
               </tr>
             );
           })}
-          {rows.length === 0 && (
+          {sorted.length === 0 && (
             <tr>
               <td colSpan={7} className="px-3 py-6 text-center text-neutral-500">
                 No ledger edits recorded yet.

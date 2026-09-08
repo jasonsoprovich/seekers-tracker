@@ -4,6 +4,7 @@ import type { drizzle } from "drizzle-orm/d1";
 import { characters, decayEvents, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { refreshStandings } from "@/lib/epgp/standings";
+import { ledgerDate } from "@/lib/format-date";
 
 // PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
 // rows. Legacy cycle decay (§1a) stays derived at read time in totals.ts
@@ -165,7 +166,7 @@ export async function commitRateDecay(
 
   const existing = await findActiveRateDecayEvent(db, kind, effectiveDate);
   if (existing) {
-    return { error: `A ${kind} decay event already exists for ${effectiveDate.toDateString()} — reverse it first to redo.` };
+    return { error: `A ${kind} decay event already exists for ${ledgerDate(effectiveDate)} — reverse it first to redo.` };
   }
 
   const preview = await previewRateDecay(db, rate, effectiveDate);

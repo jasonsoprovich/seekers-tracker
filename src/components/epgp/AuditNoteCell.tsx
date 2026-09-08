@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { setAuditNote } from "@/app/(app)/epgp/ledger/actions";
 import { Button } from "@/components/ui/Button";
+import { guildDate } from "@/lib/guild-timezone";
 
 // The one editable part of an audit row (officer/leader/admin only) — a
 // free-text "why" for the edit/delete it records. The row's action /
@@ -61,7 +62,7 @@ export function AuditNoteCell({
           {note && updatedByName && (
             <span className="text-[11px] text-neutral-500">
               — {updatedByName}
-              {updatedAt ? `, ${new Date(updatedAt).toLocaleDateString()}` : ""}
+              {updatedAt ? `, ${guildDate(updatedAt)}` : ""}
             </span>
           )}
         </div>

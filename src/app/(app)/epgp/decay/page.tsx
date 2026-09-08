@@ -11,6 +11,7 @@ import { decayEvents, epLedger, gpLedger, users } from "@/db";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { ledgerDate } from "@/lib/format-date";
+import { guildDateTime } from "@/lib/guild-timezone";
 import { getSession } from "@/lib/session";
 
 export default async function EpgpDecayPage() {
@@ -116,11 +117,11 @@ export default async function EpgpDecayPage() {
                   {event.label && <span> — &ldquo;{event.label}&rdquo;</span>}
                 </p>
                 <p className="text-xs text-neutral-600">
-                  applied {event.appliedByName ?? "sheet import"} on {event.appliedAt.toLocaleString()}
+                  applied {event.appliedByName ?? "sheet import"} on {guildDateTime(event.appliedAt)}
                   {event.reversedAt && (
                     <>
                       {" "}
-                      · reversed {event.reversedByName ?? "unknown"} on {event.reversedAt.toLocaleString()}
+                      · reversed {event.reversedByName ?? "unknown"} on {guildDateTime(event.reversedAt)}
                     </>
                   )}
                 </p>

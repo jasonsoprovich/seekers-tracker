@@ -9,6 +9,7 @@ import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getSession } from "@/lib/session";
+import { guildDateTime } from "@/lib/guild-timezone";
 
 const STATUS_LABELS: Record<string, string> = {
   approved: "Approved",
@@ -80,7 +81,7 @@ export default async function ClaimReviewPage() {
                     </p>
                   )}
                   <p className="mt-0.5 text-xs text-neutral-500 tabular-nums">
-                    {r.createdAt.toLocaleDateString()} {r.createdAt.toLocaleTimeString()}
+                    {guildDateTime(r.createdAt)}
                   </p>
                 </div>
                 <ClaimReviewButtons claimId={r.id} />

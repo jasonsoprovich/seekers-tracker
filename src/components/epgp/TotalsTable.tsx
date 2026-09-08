@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 
 import { fieldClasses } from "@/components/ui/Field";
-import { ledgerDate } from "@/lib/format-date";
+import { SortableTh, useTableSort } from "@/components/ui/table-sort";
+import { guildDate } from "@/lib/guild-timezone";
 import type { TotalsRow } from "@/lib/epgp/ledger-list";
 
 // Same windows + default as the roster's "Recently active" filter
@@ -33,6 +34,17 @@ export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; se
     return rows.filter((r) => r.lastActivityAt !== null && new Date(r.lastActivityAt).getTime() >= cutoff);
   }, [rows, activeFilter]);
 
+  type Col = "main" | "lastActivity" | "ep" | "epDecay" | "gp" | "gpDecay" | "priority";
+  const { sorted, sort, toggle } = useTableSort<TotalsRow, Col>(filtered, {
+    main: (r) => r.mainCharacterName,
+    lastActivity: (r) => (r.lastActivityAt ? new Date(r.lastActivityAt).getTime() : null),
+    ep: (r) => r.ep,
+    epDecay: (r) => r.epDecay,
+    gp: (r) => r.gp,
+    gpDecay: (r) => r.gpDecay,
+    priority: (r) => r.priorityRating,
+  });
+
   return (
     <div>
       <div className="mb-3 flex items-end justify-between gap-3">
@@ -55,17 +67,17 @@ export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; se
         <table className="w-full min-w-[820px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
-              <th className="px-3 py-2 font-medium">Main</th>
-              <th className="px-3 py-2 font-medium">Last activity</th>
-              <th className="px-3 py-2 text-right font-medium">EP</th>
-              <th className="px-3 py-2 text-right font-medium">EP Decay</th>
-              <th className="px-3 py-2 text-right font-medium">GP</th>
-              <th className="px-3 py-2 text-right font-medium">GP Decay</th>
-              <th className="px-3 py-2 text-right font-medium">Priority</th>
+              <SortableTh className="px-3 py-2" label="Main" sortKey="main" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2" label="Last activity" sortKey="lastActivity" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2 text-right" label="EP" sortKey="ep" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2 text-right" label="EP Decay" sortKey="epDecay" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2 text-right" label="GP" sortKey="gp" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2 text-right" label="GP Decay" sortKey="gpDecay" sort={sort} onSort={toggle} />
+              <SortableTh className="px-3 py-2 text-right" label="Priority" sortKey="priority" sort={sort} onSort={toggle} />
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filtered.map((r) => (
+            {sorted.map((r) => (
               <tr key={r.playerId} className="hover:bg-neutral-900/40">
                 <td className="px-3 py-2 font-medium">
                   {r.mainCharacterName}
@@ -75,7 +87,7 @@ export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; se
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-neutral-400">{r.lastActivityAt ? ledgerDate(r.lastActivityAt) : "—"}</td>
+                <td className="px-3 py-2 text-neutral-400">{r.lastActivityAt ? guildDate(r.lastActivityAt) : "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.ep)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-neutral-500">{r.epDecay > 0 ? `-${Math.round(r.epDecay)}` : "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.gp)}</td>
@@ -83,7 +95,7 @@ export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; se
                 <td className="px-3 py-2 text-right font-mono tabular-nums text-emerald-400">{r.priorityRating.toFixed(4)}</td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {sorted.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-3 py-6 text-center text-neutral-500">
                   {searching

@@ -6,11 +6,12 @@ import { type FormEvent, useState } from "react";
 import { addLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
 import { Button } from "@/components/ui/Button";
 import { Field, fieldClasses } from "@/components/ui/Field";
+import { toGuildDateString } from "@/lib/guild-timezone";
 
 type CharacterOption = { id: number; name: string };
 
 function todayInputValue() {
-  return new Date().toISOString().slice(0, 10);
+  return toGuildDateString(new Date());
 }
 
 export function AddLedgerEntryForm({

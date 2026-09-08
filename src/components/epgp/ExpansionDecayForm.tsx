@@ -7,13 +7,14 @@ import { commitDecayAction, previewDecayAction } from "@/app/(app)/epgp/decay/ac
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
+import { toGuildDateString } from "@/lib/guild-timezone";
 import type { DecayPreviewRow } from "@/lib/epgp/decay";
 
 type Preview = { rows: DecayPreviewRow[]; totalEpDecay: number; totalGpDecay: number };
 type Result = { decayEventId: number; epRows: number; gpRows: number };
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return toGuildDateString(new Date());
 }
 
 // PLAN.md §11 Phase 2 task 2.7 — rate input -> preview table -> confirm ->

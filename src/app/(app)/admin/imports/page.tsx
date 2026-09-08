@@ -7,6 +7,7 @@ import { characters, importLog, users } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { guildDateTime } from "@/lib/guild-timezone";
 
 const KIND_LABELS: Record<string, string> = {
   seer_text: "Seer Text",
@@ -69,7 +70,7 @@ export default async function ImportAuditTrailPage() {
               </div>
               <div className="flex shrink-0 items-center gap-4 text-sm">
                 <span className="text-neutral-500 tabular-nums">
-                  {r.createdAt.toLocaleDateString()} {r.createdAt.toLocaleTimeString()}
+                  {guildDateTime(r.createdAt)}
                 </span>
                 {r.r2Key ? (
                   <Link href={`/admin/imports/${r.id}`} className="font-medium text-emerald-400 hover:text-emerald-300">
