@@ -90,7 +90,7 @@
 	// per query. Smart Placement moves the isolate next to D1 —
 	// straightforward win for a DB-heavy dynamic app.
 	// https://developers.cloudflare.com/workers/configuration/smart-placement/
-	"placement": { "mode": "smart" }
+	"placement": { "mode": "smart" },
 	/**
 	 * Bindings
 	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
@@ -103,5 +103,8 @@
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
+	// PERF_DEBUG: "1" turns on the [perf] request-timing logs (src/lib/perf.ts)
+	// for the Phase 4 performance spike — read them with `wrangler tail`. Keep
+	// it "0" in normal operation; flip to "1", deploy, run the spike, flip back.
+	"vars": { "PERF_DEBUG": "0" }
 }

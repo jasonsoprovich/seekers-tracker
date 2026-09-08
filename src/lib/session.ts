@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { cache } from "react";
 
 import { createAuth } from "@/auth";
+import { perfNote, timed } from "@/lib/perf";
 
 // Server-side session lookup (RSC / server actions). Rebuilds `auth` from
 // the request's Cloudflare context each call, matching the API route
@@ -16,5 +17,8 @@ import { createAuth } from "@/auth";
 export const getSession = cache(async function getSession() {
   const { env, cf } = await getCloudflareContext({ async: true });
   const auth = createAuth(env, cf);
-  return auth.api.getSession({ headers: await headers() });
+  const hdrs = await headers();
+  const session = await timed("getSession", () => auth.api.getSession({ headers: hdrs }));
+  if (!session) perfNote("getSession -> null (caller will redirect to /login)");
+  return session;
 });

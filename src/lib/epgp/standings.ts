@@ -2,6 +2,7 @@ import { and, inArray, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { epLedger, gpLedger, playerEpgpTotals } from "@/db";
+import { timed } from "@/lib/perf";
 
 import { recomputeAllCharacterLastActivity } from "./character-activity";
 import { computeEpgpTotals, type EpgpTotal } from "./totals";
@@ -138,7 +139,7 @@ export async function rebuildAllStandings(db: ReturnType<typeof drizzle>): Promi
 // computeEpgpTotals returned (a Map keyed by playerId) so callers only
 // change the import, plus `lastActivityAt` for the roster.
 export async function getStandings(db: ReturnType<typeof drizzle>): Promise<Map<number, StandingsRow>> {
-  const rows = await db.select().from(playerEpgpTotals);
+  const rows = await timed("getStandings", () => db.select().from(playerEpgpTotals));
   const out = new Map<number, StandingsRow>();
   for (const r of rows) {
     out.set(r.playerId, {
