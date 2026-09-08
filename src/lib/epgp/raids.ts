@@ -103,13 +103,25 @@ export type RaidCapture = {
   members: { name: string; ep: number }[];
 };
 
+export type RaidLootBid = {
+  characterName: string;
+  tier: string;
+  prioritySnapshot: number | null;
+  status: "active" | "retracted" | "won" | "lost";
+};
+
 export type RaidLoot = {
+  lootEventId: number;
   itemName: string;
   occurredAt: Date;
   winnerName: string | null;
   tier: string | null;
   gp: number | null;
   note: string | null;
+  // Every bid placed on this drop — for the detail page's expandable loot
+  // rows (post-live-test-1 LT-18), so members can review the priorities
+  // behind a past raid's loot without leaving the raid.
+  bids: RaidLootBid[];
 };
 
 export type RaidDetail = {
@@ -128,7 +140,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
   if (!bounds) return null;
   const { start, end } = bounds;
 
-  const [attRows, lootRows, gpRows, meta] = await Promise.all([
+  const [attRows, lootRows, allBidRows, gpRows, meta] = await Promise.all([
     db
       .select({
         activity: epLedger.activity,
@@ -153,6 +165,19 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       })
       .from(lootEvents)
       .leftJoin(bids, eq(bids.id, lootEvents.winningBidId))
+      .leftJoin(characters, eq(characters.id, bids.characterId))
+      .where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
+    db
+      .select({
+        lootEventId: bids.lootEventId,
+        characterName: characters.name,
+        tier: bids.tier,
+        prioritySnapshot: bids.prioritySnapshot,
+        status: bids.status,
+        bidId: bids.id,
+      })
+      .from(bids)
+      .innerJoin(lootEvents, eq(lootEvents.id, bids.lootEventId))
       .leftJoin(characters, eq(characters.id, bids.characterId))
       .where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
     db
@@ -189,14 +214,28 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     const k = `${g.itemName.toLowerCase()}@${g.characterId}`;
     if (!gpByKey.has(k)) gpByKey.set(k, g.points);
   }
+  const bidsByLootEvent = new Map<number, RaidLootBid[]>();
+  for (const b of allBidRows) {
+    const list = bidsByLootEvent.get(b.lootEventId) ?? [];
+    list.push({
+      characterName: b.characterName ?? "(unknown)",
+      tier: b.tier,
+      prioritySnapshot: b.prioritySnapshot,
+      status: b.status,
+    });
+    bidsByLootEvent.set(b.lootEventId, list);
+  }
+
   const loot: RaidLoot[] = lootRows
     .map((r) => ({
+      lootEventId: r.id,
       itemName: r.itemName,
       occurredAt: r.occurredAt,
       winnerName: r.winnerName,
       tier: r.tier,
       note: r.note,
       gp: r.winnerCharacterId != null ? (gpByKey.get(`${r.itemName.toLowerCase()}@${r.winnerCharacterId}`) ?? null) : null,
+      bids: bidsByLootEvent.get(r.id) ?? [],
     }))
     .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
 

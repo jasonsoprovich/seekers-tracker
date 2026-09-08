@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { RaidLootTable } from "@/components/epgp/RaidLootTable";
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
 import { ReverseRaidButton } from "@/components/epgp/ReverseRaidButton";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -42,7 +43,8 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
   const role = await getUserRole(session.user.id);
   const canManage = canManageEpgp(role);
   const canReverse = canManageEpgpConfig(role);
-  const timeLocal = localTimeFormatterFor(me?.timezone || GUILD_TIMEZONE);
+  const viewerTimeZone = me?.timezone || GUILD_TIMEZONE;
+  const timeLocal = localTimeFormatterFor(viewerTimeZone);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -127,32 +129,7 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
       {detail.loot.length === 0 ? (
         <p className="mt-1 text-sm text-neutral-500">No loot events on this date.</p>
       ) : (
-        <div className="mt-3 overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border text-[11px] uppercase tracking-wide text-neutral-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">Item</th>
-                <th className="px-3 py-2 font-medium">Winner</th>
-                <th className="px-3 py-2 font-medium">Bid</th>
-                <th className="px-3 py-2 font-medium text-right">GP</th>
-                <th className="px-3 py-2 font-medium">Time</th>
-                <th className="px-3 py-2 font-medium">Note</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {detail.loot.map((l, i) => (
-                <tr key={i}>
-                  <td className="px-3 py-2 font-medium">{l.itemName}</td>
-                  <td className="px-3 py-2">{l.winnerName ?? <span className="text-neutral-600">—</span>}</td>
-                  <td className="px-3 py-2 text-neutral-400">{l.tier ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{l.gp !== null ? Math.round(l.gp) : "—"}</td>
-                  <td className="px-3 py-2 tabular-nums text-neutral-400">{timeLocal(l.occurredAt)}</td>
-                  <td className="px-3 py-2 text-neutral-500">{l.note ?? ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RaidLootTable loot={detail.loot} timeZone={viewerTimeZone} />
       )}
 
       {canReverse && (
