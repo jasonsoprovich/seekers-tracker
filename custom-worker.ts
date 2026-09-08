@@ -26,7 +26,7 @@
 // /clear from its Next route: that's one call per round, not a loop, so it
 // doesn't have the sustained-load problem.
 
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import { createAuth } from "./src/auth";
@@ -118,7 +118,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
   if ("error" in auth) return Response.json({ error: auth.error }, { status: auth.status });
 
   const db = drizzle(env.DATABASE, { schema });
-  const officerName = await resolveOfficerName(db, auth.userId);
+  const officerName = await resolveCollectedByName(db, auth.userId);
 
   let body: Record<string, unknown> = {};
   try {
@@ -156,7 +156,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
       occurredAt: body.occurredAt,
       priorityRating,
       officerId: auth.userId,
-      officerName,
+      officerName: collectedByFromBody(body, officerName),
     });
   }
 
@@ -288,7 +288,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
       bids,
       repriceAll,
       officerId: auth.userId,
-      officerName,
+      officerName: collectedByFromBody(body, officerName),
     });
   }
 
@@ -350,9 +350,26 @@ function canonicalRedirect(request: Request, url: URL): Response | null {
   return new Response(null, { status, headers: { Location: target.toString() } });
 }
 
-async function resolveOfficerName(db: ReturnType<typeof drizzle>, userId: string): Promise<string> {
+// The "collected by" label on a live-bids card (post-live-test-1 LT-07).
+// Prefer the officer's own main character name over their Discord username
+// — members recognise "collected by Sandrian", not a Discord handle. The
+// parser also sends the exact character whose log it parsed
+// (`capturedByCharacter`); when present that wins, since an officer may be
+// running an alt. Falls back to the username, then a generic label.
+async function resolveCollectedByName(db: ReturnType<typeof drizzle>, userId: string): Promise<string> {
+  const [main] = await db
+    .select({ name: characters.name })
+    .from(characters)
+    .where(and(eq(characters.ownerId, userId), eq(characters.charType, "main")))
+    .limit(1);
+  if (main?.name?.trim()) return main.name.trim();
   const [row] = await db.select({ username: users.username }).from(users).where(eq(users.id, userId));
   return row?.username?.trim() || "An officer";
+}
+
+function collectedByFromBody(body: Record<string, unknown>, fallback: string): string {
+  const c = body.capturedByCharacter;
+  return typeof c === "string" && c.trim() ? c.trim() : fallback;
 }
 
 export default {
