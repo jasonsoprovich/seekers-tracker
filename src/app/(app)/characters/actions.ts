@@ -7,8 +7,9 @@ import { characters, players, users } from "@/db";
 import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
 import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
+import { refreshStandings } from "@/lib/epgp/standings";
 import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
-import { attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
+import { assignCharacterToUser, attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type CharacterFormState = { error?: string };
@@ -205,4 +206,94 @@ export async function updateCharacter(
   }
 
   redirect("/characters");
+}
+
+export type ClaimAltState = { error?: string };
+
+// post-live-test-1 LT-31 — self-service "link an alt to my main" from the
+// Your Characters page. Instantly attaches an UNCLAIMED roster character
+// (owner_id NULL) to the caller's account as an alt of their existing main
+// — no officer approval, same call chain as claim approval
+// (assignCharacterToUser → attachCharacterToPlayer, which also absorbs a
+// sheet-only standalone player and carries its stranded EP/GP history over,
+// see src/lib/players.ts). Anything contested (owned by someone else, or a
+// real account's main) is refused here and pointed at /characters/claim,
+// which keeps the LT-14 officer request/approve flow.
+export async function claimAlt(characterId: number): Promise<ClaimAltState> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  if (!Number.isInteger(characterId) || characterId <= 0) return { error: "Invalid character." };
+
+  const db = await getDb();
+
+  const [me] = await db
+    .select({ id: users.id, discordId: users.discordId, username: users.username })
+    .from(users)
+    .where(eq(users.id, session.user.id));
+  if (!me) return { error: "Account not found." };
+
+  const callerPlayerId = await resolvePlayerForUser(db, me);
+  if (callerPlayerId === null) return { error: "Account not found." };
+  const [callerPlayer] = await db
+    .select({ mainCharacterId: players.mainCharacterId })
+    .from(players)
+    .where(eq(players.id, callerPlayerId));
+  const mainId = callerPlayer?.mainCharacterId ?? null;
+  if (mainId === null) {
+    return { error: "Set your main character first — then you can link alts to it here." };
+  }
+  if (characterId === mainId) return { error: "That character is already your main." };
+
+  const [target] = await db
+    .select({
+      id: characters.id,
+      name: characters.name,
+      ownerId: characters.ownerId,
+      charType: characters.charType,
+      status: characters.status,
+      playerId: characters.playerId,
+    })
+    .from(characters)
+    .where(eq(characters.id, characterId));
+  if (!target) return { error: "That character no longer exists." };
+  if (target.status === "removed") return { error: "That character has been removed from the roster." };
+
+  if (target.ownerId !== null && target.ownerId !== session.user.id) {
+    return { error: "That character belongs to another member — use “Claim a Character” to request it." };
+  }
+
+  // A character sitting on a real account's players row (has a user_id or a
+  // discord_id) that isn't the caller's is a genuine identity — an officer
+  // moves that, not a one-click self-serve. (assignCharacterToUser's
+  // absorbStandalonePlayer would refuse it anyway; catch it here with a
+  // clearer message.)
+  if (target.playerId !== null && target.playerId !== callerPlayerId) {
+    const [tp] = await db
+      .select({ userId: players.userId, discordId: players.discordId })
+      .from(players)
+      .where(eq(players.id, target.playerId));
+    if (tp && (tp.userId !== null || tp.discordId !== null)) {
+      return { error: "That character is linked to another member's account — an officer needs to move it." };
+    }
+  }
+
+  // Set owner + player (absorbing any sheet-only standalone player and its
+  // ledger history) unless the caller already owns it.
+  if (target.ownerId === null) {
+    const assigned = await assignCharacterToUser(db, characterId, session.user.id);
+    if (!assigned.ok) return { error: assigned.error };
+  } else {
+    await attachCharacterToPlayer(db, characterId, callerPlayerId);
+  }
+
+  // Type it as an alt of the caller's main. (assignCharacterToUser only
+  // bootstraps a main when the player has none — here they already have one.)
+  await db
+    .update(characters)
+    .set({ charType: "alt", mainCharacterId: mainId, updatedAt: new Date() })
+    .where(eq(characters.id, characterId));
+
+  await refreshStandings(db, { playerIds: [callerPlayerId] });
+  return {};
 }

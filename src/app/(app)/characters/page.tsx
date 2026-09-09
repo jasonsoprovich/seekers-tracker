@@ -1,12 +1,13 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { LinkAltsPanel } from "@/components/characters/LinkAltsPanel";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { LinkButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { characterClaims, characterPopFlags, characters } from "@/db";
+import { characterClaims, characterPopFlags, characters, players } from "@/db";
 import { hasAnyLeader } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
@@ -46,6 +47,37 @@ export default async function CharactersPage() {
     if (!flagsByCharacter.has(r.characterId)) flagsByCharacter.set(r.characterId, []);
     flagsByCharacter.get(r.characterId)!.push(r);
   }
+
+  // LT-31 — self-service alt linking. Only offered once the member has a
+  // main to attach alts to; the panel lists every unclaimed roster
+  // character and links one in a click (server action `claimAlt`).
+  const [myPlayer] = await db
+    .select({ mainCharacterId: players.mainCharacterId })
+    .from(players)
+    .where(eq(players.userId, session.user.id));
+  const myMain = myPlayer?.mainCharacterId ? rows.find((c) => c.id === myPlayer.mainCharacterId) ?? null : null;
+  const unclaimed = myMain
+    ? await db
+        .select({
+          id: characters.id,
+          name: characters.name,
+          classId: characters.class,
+          raceId: characters.race,
+          level: characters.level,
+          charType: characters.charType,
+        })
+        .from(characters)
+        .where(and(isNull(characters.ownerId), ne(characters.status, "removed")))
+        .orderBy(characters.name)
+    : [];
+  const linkAltRows = unclaimed.map((c) => ({
+    id: c.id,
+    name: c.name,
+    className: charClassLabel(c.classId),
+    raceName: charRaceName(c.raceId),
+    level: c.level,
+    charType: c.charType,
+  }));
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -135,6 +167,10 @@ export default async function CharactersPage() {
             );
           })}
         </ul>
+      )}
+
+      {myMain && (
+        <LinkAltsPanel mainName={myMain.name} rows={linkAltRows} />
       )}
     </div>
   );
