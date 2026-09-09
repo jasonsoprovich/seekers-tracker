@@ -357,6 +357,14 @@ streamline below:
     content, now overridden on `.main`).
   - `wails3 build` / `go vet` / `go test` clean; frontend tsc+vite
     clean. Not GUI-verified this session.
+- **Parser `v0.1.12`** — second sim pass, all green, four more polish
+  items (parser-only, no tracker change): Attendance "+ Add row" prepends
+  like the Bids manual row; the Bids manual-row "Character" field is now
+  the same pick-from-roster combobox as the Main column (`MainResolveCombobox`
+  generalized to take its "add new" name from either `playedName` or its
+  own typed text); Clear on the Bids tab confirms first when there's a
+  live/review round to lose; the running build version shows at the foot
+  of Settings (`AppVersion()`).
 
 **Attendance + bids capture streamline, 2026-09-09 (tracker Worker
 `2e3a7c72`, deployed; parser `v0.1.10` released — officers auto-update).**
