@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { CHAR_CLASSES, classColor } from "@/lib/eq/enums";
+import { CHAR_CLASSES, classColor, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 
 import { Card } from "../ui/Card";
 import { SegmentedToggle } from "../ui/SegmentedToggle";
@@ -18,6 +18,17 @@ export type RosterEntry = {
   // by every windowed option.
   lastActivityMs: number | null;
 };
+
+// post-live-test-1 (LT-28): the "Roster by Class" bar chart always renders
+// classes A–Z with Unknown pinned last, and is deliberately NOT wired to
+// the Loot priority / A–Z toggle — that toggle governs only the "Roster by
+// Class — Members" section below. A chart that reshuffled its bars every
+// time the members list re-sorted read as a different chart each toggle.
+const CHART_CLASSES = [...CHAR_CLASSES].sort((a, b) => {
+  if (a.id === UNKNOWN_CLASS_ID) return 1;
+  if (b.id === UNKNOWN_CLASS_ID) return -1;
+  return a.name.localeCompare(b.name);
+});
 
 const DAY = 86_400_000;
 const WINDOWS = [
@@ -45,9 +56,10 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
   // who's ever existed, including long-departed/inactive ones.
   const [win, setWin] = useState<string>("7d");
   // post-live-test-1 (LT-13): "A–Z" reorders the class columns *and* the
-  // members inside them alphabetically (chart included, so it reads the
-  // same way); "Loot priority" is the original — canonical EQ class order,
-  // members ranked by priority. A toggle, not a replacement.
+  // members inside them alphabetically; "Loot priority" is the original —
+  // canonical EQ class order, members ranked by priority. A toggle, not a
+  // replacement. Scope is the "Roster by Class — Members" section only —
+  // the bar chart above keeps a fixed A–Z order (LT-28, CHART_CLASSES).
   const [sortMode, setSortMode] = useState<"priority" | "az">("priority");
   const windowDef = WINDOWS.find((w) => w.value === win) ?? WINDOWS[WINDOWS.length - 1];
   const cutoff = nowMs - windowDef.ms;
@@ -78,7 +90,7 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
       else cls.alt++;
       byClass.set(e.classId, cls);
     }
-    return orderedClasses.map((cl) => {
+    return CHART_CLASSES.map((cl) => {
       const c = byClass.get(cl.id) ?? { main: 0, alt: 0 };
       const color = classColor(cl.id);
       return {
@@ -92,7 +104,7 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
         ],
       };
     });
-  }, [filtered, orderedClasses]);
+  }, [filtered]);
 
   const columns = useMemo(() => {
     return orderedClasses
