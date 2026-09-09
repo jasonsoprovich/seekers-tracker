@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { ConfirmDialogProvider } from "@/components/ui/ConfirmDialog";
+import { VersionGuard } from "@/components/system/VersionGuard";
 
 import "./globals.css";
 
@@ -32,6 +33,7 @@ export default function RootLayout({
 			</head>
 			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
 				<ConfirmDialogProvider>{children}</ConfirmDialogProvider>
+				<VersionGuard />
 			</body>
 		</html>
 	);

@@ -10,13 +10,23 @@ import { getDb } from "@/lib/db";
 // Unauthenticated on purpose; it returns no data.
 export const dynamic = "force-dynamic";
 
+// Inlined at build time by next.config.ts's `env` (the commit SHA). The
+// client bundle carries its own copy of the same value; VersionGuard polls
+// this route and compares, so a tab can tell when the deployed build has
+// moved on under it. `?? null` so this stays valid JSON if the var is ever
+// missing.
+const BUILD_ID = process.env.NEXT_PUBLIC_BUILD_ID ?? null;
+
 export async function GET() {
   const t0 = Date.now();
   try {
     const db = await getDb();
     await db.run(sql`SELECT 1`);
-    return Response.json({ ok: true, ms: Date.now() - t0 });
+    return Response.json({ ok: true, ms: Date.now() - t0, buildId: BUILD_ID });
   } catch (e) {
-    return Response.json({ ok: false, ms: Date.now() - t0, error: String(e) }, { status: 500 });
+    return Response.json(
+      { ok: false, ms: Date.now() - t0, buildId: BUILD_ID, error: String(e) },
+      { status: 500 },
+    );
   }
 }
