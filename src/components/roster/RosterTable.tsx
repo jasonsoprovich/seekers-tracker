@@ -53,10 +53,13 @@ const ACTIVE_WINDOWS: { key: string; label: string; ms: number | null }[] = [
   { key: "any", label: "Any time", ms: null },
 ];
 
-// Default to the last 90 days — the guild's active roster, not everyone
-// who's ever earned a point (leader, 2026-09-06). "Any time" is still one
-// click away.
-const DEFAULT_ACTIVE_WINDOW = "90d";
+// Default to "Any time" (post-live-test-1 LT-34). Members mostly use this
+// page to *look up* a character — who owns it, is it a main or an alt,
+// what are its alts — and a windowed default silently drops anyone not
+// recently active, so a name search returns nothing with no hint why. The
+// "Last 90 days" etc. windows are one click away for browsing the active
+// roster.
+const DEFAULT_ACTIVE_WINDOW = "any";
 
 const TYPE_LABEL: Record<RosterRow["charType"], string> = { main: "Main", alt: "Alt", mule: "Mule" };
 
@@ -104,25 +107,45 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  const matches = useMemo(() => {
-    const q = search.trim().toLowerCase();
+  const q = search.trim().toLowerCase();
+  const hasSearch = q !== "";
+
+  // post-live-test-1 LT-34 — three predicates instead of one so a search
+  // can override the "recently active" window and reveal a whole main+alt
+  // group on a hit anywhere in it:
+  //   matchesFilters — class / race / type / status / level (the "shape"
+  //     filters; always applied)
+  //   matchesSearch  — name / owner substring (trivially true with no query)
+  //   matchesActive  — the recently-active window
+  const { matchesFilters, matchesSearch, matchesActive } = useMemo(() => {
     const min = minLevel === "" ? null : Number(minLevel);
     const max = maxLevel === "" ? null : Number(maxLevel);
     const activeMs = ACTIVE_WINDOWS.find((w) => w.key === activeFilter)?.ms ?? null;
     const activeCutoff = activeMs === null ? null : Date.now() - activeMs;
-
-    return (r: RosterRow) => {
-      if (q && !r.name.toLowerCase().includes(q) && !(r.ownerUsername ?? "").toLowerCase().includes(q)) return false;
-      if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
-      if (raceFilter !== "all" && String(r.raceId) !== raceFilter) return false;
-      if (typeFilter !== "all" && r.charType !== typeFilter) return false;
-      if (statusFilter !== "all" && r.status !== statusFilter) return false;
-      if (min !== null && r.level < min) return false;
-      if (max !== null && r.level > max) return false;
-      if (activeCutoff !== null && (r.lastActivityAt === null || r.lastActivityAt < activeCutoff)) return false;
-      return true;
+    return {
+      matchesFilters: (r: RosterRow) => {
+        if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
+        if (raceFilter !== "all" && String(r.raceId) !== raceFilter) return false;
+        if (typeFilter !== "all" && r.charType !== typeFilter) return false;
+        if (statusFilter !== "all" && r.status !== statusFilter) return false;
+        if (min !== null && r.level < min) return false;
+        if (max !== null && r.level > max) return false;
+        return true;
+      },
+      matchesSearch: (r: RosterRow) =>
+        q === "" || r.name.toLowerCase().includes(q) || (r.ownerUsername ?? "").toLowerCase().includes(q),
+      matchesActive: (r: RosterRow) =>
+        activeCutoff === null || (r.lastActivityAt !== null && r.lastActivityAt >= activeCutoff),
     };
-  }, [search, classFilter, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel]);
+  }, [q, classFilter, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel]);
+
+  // The full per-row predicate — used only on the NO-search path (and for
+  // the auto-expand check). While searching, the active window is dropped
+  // and group membership is decided in `visibleGroups` instead.
+  const matches = useMemo(
+    () => (r: RosterRow) => matchesFilters(r) && matchesSearch(r) && matchesActive(r),
+    [matchesFilters, matchesSearch, matchesActive],
+  );
 
   // Alts nest under their main so expand/collapse can show or hide them as a
   // unit; an alt whose main went missing (or wasn't itself a "main" row)
@@ -156,11 +179,28 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   const visibleGroups = useMemo(() => {
     const result: Group[] = [];
     for (const group of groups.groupMap.values()) {
-      const alts = group.alts.filter(matches);
-      if (matches(group.main) || alts.length > 0) result.push({ main: group.main, alts });
+      if (!hasSearch) {
+        // No query: per-row filtering, active window included. Group shows
+        // if its main passes or any alt does.
+        const alts = group.alts.filter(matches);
+        if (matches(group.main) || alts.length > 0) result.push({ main: group.main, alts });
+        continue;
+      }
+      // LT-34 search mode: the active window is ignored, and a search hit
+      // ANYWHERE in the group (main or any alt) reveals the WHOLE group —
+      // so "search a main → see its alts" and "search an alt → see the
+      // main + its other alts" both work (a member looking a character up
+      // to find who it belongs to). The only thing that still hides alts
+      // is "Mains only".
+      const mainHit = matchesFilters(group.main) && matchesSearch(group.main);
+      const altHit = group.alts.some((a) => matchesFilters(a) && matchesSearch(a));
+      if (!mainHit && !altHit) continue;
+      const alts = typeFilter === "main" ? [] : group.alts.filter(matchesFilters);
+      result.push({ main: group.main, alts });
     }
     for (const orphan of groups.orphans) {
-      if (matches(orphan)) result.push({ main: orphan, alts: [] });
+      const shown = hasSearch ? matchesFilters(orphan) && matchesSearch(orphan) : matches(orphan);
+      if (shown) result.push({ main: orphan, alts: [] });
     }
 
     result.sort((a, b) => compare(a.main, b.main, sortKey) * (sortDir === "asc" ? 1 : -1));
@@ -168,7 +208,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       group.alts.sort((a, b) => a.name.localeCompare(b.name));
     }
     return result;
-  }, [groups, matches, sortKey, sortDir]);
+  }, [groups, matches, matchesFilters, matchesSearch, hasSearch, typeFilter, sortKey, sortDir]);
 
   const visibleCount = visibleGroups.reduce((n, g) => n + 1 + g.alts.length, 0);
 
@@ -370,7 +410,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <tbody className="divide-y divide-border">
             {visibleGroups.map((group) => {
               const hasAlts = group.alts.length > 0;
-              const isOpen = hasAlts && (expanded.has(group.main.id) || !matches(group.main));
+              // Auto-open when: the user opened it, it only surfaced via an
+              // alt match (so the matching alt is visible), or a search is
+              // active at all (LT-34 — the point of searching is to see the
+              // whole group, alts included).
+              const isOpen = hasAlts && (expanded.has(group.main.id) || hasSearch || !matches(group.main));
               return (
                 <Fragment key={group.main.id}>
                   {renderRow(group.main, hasAlts ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
