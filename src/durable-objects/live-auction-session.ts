@@ -25,14 +25,16 @@ import { DurableObject } from "cloudflare:workers";
 // review who bid what). While collecting: "live" for LIVE_TTL_MS after the
 // last push/heartbeat, then "idle", then dropped after ROUND_EXPIRY_MS with
 // no signal (an abandoned collection nobody finalized). A **resolved** round
-// never times out and is never swept by another round starting — it stays
-// on the board until a member explicitly dismisses it (/dismiss) or the
-// officer app clears it (/clear on quit). Leader call, 2026-09-04: the old
-// 20-min auto-expiry and "the same officer's next item sweeps their
-// resolved cards" behaviour were both removed — people want to review at
-// their own pace.
+// is never swept by another round starting, and stays on the board until a
+// member dismisses it, the officer app clears it (/clear on quit), or
+// RESOLVED_EXPIRY_MS (12h) elapses — post-live-test-1 LT-32: a raid's worth
+// of resolved cards should clear itself overnight so the board is empty by
+// the next session. (Leader call 2026-09-04 had removed the older 20-min
+// auto-expiry so people could review at their own pace; 12h keeps that
+// review window generous while still self-cleaning.)
 const LIVE_TTL_MS = 90_000;
 const ROUND_EXPIRY_MS = 300_000;
+const RESOLVED_EXPIRY_MS = 12 * 60 * 60 * 1000;
 
 // The parser poll fires a push or heartbeat every ~5s per officer for a
 // whole round. Re-arming the sweep alarm on every one is pointless — it
@@ -102,7 +104,10 @@ type ValidPushBody = {
 };
 type HeartbeatBody = { itemName?: unknown; officerId?: unknown; officerName?: unknown };
 type ClearBody = { itemName?: unknown; officerId?: unknown };
-type DismissBody = { itemName?: unknown };
+// `userId` present ⇒ a per-viewer dismiss (LT-32): hide this resolved round
+// for that account only. Absent ⇒ the legacy global force-clear (not wired
+// in the UI; kept as an officer escape hatch).
+type DismissBody = { itemName?: unknown; userId?: unknown };
 type ResolveWinnerBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown };
 type ResolveBidBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown; occurredAt?: unknown };
 type ResolveBody = { itemName?: unknown; winners?: unknown; bids?: unknown; officerId?: unknown; officerName?: unknown };
@@ -125,8 +130,23 @@ function key(itemName: string): string {
 // constructor's comment for why only resolved rounds get this.
 const RESOLVED_STORAGE_PREFIX = "resolved:";
 
+// ctx.storage key for one viewer's dismissal of one round:
+// `dismiss:<userId>|<roundKey>` → the dismiss timestamp (ms). Persisted so
+// a dismiss survives the viewer's refresh AND this DO being evicted, which
+// plain per-browser localStorage never did reliably (post-live-test-1
+// LT-32). `|` separates the two parts — better-auth user ids never contain
+// it. Cleared when the round leaves the board (12h sweep / re-drop /
+// officer clear), so keys don't accumulate and a same-named future drop
+// starts un-dismissed for everyone.
+const DISMISS_STORAGE_PREFIX = "dismiss:";
+
 export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   private rounds = new Map<string, Round>();
+  // Per-viewer dismissals: userId → set of round keys that viewer has
+  // hidden. Mirrors the `dismiss:*` ctx.storage keys; hydrated in the
+  // constructor and kept in step on every write so broadcast() can filter
+  // without touching storage on the hot path.
+  private dismissals = new Map<string, Set<string>>();
   // The alarm time currently scheduled, so markSeen can skip re-arming for
   // small forward moves. Resets to null on DO eviction — the next markSeen
   // just re-arms once, which is fine.
@@ -152,11 +172,23 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.list<Round>({ prefix: RESOLVED_STORAGE_PREFIX });
       for (const [storageKey, round] of stored) {
-        // Rounds persisted before lastBidAt existed won't carry it. It's
-        // never read for a resolved round (expiryOf returns Infinity), but
-        // keep the type honest in case this item goes live again.
+        // Rounds persisted before lastBidAt existed won't carry it. Since
+        // LT-32 a resolved round's expiry IS measured from resolvedAt, but
+        // keep the fallback honest in case this item goes live again.
         if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
         this.rounds.set(storageKey.slice(RESOLVED_STORAGE_PREFIX.length), round);
+      }
+      // Per-viewer dismissals (LT-32) — key shape `dismiss:<userId>|<roundKey>`.
+      const dismissed = await ctx.storage.list<number>({ prefix: DISMISS_STORAGE_PREFIX });
+      for (const storageKey of dismissed.keys()) {
+        const rest = storageKey.slice(DISMISS_STORAGE_PREFIX.length);
+        const sep = rest.indexOf("|");
+        if (sep < 0) continue;
+        const userId = rest.slice(0, sep);
+        const roundKey = rest.slice(sep + 1);
+        let set = this.dismissals.get(userId);
+        if (!set) this.dismissals.set(userId, (set = new Set()));
+        set.add(roundKey);
       }
     });
   }
@@ -168,17 +200,24 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       if (request.headers.get("Upgrade") !== "websocket") {
         return new Response("Expected a WebSocket upgrade", { status: 426 });
       }
+      // custom-worker.ts resolves the session and appends ?userId= so the
+      // DO can filter this viewer's dismissed rounds out of every frame it
+      // sends this socket. Stashed as a hibernation-durable attachment
+      // (LT-32) — read back in broadcast().
+      const userId = url.searchParams.get("userId") ?? undefined;
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       // Hibernatable — quiet viewers don't keep this DO billed as active.
       this.ctx.acceptWebSocket(server);
-      server.send(JSON.stringify(this.stateMessage()));
+      if (userId) server.serializeAttachment({ userId });
+      server.send(JSON.stringify(this.stateMessageFor(userId)));
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/state" && request.method === "GET") {
-      this.sweep();
-      return Response.json(this.stateMessage());
+      await this.purgeRounds(this.sweep());
+      const userId = url.searchParams.get("userId") ?? undefined;
+      return Response.json(this.stateMessageFor(userId));
     }
 
     if (request.method === "POST" && url.pathname === "/push") {
@@ -227,10 +266,11 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
           round.winners = [];
           round.startedAt = now;
           round.lastBidAt = now;
-          // No longer resolved — drop its persisted copy too, or it would
-          // reappear (stale) after a future eviction even once this fresh
-          // round finishes collecting and gets its own resolve+persist.
-          await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + k);
+          // No longer resolved — drop its persisted copy (or it would
+          // reappear stale after a future eviction) AND every viewer's
+          // dismissal of the previous drop, so this fresh round shows for
+          // everyone, including people who dismissed the last one (LT-32).
+          await this.purgeRounds([k]);
         }
         round.state = "collecting";
         round.resolvedAt = 0;
@@ -252,7 +292,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
 
       round.lastSeenAt = now;
       round.lastBidAt = now; // a real tell — resets the abandon timer (heartbeats don't)
-      this.afterMutation();
+      await this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
 
@@ -281,7 +321,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         }
       }
 
-      this.afterMutation();
+      await this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
 
@@ -378,11 +418,16 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         }
       }
 
-      this.afterMutation();
+      await this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
 
-    // Phase 16: a member clicked "Dismiss" on a resolved card.
+    // A member clicked "Dismiss" on a resolved card. LT-32: with a `userId`
+    // this is a PER-VIEWER dismiss — the round stays on the board for
+    // everyone else, just filtered out of this account's frames (and
+    // remembered across their refresh / a DO eviction). Without a `userId`
+    // it's the legacy global force-clear (kept as an officer escape hatch;
+    // not wired into the UI).
     if (request.method === "POST" && url.pathname === "/dismiss") {
       let body: unknown = {};
       try {
@@ -390,11 +435,21 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       } catch {
         // no body is fine
       }
-      const { itemName } = body as DismissBody;
-      if (typeof itemName === "string" && itemName.trim()) {
-        this.rounds.delete(key(itemName));
-        await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + key(itemName));
+      const { itemName, userId } = body as DismissBody;
+      if (typeof itemName !== "string" || !itemName.trim()) {
+        return Response.json({ ok: true }, { status: 200 });
       }
+      const k = key(itemName);
+
+      if (typeof userId === "string" && userId) {
+        await this.recordDismissal(userId, k);
+        this.broadcast();
+        return Response.json({ ok: true }, { status: 200 });
+      }
+
+      // Global force-clear.
+      this.rounds.delete(k);
+      await this.purgeRounds([k]);
       if (this.rounds.size === 0) {
         this.alarmAt = null;
         await this.ctx.storage.deleteAlarm();
@@ -415,19 +470,22 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       if (typeof itemName === "string" && itemName.trim()) {
         // One named round cancelled/discarded (End Round & Review, or the
         // Bids-tab "Clear" button).
-        this.rounds.delete(key(itemName));
-        await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + key(itemName));
+        const k = key(itemName);
+        this.rounds.delete(k);
+        await this.purgeRounds([k]);
       } else if (oid) {
         // Officer app quit with no item named — drop only THAT officer's
         // rounds. It used to be this.rounds.clear(), which wiped every
         // other officer's live round too: during a raid with several
         // officers collecting in parallel, one of them closing their app
         // took the whole board down (leader, 2026-09-07).
+        const mine: string[] = [];
         for (const [k, round] of this.rounds) {
           if (round.officerId !== oid) continue;
           this.rounds.delete(k);
-          await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + k);
+          mine.push(k);
         }
+        await this.purgeRounds(mine);
       }
       // A bare clear with neither itemName nor officerId is ignored — the
       // idle sweep reaps abandoned collecting rounds, and a resolved one
@@ -448,14 +506,15 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   // changed anything, so a tab left open drops a dead round without the
   // viewer doing anything.
   async alarm() {
-    const changed = this.sweep();
+    const removed = this.sweep();
+    if (removed.length) await this.purgeRounds(removed);
     if (this.rounds.size > 0) {
       // Something's still alive — re-arm for the next expiry.
       this.armAlarm(true);
     } else {
       this.alarmAt = null;
     }
-    if (changed) this.broadcast();
+    if (removed.length) this.broadcast();
   }
 
   // Required by the hibernation API — viewers never send anything and there
@@ -464,35 +523,71 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   async webSocketClose() {}
   async webSocketError() {}
 
-  private afterMutation() {
-    this.sweep();
+  private async afterMutation() {
+    await this.purgeRounds(this.sweep());
     this.armAlarm(false);
     this.broadcast();
   }
 
-  // When this expires, in ms since epoch. A resolved round never expires on
-  // its own (Infinity) — only /dismiss or /clear removes it. A collecting
-  // round expires ROUND_EXPIRY_MS after its last real bid tell — NOT after
-  // its last heartbeat: an officer who announces a round and walks away
-  // with the parser still open keeps heartbeating it, which used to pin it
-  // on the board forever (leader, 2026-09-07). 5 min with no new tell means
-  // it was abandoned; the officer can still Submit from the parser (that
-  // recreates the round with its winner) and a viewer can hide it sooner.
+  // When this expires, in ms since epoch. A resolved round now clears
+  // itself RESOLVED_EXPIRY_MS (12h) after it was finalized — LT-32, so the
+  // board is empty by the next raid without anyone dismissing anything;
+  // before that it can still be dismissed per-viewer or cleared by the
+  // officer app. A collecting round expires ROUND_EXPIRY_MS after its last
+  // real bid tell — NOT after its last heartbeat: an officer who announces
+  // a round and walks away with the parser still open keeps heartbeating
+  // it, which used to pin it on the board forever (leader, 2026-09-07).
+  // 5 min with no new tell means it was abandoned; the officer can still
+  // Submit from the parser (that recreates the round with its winner) and
+  // a viewer can hide it sooner.
   private expiryOf(round: Round): number {
-    return round.state === "resolved" ? Infinity : round.lastBidAt + ROUND_EXPIRY_MS;
+    return round.state === "resolved"
+      ? round.resolvedAt + RESOLVED_EXPIRY_MS
+      : round.lastBidAt + ROUND_EXPIRY_MS;
   }
 
-  // Drops rounds past their expiry. Returns whether anything was removed.
-  private sweep(): boolean {
+  // Drops rounds past their expiry from the in-memory map. Returns the keys
+  // removed so the caller can purge their persisted copy + any per-viewer
+  // dismissals (purgeRounds).
+  private sweep(): string[] {
     const now = Date.now();
-    let removed = false;
+    const removed: string[] = [];
     for (const [k, round] of this.rounds) {
       if (this.expiryOf(round) < now) {
         this.rounds.delete(k);
-        removed = true;
+        removed.push(k);
       }
     }
     return removed;
+  }
+
+  // A round is gone for good (12h sweep, officer /clear, global /dismiss,
+  // or re-drop over a resolved card): delete its persisted resolved copy
+  // and every viewer's per-account dismissal of it, so `dismiss:*` keys
+  // don't pile up and a future same-named drop starts un-dismissed for
+  // everyone. Called only when something actually left the board — never on
+  // the push/heartbeat hot path when nothing expired.
+  private async purgeRounds(roundKeys: string[]): Promise<void> {
+    for (const k of roundKeys) {
+      await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + k);
+      for (const [userId, set] of this.dismissals) {
+        if (!set.delete(k)) continue;
+        await this.ctx.storage.delete(DISMISS_STORAGE_PREFIX + userId + "|" + k);
+        if (set.size === 0) this.dismissals.delete(userId);
+      }
+    }
+  }
+
+  private isDismissedBy(userId: string | undefined, roundKey: string): boolean {
+    return userId !== undefined && (this.dismissals.get(userId)?.has(roundKey) ?? false);
+  }
+
+  private async recordDismissal(userId: string, roundKey: string): Promise<void> {
+    let set = this.dismissals.get(userId);
+    if (!set) this.dismissals.set(userId, (set = new Set()));
+    if (set.has(roundKey)) return;
+    set.add(roundKey);
+    await this.ctx.storage.put(DISMISS_STORAGE_PREFIX + userId + "|" + roundKey, Date.now());
   }
 
   // Arms the sweep alarm for the soonest round expiry. Debounced: only
@@ -513,11 +608,16 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     return Date.now() - round.lastSeenAt < LIVE_TTL_MS ? "live" : "idle";
   }
 
-  private stateMessage(): ServerMessage {
+  // The board as one viewer sees it: rounds they've dismissed (LT-32) are
+  // filtered out. `userId` undefined ⇒ no filtering (an un-attributed
+  // socket, or a direct call without ?userId=).
+  private stateMessageFor(userId: string | undefined): ServerMessage {
     // collecting rounds (live then idle) before resolved, each group by
     // start order — the dashboard reads top-left = most active.
     const rank = (r: Round) => (r.state === "resolved" ? 2 : this.statusOf(r) === "live" ? 0 : 1);
-    const rounds: RoundView[] = [...this.rounds.values()]
+    const rounds: RoundView[] = [...this.rounds.entries()]
+      .filter(([k]) => !this.isDismissedBy(userId, k))
+      .map(([, r]) => r)
       .sort((a, b) => rank(a) - rank(b) || a.startedAt - b.startedAt)
       .map((r) => ({
         itemName: r.itemName,
@@ -531,8 +631,24 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   }
 
   private broadcast() {
-    const encoded = JSON.stringify(this.stateMessage());
+    // Each socket carries its viewer's userId as a hibernation-durable
+    // attachment (see /ws). Serialize one frame per distinct dismiss view —
+    // in practice most viewers have dismissed nothing and share a single
+    // frame; only the few with active dismissals cost an extra JSON.stringify.
+    const frames = new Map<string, string>();
     for (const ws of this.ctx.getWebSockets()) {
+      let userId: string | undefined;
+      try {
+        userId = (ws.deserializeAttachment() as { userId?: string } | null)?.userId;
+      } catch {
+        userId = undefined;
+      }
+      const cacheKey = userId ?? "";
+      let encoded = frames.get(cacheKey);
+      if (encoded === undefined) {
+        encoded = JSON.stringify(this.stateMessageFor(userId));
+        frames.set(cacheKey, encoded);
+      }
       try {
         ws.send(encoded);
       } catch {

@@ -40,54 +40,21 @@ type ServerMessage = { type: "state"; rounds: RoundView[] };
 type ConnectionStatus = "connecting" | "open" | "closed";
 
 // Dismiss is per-viewer (leader, 2026-09-05: one member closing a card
-// must not close it for everyone else watching). The board itself (the
-// Durable Object) has no per-viewer concept, so "dismissed" lives entirely
-// in this browser's localStorage, keyed by item name, and is never sent to
-// the server.
+// must not close it for everyone else watching), and since post-live-test-1
+// LT-32 it's held SERVER-SIDE, per account:
 //
-// We store the status the card had WHEN it was dismissed (post-live-test-1
-// LT-05): a *resolved* dismissal sticks until the round ages off the board
-// entirely — the viewer is done reviewing it. A
-// *collecting* dismissal (a round that looks stuck because nobody
-// finalized it) is lifted the moment it resolves, so the winner still
-// surfaces. The previous version pruned every resolved dismissal on the
-// next state frame, so "Dismiss" didn't survive a refresh at all.
-const DISMISSED_STORAGE_KEY = "seekers.liveBids.dismissedItems";
-
-type DismissedAt = "collecting" | "resolved";
-
-function loadDismissed(): Map<string, DismissedAt> {
-  const out = new Map<string, DismissedAt>();
-  if (typeof window === "undefined") return out;
-  try {
-    const raw = window.localStorage.getItem(DISMISSED_STORAGE_KEY);
-    if (!raw) return out;
-    const parsed = JSON.parse(raw) as unknown;
-    // Legacy shape: a bare string[]. Treat every entry as a sticky
-    // (resolved) dismissal so nothing that was hidden pops back on upgrade.
-    if (Array.isArray(parsed)) {
-      for (const v of parsed) if (typeof v === "string") out.set(v, "resolved");
-      return out;
-    }
-    if (parsed && typeof parsed === "object") {
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (v === "collecting" || v === "resolved") out.set(k, v);
-      }
-    }
-  } catch {
-    // ignore — a private window / full storage just means dismiss doesn't
-    // persist across reloads for this viewer, nothing breaks
-  }
-  return out;
-}
-
-function saveDismissed(map: Map<string, DismissedAt>) {
-  try {
-    window.localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Object.fromEntries(map)));
-  } catch {
-    // best-effort — see loadDismissed
-  }
-}
+//  - A **resolved** card's "Dismiss" POSTs to /api/live-bids/dismiss; the
+//    Durable Object records it against this viewer's user id and filters
+//    the round out of every frame it sends this account — so it stays
+//    dismissed across a refresh and a DO eviction (plain localStorage
+//    never managed that reliably), and everyone else keeps seeing it until
+//    they dismiss it too or the round auto-clears at 12h. `pendingDismiss`
+//    below is just an optimistic local hide for the ~1 frame between the
+//    click and the broadcast that already excludes it.
+//  - A **collecting** card's "Hide" is a local, session-only declutter for
+//    a round that looks stuck — it never hits the server, resets on
+//    refresh, and lifts automatically once the round resolves so the
+//    winner still surfaces (`hiddenCollecting`).
 
 function wsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -132,9 +99,13 @@ export function LiveBidsView() {
   const [rounds, setRounds] = useState<RoundView[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
-  // Lazy initializer so this reads localStorage once, client-side only.
-  // Maps item name -> the status it had when dismissed (see loadDismissed).
-  const [dismissedKeys, setDismissedKeys] = useState<Map<string, DismissedAt>>(loadDismissed);
+  // Resolved cards this viewer just dismissed — optimistic hide until the
+  // server's next frame (which the dismiss POST triggers) drops the round
+  // for this account anyway. See the comment block up top.
+  const [pendingDismiss, setPendingDismiss] = useState<Set<string>>(() => new Set());
+  // Collecting cards hidden with "Hide" — local + session-only, lifts on
+  // resolve or when the round leaves the board.
+  const [hiddenCollecting, setHiddenCollecting] = useState<Set<string>>(() => new Set());
   // Resolved cards render collapsed (winner line only) until the viewer
   // opens them — the point of the board is watching what's live, not
   // re-reading finished rounds. Collecting cards are always expanded.
@@ -225,36 +196,49 @@ export function LiveBidsView() {
     }
   }
 
-  // Purely local — hides this card from this browser only. Never touches
-  // the server, so nobody else's board is affected and a live round keeps
-  // running for everyone else.
   function onDismiss(itemName: string, status: LiveStatus) {
-    setDismissedKeys((prev) => {
-      const next = new Map(prev);
-      next.set(itemName, status === "resolved" ? "resolved" : "collecting");
-      saveDismissed(next);
-      return next;
+    if (status !== "resolved") {
+      // Collecting-round "Hide" — local declutter only, never hits the
+      // server, resets on refresh, lifts on resolve.
+      setHiddenCollecting((prev) => new Set(prev).add(itemName));
+      return;
+    }
+    // Resolved "Dismiss" — per-account, server-side (LT-32). Optimistically
+    // hide now; the broadcast this POST triggers already excludes it for
+    // this account, and pruneHidden below hands off from optimistic to
+    // server-authoritative once that frame lands.
+    setPendingDismiss((prev) => new Set(prev).add(itemName));
+    fetch("/api/live-bids/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemName }),
+    }).catch(() => {
+      // Network failed — let the card come back rather than lie that it's gone.
+      setPendingDismiss((prev) => {
+        const next = new Set(prev);
+        next.delete(itemName);
+        return next;
+      });
     });
   }
 
-  // Lift a dismissal once hiding it no longer makes sense: the round left
-  // the board entirely (server swept / cleared / aged off), or it was
-  // dismissed *while collecting* and has since resolved — surface the
-  // winner (they can re-dismiss). A dismissal made *at resolved* stays
-  // until the round leaves the board. Also keeps the stored map from
-  // growing over a long session.
+  // Keep the two local hide-sets honest against the latest server frame:
+  //  - pendingDismiss: drop an entry once its round is no longer on the
+  //    board as "resolved" — either the server has filtered it out for this
+  //    account (dismiss confirmed) or the same item re-dropped (now
+  //    collecting, and the server cleared the dismissal too, so show it).
+  //  - hiddenCollecting: lift once the round resolves (surface the winner)
+  //    or leaves the board.
   useEffect(() => {
-    setDismissedKeys((prev) => {
+    const onBoard = new Map(rounds.map((r) => [r.itemName, r.status] as const));
+    setPendingDismiss((prev) => {
       if (prev.size === 0) return prev;
-      const onBoard = new Map(rounds.map((r) => [r.itemName, r.status] as const));
-      const next = new Map<string, DismissedAt>();
-      for (const [k, dismissedAt] of prev) {
-        const status = onBoard.get(k);
-        if (status === undefined) continue; // gone from the board
-        if (dismissedAt === "collecting" && status === "resolved") continue; // show the winner
-        next.set(k, dismissedAt);
-      }
-      if (next.size !== prev.size) saveDismissed(next);
+      const next = new Set([...prev].filter((n) => onBoard.get(n) === "resolved"));
+      return next.size === prev.size ? prev : next;
+    });
+    setHiddenCollecting((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((n) => onBoard.get(n) !== undefined && onBoard.get(n) !== "resolved"));
       return next.size === prev.size ? prev : next;
     });
   }, [rounds]);
@@ -263,18 +247,15 @@ export function LiveBidsView() {
   // group the most-recently-updated round comes first. (post-live-test-1:
   // resolved rounds were sorting to the top and pushing the live ones down.)
   const visibleRounds = useMemo(() => {
-    const shown = rounds.filter((r) => {
-      const dismissedAt = dismissedKeys.get(r.itemName);
-      if (dismissedAt === undefined) return true;
-      // A collecting-time dismissal is lifted once the round resolves.
-      return !(dismissedAt === "resolved" || r.status !== "resolved");
-    });
+    const shown = rounds.filter((r) =>
+      r.status === "resolved" ? !pendingDismiss.has(r.itemName) : !hiddenCollecting.has(r.itemName),
+    );
     const statusOrder = (s: LiveStatus) => (s === "resolved" ? 1 : 0);
     return shown.sort((a, b) => {
       const group = statusOrder(a.status) - statusOrder(b.status);
       return group !== 0 ? group : b.lastSeenAt - a.lastSeenAt;
     });
-  }, [rounds, dismissedKeys]);
+  }, [rounds, pendingDismiss, hiddenCollecting]);
 
   const liveCount = visibleRounds.filter((r) => r.status === "live").length;
   const resolvedCount = visibleRounds.filter((r) => r.status === "resolved").length;
@@ -352,7 +333,7 @@ export function LiveBidsView() {
                       <button
                         type="button"
                         onClick={() => onDismiss(round.itemName, round.status)}
-                        title="Hides this card for you only until it resolves or is cleared — the round keeps running for everyone else"
+                        title="Declutters this card for you until it resolves or you refresh — the round keeps running for everyone else"
                         className="self-center rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60"
                       >
                         Hide
@@ -370,7 +351,7 @@ export function LiveBidsView() {
                       <button
                         type="button"
                         onClick={() => onDismiss(round.itemName, round.status)}
-                        title="Hides this card for you only — everyone else watching keeps seeing it"
+                        title="Hides this resolved card for your account — stays hidden when you refresh, and clears on its own 12h after the round finalized. Everyone else keeps seeing it until they dismiss it too."
                         className="rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60"
                       >
                         Dismiss

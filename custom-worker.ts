@@ -62,8 +62,12 @@ async function handleLiveBidsWebSocket(request: Request, env: CloudflareEnv): Pr
     return Response.json({ error: "Access denied." }, { status: 403 });
   }
 
+  // Pass the resolved user id to the DO so it can filter this viewer's
+  // dismissed rounds out of every frame on this socket (LT-32). The second
+  // arg copies method + the Upgrade headers; the URL comes from the first.
   const stub = liveAuctionStub(env);
-  return stub.fetch(new Request("https://live-auction-session/ws", request));
+  const doUrl = `https://live-auction-session/ws?userId=${encodeURIComponent(session.user.id)}`;
+  return stub.fetch(new Request(doUrl, request));
 }
 
 // GET /api/live-bids/state — every member (same bar as the WS view).
@@ -77,20 +81,23 @@ async function handleLiveBidsState(request: Request, env: CloudflareEnv): Promis
     return Response.json({ error: "Not allowed." }, { status: 403 });
   }
 
-  const resp = await liveAuctionStub(env).fetch("https://live-auction-session/state");
+  // ?userId= so the DO's snapshot already has this viewer's dismissed
+  // rounds (LT-32) filtered out — same view the WS frames give them.
+  const doUrl = `https://live-auction-session/state?userId=${encodeURIComponent(session.user.id)}`;
+  const resp = await liveAuctionStub(env).fetch(doUrl);
   if (!resp.ok) return Response.json({ error: "Live session unavailable." }, { status: 502 });
   return new Response(await resp.text(), { headers: { "Content-Type": "application/json" } });
 }
 
-// POST /api/live-bids/dismiss — every member (same bar as /state). Removes
-// a resolved round from the shared board for EVERY viewer, not just the
-// caller — that's exactly the "one person closes it, it's gone for
-// everyone" behavior the leader flagged (2026-09-05). The member-facing
-// Dismiss button (LiveBidsView.tsx) no longer calls this — it hides a
-// resolved card locally (localStorage), per-viewer, and never touches the
-// server. This endpoint is kept as a manual, shared "force clear" escape
-// hatch (e.g. an officer clearing a stuck card for everyone via a direct
-// call) — nothing in the UI wires it up as of this comment.
+// POST /api/live-bids/dismiss — every member (same bar as /state). LT-32:
+// this is the member-facing "Dismiss" on a resolved card, and it's now a
+// PER-ACCOUNT dismiss — the DO records it against this viewer's user id
+// (persisted, survives their refresh and a DO eviction) and keeps showing
+// the round to everyone else. It clears itself when the round leaves the
+// board (12h auto-sweep, a re-drop of the same item, or an officer /clear).
+// The old localStorage-only client hack is gone. Forwarding without a
+// `userId` still triggers the DO's legacy global force-clear, but nothing
+// does that now.
 async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Promise<Response> {
   const auth = createAuth(env, cfOf(request));
   const session = await auth.api.getSession({ headers: request.headers });
@@ -110,7 +117,7 @@ async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Prom
   if (typeof itemName !== "string" || !itemName.trim()) {
     return Response.json({ error: "`itemName` is required." }, { status: 400 });
   }
-  return forwardToDO(env, "dismiss", { itemName: itemName.trim() });
+  return forwardToDO(env, "dismiss", { itemName: itemName.trim(), userId: session.user.id });
 }
 
 // POST /api/officer/live-bids/{push,heartbeat,clear,resolve} — officer x-api-key.
