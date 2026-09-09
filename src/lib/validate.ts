@@ -22,6 +22,7 @@ export const LIMITS = {
   activity: 60,
   zone: 80,
   characterName: 24,
+  raidName: 80,
 } as const;
 
 // EQ / Project Quarm character names are letters only, and short. Allow a

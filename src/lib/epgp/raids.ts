@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, raids } from "@/db";
@@ -326,4 +326,31 @@ export async function setRaidMeta(
     .insert(raids)
     .values({ raidDate, name, note, createdBy: userId, updatedAt: now })
     .onConflictDoUpdate({ target: raids.raidDate, set: { name, note, updatedAt: now } });
+}
+
+// Name a raid from an officer-app attendance submit. Unlike setRaidMeta
+// (the site's own inline editor — a deliberate overwrite), this never
+// clobbers a name that's already there: the first submit of the night
+// names the raid, and a later Raid-Start/Mid/End submit carrying the same
+// (or a since-changed) value leaves the existing name alone. `note` is
+// never touched from this path. A blank name is a no-op — the field is
+// optional in the app.
+export async function nameRaidFromCapture(
+  db: ReturnType<typeof drizzle>,
+  raidDate: string,
+  name: string,
+  userId: string,
+): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raidDate)) throw new Error("Bad raid date.");
+  const now = new Date();
+  await db
+    .insert(raids)
+    .values({ raidDate, name: trimmed, createdBy: userId, updatedAt: now })
+    .onConflictDoUpdate({
+      target: raids.raidDate,
+      set: { name: trimmed, updatedAt: now },
+      setWhere: isNull(raids.name),
+    });
 }

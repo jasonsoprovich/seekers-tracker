@@ -6,8 +6,10 @@ import { checkMinAttendance } from "@/lib/epgp/attendance";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
+import { nameRaidFromCapture } from "@/lib/epgp/raids";
 import { refreshStandings } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
+import { toGuildDateString } from "@/lib/guild-timezone";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
 
 // One `/who guild` snapshot is at most the raid cap plus stragglers; well
@@ -20,6 +22,7 @@ type AttendanceRequestBody = {
   characterNames?: unknown;
   note?: unknown;
   zone?: unknown;
+  raidName?: unknown;
 };
 
 // Bulk EP award from the officer app's Attendance capture (one "/who
@@ -68,6 +71,11 @@ export async function POST(request: Request) {
   // was actually for. Optional: an older client, or a manual resubmit,
   // won't send it.
   const zone = typeof body.zone === "string" && body.zone.trim() ? body.zone.trim().slice(0, LIMITS.zone) : null;
+  // Optional raid name from the app's Attendance tab — names the night on
+  // /epgp/raids so a Start/Mid/End set reads as one entry. Only the first
+  // submit that carries a name wins (nameRaidFromCapture never overwrites),
+  // so a stale value on a later Mid/End submit is harmless.
+  const raidName = typeof body.raidName === "string" && body.raidName.trim() ? body.raidName.trim().slice(0, LIMITS.raidName) : null;
   const activity = activityCheck.value;
 
   const db = await getDb();
@@ -157,6 +165,17 @@ export async function POST(request: Request) {
   }
 
   if (awardedPlayerIds.size > 0) await refreshStandings(db, { playerIds: [...awardedPlayerIds] });
+
+  // Best-effort: a name that couldn't be stored (bad date, race) must not
+  // fail an otherwise-good attendance submit — the officer can still name
+  // the raid on /epgp/raids.
+  if (raidName && (inserted > 0 || duplicates.length > 0)) {
+    try {
+      await nameRaidFromCapture(db, toGuildDateString(occurredAt), raidName, auth.userId);
+    } catch (err) {
+      console.warn(`attendance: could not name raid for ${occurredAtIso}: ${String(err)}`);
+    }
+  }
 
   return Response.json({ inserted, unmatched, duplicates }, { status: 201 });
 }
