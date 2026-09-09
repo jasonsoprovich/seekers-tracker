@@ -326,6 +326,43 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Attendance + bids capture streamline, 2026-09-09 (tracker Worker
+`2e3a7c72`, deployed; parser `v0.1.10` released — officers auto-update).**
+Event-leader review of the multi-capture workflow ahead of the LT-33 sim:
+reduce the chance of a busy officer missing/fat-fingering a capture and
+let attendance happen well after the raid. No migration (reuses `raids`).
+- **Tracker:** `POST /api/officer/attendance` takes an optional `raidName`
+  (LIMITS.raidName = 80). After a successful award it upserts the `raids`
+  row for the capture's guild-local date via new `nameRaidFromCapture()`
+  (`src/lib/epgp/raids.ts`) — which, unlike `setRaidMeta` (the site's
+  inline editor, a deliberate overwrite), **only fills a name that isn't
+  set yet**, so the first submit of the night names the raid and a later
+  Mid/End submit with a stale value is a no-op. Blank name / store failure
+  is swallowed. Verified against local D1 (names an unnamed date, refuses
+  to clobber, `setRaidMeta` still overwrites); `npm run verify` 13/13.
+- **Parser (`../seekers-epgp-parser`, `v0.1.10`):**
+  - `ListAttendanceSnapshots(lookbackHours)` — selectable log look-back
+    (6/12/24/48h picker, remembered; Go clamps to [1,72]) replacing the
+    hardcoded 12h. For doing attendance the next day / a weekend
+    player-quest timestamp.
+  - Captures with fewer than min-attendance names sort **below** the
+    raid-sized ones and get a "< N" badge, but stay visible/editable —
+    a stray `/who <name>` lookup no longer buries the real ticks.
+  - Optional "Raid name" field on the Attendance panel → sent as
+    `raidName` with every submit; persisted locally so it survives a
+    restart mid-raid.
+  - New shared `ConfirmDialog` (not `window.confirm` — blocks the Wails
+    webview). "Submit assigned" now opens an approval dialog.
+  - **Bids:** entering review (End Round & Review) auto-runs Determine
+    Winner; "Submit to site" opens the same approval dialog; the grats
+    line is copied to the clipboard automatically on a successful submit
+    (standalone "Copy Grats Message" button removed, "Copy now" fallback
+    kept). Submit still resolves the live-bids board + writes the ledger
+    exactly as before — UI flow only.
+  - Verified: `wails3 build` / `go vet` / `go test` clean; throwaway Go
+    test confirmed the look-back window + 72h clamp. **Not** GUI/browser
+    -verified (no Wails GUI / Discord OAuth this session).
+
 **Post-go-live fixes, 2026-09-06 (Worker `12eacb2a`).**
 - **`decay_model` design flaw — flagged, not yet fixed.** `decay_model` does
   two jobs: (1) the default rate/label for a cycle-decay entry on
