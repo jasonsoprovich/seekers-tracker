@@ -326,6 +326,38 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**LT-33 sim follow-ups, 2026-09-09 (tracker Worker `83f9e5f2`, deployed;
+parser `v0.1.11` released).** Notes from the first sim run of the
+streamline below:
+- **Tracker:** new `GET /api/officer/attendance?activity=&occurredAt=` →
+  `{ exists, count }`, counting `source='parse'` ep_ledger rows that
+  already match a capture's exact (activity, occurredAt) — mirrors the
+  POST dedupe key. No migration.
+- **Parser (`v0.1.11`):**
+  - Attendance: opening "Submit assigned" probes each assigned capture
+    via the GET above; the confirm dialog flags "already recorded (N
+    rows) — no-op", and when *every* capture is a dup the button becomes
+    "Submit anyway" with an explanation. A submit that inserts 0 rows now
+    shows a yellow "Nothing new" badge, not the green "Recorded" one.
+    (Root cause of the sim report: after Clear all + re-capture the app
+    has no memory the night was already submitted; the server deduped it
+    silently.)
+  - Bids: a manually added bid row is **prepended** (was appended — it
+    scrolled off the bottom of a full round). The "Main" column for an
+    unresolved row is now a type-to-filter combobox
+    (`MainResolveCombobox`) instead of a raw `<select>` — same three
+    outcomes (link existing / new alt / new main).
+  - New first-run **SetupWizard** (game folder → API key → verify),
+    shown until finished/skipped; `config.Settings.SetupComplete` +
+    `SetSetupComplete`. Settings has a "Run setup wizard" button.
+  - On launch, if a key is set but `TestConnection` fails, a persistent
+    red banner tells the officer to regenerate it before raid.
+  - Settings tab reformatted (three labelled cards, left-aligned — the
+    Wails template's global `text-align:center` was leaking into panel
+    content, now overridden on `.main`).
+  - `wails3 build` / `go vet` / `go test` clean; frontend tsc+vite
+    clean. Not GUI-verified this session.
+
 **Attendance + bids capture streamline, 2026-09-09 (tracker Worker
 `2e3a7c72`, deployed; parser `v0.1.10` released — officers auto-update).**
 Event-leader review of the multi-capture workflow ahead of the LT-33 sim:
