@@ -357,6 +357,34 @@ function canonicalRedirect(request: Request, url: URL): Response | null {
 // parser also sends the exact character whose log it parsed
 // (`capturedByCharacter`); when present that wins, since an officer may be
 // running an alt. Falls back to the username, then a generic label.
+// Read-only, guild-wide pages where a few seconds of staleness is fine
+// (post-live-test-1 LT-26 #3). We tag their 200 responses — and their RSC
+// payloads, same pathname — with a short PRIVATE cache window so a quick
+// back-and-forth or re-nav is served from the viewer's own browser cache
+// with no Worker hit at all, sidestepping the cold-start tax entirely.
+// `private` = never shared/edge-cached, so per-viewer content is safe.
+// Excluded on purpose: /live-bids (realtime), /admin/* and /profile and
+// /characters/* and /epgp/{settings,decay,sql} (mutating / sensitive),
+// every /api/* route.
+const READ_CACHE_PATHS = new Set([
+  "/roster",
+  "/dashboard",
+  "/bank",
+  "/progression",
+  "/epgp/ledger",
+  "/epgp/raids",
+  "/epgp/info",
+]);
+
+function withReadCache(request: Request, url: URL, resp: Response): Response {
+  if (request.method !== "GET" || resp.status !== 200) return resp;
+  const p = url.pathname;
+  if (!READ_CACHE_PATHS.has(p) && !p.startsWith("/epgp/raids/")) return resp;
+  const headers = new Headers(resp.headers);
+  headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+}
+
 async function resolveCollectedByName(db: ReturnType<typeof drizzle>, userId: string): Promise<string> {
   const [main] = await db
     .select({ name: characters.name })
@@ -393,13 +421,14 @@ export default {
     const officer = url.pathname.match(/^\/api\/officer\/live-bids\/(push|heartbeat|clear|resolve)$/);
     if (officer && request.method === "POST") return handleOfficerLiveBids(request, env, officer[1]);
 
-    if (!perfEnabled()) return handler.fetch(request, env, ctx);
-    const t0 = Date.now();
+    const t0 = perfEnabled() ? Date.now() : 0;
+    let resp: Response;
     try {
-      return await handler.fetch(request, env, ctx);
+      resp = await handler.fetch(request, env, ctx);
     } finally {
-      console.log(`[perf] request ${request.method} ${url.pathname} ${Date.now() - t0}ms`);
+      if (perfEnabled()) console.log(`[perf] request ${request.method} ${url.pathname} ${Date.now() - t0}ms`);
     }
+    return withReadCache(request, url, resp);
   },
 
   // Two crons (wrangler.jsonc `triggers.crons`), dispatched on event.cron.

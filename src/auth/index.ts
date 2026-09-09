@@ -49,7 +49,7 @@ async function resolvePlayerOnLogin(db: ReturnType<typeof drizzle>, userId: stri
   await resolvePlayerForUser(db, user);
 }
 
-function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
+function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
   const db = env ? drizzle(env.DATABASE, { schema }) : undefined;
 
   return betterAuth({
@@ -213,6 +213,27 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
       },
     ),
   });
+}
+
+// The RSC session-read path (src/lib/session.ts getSession) calls
+// createAuth on every request with no baseURL. Rebuilding the whole
+// better-auth instance — plugins, the drizzle adapter, the api-key plugin —
+// each time measured ~10-20ms of the getSession cost (post-live-test-1
+// LT-26 #4). The instance only depends on `env`, stable for the life of an
+// isolate; `cf` feeds geolocation / IP detection, both used only at session
+// *creation* (login), which goes through the API route with an explicit
+// baseURL and so never reads this cache.
+let cachedAuth: ReturnType<typeof buildAuth> | undefined;
+let cachedAuthEnv: CloudflareEnv | undefined;
+
+function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
+  if (!baseURL && env && cachedAuth && cachedAuthEnv === env) return cachedAuth;
+  const built = buildAuth(env, cf, baseURL);
+  if (!baseURL && env) {
+    cachedAuth = built;
+    cachedAuthEnv = env;
+  }
+  return built;
 }
 
 export const auth = createAuth();

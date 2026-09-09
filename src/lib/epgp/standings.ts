@@ -113,6 +113,10 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
   for (let i = 0; i < gone.length; i += 100) {
     await db.delete(playerEpgpTotals).where(inArray(playerEpgpTotals.playerId, gone.slice(i, i + 100)));
   }
+
+  // A write just landed — drop the read cache so this isolate serves fresh
+  // numbers immediately (LT-26 #4). Other isolates fall back to the 10s TTL.
+  standingsCache = undefined;
 }
 
 // One-call "recompute everyone" for the /epgp/settings "Rebuild standings"
@@ -134,11 +138,28 @@ export async function rebuildAllStandings(db: ReturnType<typeof drizzle>): Promi
   return { players: Number(row?.n ?? 0) };
 }
 
+// Short in-isolate cache (post-live-test-1 LT-26 #4). player_epgp_totals
+// only changes on a ledger/decay/settings write, all of which go through
+// refreshStandings — which busts this. Between writes it's a fixed
+// ~256-row table read on every /roster, /dashboard and Totals-tab render;
+// a 10s TTL lets repeat renders on the same warm isolate skip the D1
+// round-trip entirely (~25-40ms each). Worst case: an officer submits and
+// then checks the roster within 10s and sees the pre-write numbers on a
+// stale isolate — acceptable for a display, and same-isolate writes clear
+// it immediately.
+const STANDINGS_TTL_MS = 10_000;
+let standingsCache: { at: number; data: Map<number, StandingsRow> } | undefined;
+
+export function bustStandingsCache(): void {
+  standingsCache = undefined;
+}
+
 // The read path that replaces getCachedEpgpTotals — one scan of a
-// ~one-row-per-player table, always current. Shape-compatible with what
-// computeEpgpTotals returned (a Map keyed by playerId) so callers only
-// change the import, plus `lastActivityAt` for the roster.
+// ~one-row-per-player table. Shape-compatible with what computeEpgpTotals
+// returned (a Map keyed by playerId) so callers only change the import,
+// plus `lastActivityAt` for the roster.
 export async function getStandings(db: ReturnType<typeof drizzle>): Promise<Map<number, StandingsRow>> {
+  if (standingsCache && Date.now() - standingsCache.at < STANDINGS_TTL_MS) return standingsCache.data;
   const rows = await timed("getStandings", () => db.select().from(playerEpgpTotals));
   const out = new Map<number, StandingsRow>();
   for (const r of rows) {
@@ -156,5 +177,6 @@ export async function getStandings(db: ReturnType<typeof drizzle>): Promise<Map<
       lastActivityAt: r.lastActivityAt ?? null,
     });
   }
+  standingsCache = { at: Date.now(), data: out };
   return out;
 }
