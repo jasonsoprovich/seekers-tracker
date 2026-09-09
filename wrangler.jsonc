@@ -72,13 +72,18 @@
 	"migrations": [
 		{ "tag": "v1", "new_sqlite_classes": ["LiveAuctionSession"] }
 	],
-	// Nightly standings + last_activity rebuild — custom-worker.ts's
-	// scheduled() handler. 09:17 UTC ≈ 4-5am US Eastern, safely after any
-	// raid. refreshStandings runs synchronously on every write, so this is
-	// only a safety net (a missed hook, the per-cycle-rollover shift under
-	// decay_model=legacy) — one ~450k-row read/night, negligible.
+	// Two crons, dispatched by custom-worker.ts's scheduled() on event.cron:
+	//  - "17 9 * * *"  nightly standings + last_activity rebuild (safety net;
+	//    refreshStandings already runs on every write). ~450k-row read/night.
+	//  - "*/3 * * * *" keep-warm ping (post-live-test-1 LT-26/LT-27): a fresh
+	//    isolate boot is ~0.5s of the "site feels frozen" latency, and on the
+	//    $5 plan with sporadic traffic isolates evict between clicks. This
+	//    self-fetches the tiny /api/health route so a render-path isolate
+	//    stays alive. Cost: ~14.6k invocations/mo (0.15% of the 10M included) + a
+	//    ~20-40ms-CPU render each (~0.5M CPU-ms/mo, <2% of the 30M included).
+	//    Well inside the $5 plan; dial the interval up if headroom shrinks.
 	"triggers": {
-		"crons": ["17 9 * * *"]
+		"crons": ["17 9 * * *", "*/3 * * * *"]
 	},
 	"observability": {
 		"enabled": true

@@ -402,11 +402,30 @@ export default {
     }
   },
 
-  // Nightly safety-net rebuild (cron in wrangler.jsonc). refreshStandings
-  // already runs on every write, so this only catches a missed hook or the
-  // per-cycle-rollover shift under decay_model=legacy — and, via
-  // rebuildAllStandings, re-derives characters.last_activity_at too.
-  async scheduled(_event, env) {
+  // Two crons (wrangler.jsonc `triggers.crons`), dispatched on event.cron.
+  async scheduled(event, env, ctx) {
+    // "*/3 * * * *" — keep-warm ping (LT-26/LT-27). Warm the D1 binding on
+    // THIS isolate, then self-fetch the tiny /api/_warm route so a
+    // render-path isolate stays hot too. Best-effort; a failure just means
+    // the next real request pays a cold start, same as before.
+    if (event.cron === "*/3 * * * *") {
+      const warm = (async () => {
+        try {
+          await drizzle(env.DATABASE, { schema }).run(sql`SELECT 1`);
+          const r = await fetch("https://seekersofsouls.com/api/health", { headers: { "x-warm": "cron" } });
+          console.log(`[cron] warm ping ${r.status}`);
+        } catch (e) {
+          console.log(`[cron] warm ping failed: ${e}`);
+        }
+      })();
+      ctx.waitUntil(warm);
+      return;
+    }
+
+    // "17 9 * * *" — nightly safety-net rebuild. refreshStandings already
+    // runs on every write, so this only catches a missed hook or the
+    // per-cycle-rollover shift under decay_model=legacy — and, via
+    // rebuildAllStandings, re-derives characters.last_activity_at too.
     const db = drizzle(env.DATABASE, { schema });
     const { players } = await rebuildAllStandings(db);
     console.log(`[cron] rebuilt standings + last_activity for ${players} players`);
