@@ -1,7 +1,9 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { characters, epLedger, gpLedger, playerEpgpTotals, players, users } from "@/db";
+import { characters, epLedger, gpLedger, mainSwapEvents, playerEpgpTotals, players, users } from "@/db";
+import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
+import { refreshStandings } from "@/lib/epgp/standings";
 
 // PLAN.md §11 Phase 10 — character claiming rework, built on the `players`
 // table Phase 3 introduced. Four entry points:
@@ -9,12 +11,19 @@ import { characters, epLedger, gpLedger, playerEpgpTotals, players, users } from
 //   attachCharacterToPlayer — task 10.2, called from claim approval and
 //     from new-character creation (also closes the PLAN.md §16 gap: a
 //     site-created character never got player_id set)
-//   swapMainCharacter     — task 10.3, leader-only
+//   swapMainCharacter     — task 10.3, leader/admin-only; post-live-test-1
+//     LT-30 added a waivable 500 GP fee + reverseMainSwap
 //   createStandalonePlayer — same job as attachCharacterToPlayer, for a
 //     character that has no player at all yet (discord_id-less, same
 //     "sheet-only" shape PLAN.md §11 Phase 3 task 3.5 already established)
 
 type Db = ReturnType<typeof drizzle>;
+
+// post-live-test-1 LT-30: swapping which character is a player's main costs
+// the new main 500 GP, charged as a normal manual gp_ledger row. A leader
+// can waive it on the confirm dialog (fee 0, no row). reverseMainSwap
+// refunds exactly what was charged.
+export const MAIN_SWAP_FEE_GP = 500;
 
 // Resolves the given (already Discord-authenticated) user to their
 // `players` row, creating the link — or the row itself — if neither exists
@@ -163,12 +172,20 @@ export async function assignCharacterToUser(db: Db, characterId: number, userId:
 export type SwapMainResult = { error?: string };
 
 // PLAN.md §11 Phase 10 task 10.3 — "leader-approved main swap = update
-// players.main_character_id, EP/GP untouched." EP/GP is untouched by
-// construction: computeEpgpTotals groups by ep_ledger/gp_ledger.player_id
-// (Phase 3 task 3.11), which this never writes to — only
+// players.main_character_id, EP/GP untouched." EP/GP standings are untouched
+// by construction: computeEpgpTotals groups by ep_ledger/gp_ledger.player_id
+// (Phase 3 task 3.11), which the re-typing never writes to — only
 // players.main_character_id and, to keep the roster's display grouping
 // correct (§4c: "char_type is display metadata kept in sync"), the
 // affected characters' char_type/main_character_id.
+//
+// post-live-test-1 LT-30 additions:
+//  - `feeGp` (0 = waived, else MAIN_SWAP_FEE_GP) is charged to the NEW main
+//    as an ordinary manual gp_ledger row. GP already follows the account
+//    (ledger.player_id), so "EP/GP stays with the account, moves old main →
+//    new main" needs no work here — the fee is the only new number.
+//  - a main_swap_events row records the pre-swap state so reverseMainSwap
+//    can undo both the re-typing and the fee, any time later.
 //
 // Caller (src/app/(app)/admin/actions.ts) is responsible for the
 // canManageRoles gate — this function only enforces that the target
@@ -178,16 +195,34 @@ export async function swapMainCharacter(
   playerId: number,
   newMainCharacterId: number,
   approvedBy: string,
+  feeGp: number,
 ): Promise<SwapMainResult> {
   const [target] = await db
-    .select({ id: characters.id, playerId: characters.playerId, charType: characters.charType })
+    .select({ id: characters.id, name: characters.name, playerId: characters.playerId, charType: characters.charType })
     .from(characters)
     .where(eq(characters.id, newMainCharacterId));
   if (!target) return { error: "Character not found." };
   if (target.playerId !== playerId) return { error: "That character doesn't belong to this player." };
   if (target.charType === "mule") return { error: "A mule can't be a player's main character." };
 
+  const [player] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, playerId));
+  if (!player) return { error: "Player not found." };
+  if (player.mainCharacterId === newMainCharacterId) return { error: "That character is already this player's main." };
+
   const now = new Date();
+
+  // Snapshot every non-mule character of this player BEFORE re-typing —
+  // the exact set the two UPDATEs below touch — so reverseMainSwap can put
+  // the grouping back verbatim.
+  const affected = await db
+    .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId })
+    .from(characters)
+    .where(and(eq(characters.playerId, playerId), ne(characters.charType, "mule")));
+
+  const prevMainCharacterId = player.mainCharacterId;
+  const prevMainName = prevMainCharacterId
+    ? (await db.select({ name: characters.name }).from(characters).where(eq(characters.id, prevMainCharacterId)))[0]?.name ?? null
+    : null;
 
   // Every other non-mule character this player owns becomes an alt of the
   // new main; mules are left untouched (they're never grouped under a
@@ -207,6 +242,105 @@ export async function swapMainCharacter(
     .update(players)
     .set({ mainCharacterId: newMainCharacterId, mainCharacterChangedBy: approvedBy, mainCharacterChangedAt: now, updatedAt: now })
     .where(eq(players.id, playerId));
+
+  // The fee — a plain manual GP charge on the new main, audited like any
+  // other manual ledger write. Skipped entirely when waived.
+  let feeGpLedgerId: number | null = null;
+  if (feeGp > 0) {
+    const noteText = `Main swap fee — ${prevMainName ?? "(no previous main)"} → ${target.name}`;
+    const [feeRow] = await db
+      .insert(gpLedger)
+      .values({
+        characterId: newMainCharacterId,
+        playerId,
+        occurredAt: now,
+        itemName: null,
+        tier: "Main Swap Fee",
+        points: feeGp,
+        pointsNominal: feeGp,
+        pointsAwarded: feeGp,
+        capApplied: false,
+        capAtEntry: null,
+        note: noteText,
+        enteredBy: approvedBy,
+        source: "manual",
+      })
+      .returning();
+    feeGpLedgerId = feeRow.id;
+    await recordLedgerChange(db, "gp", feeRow.id, "create", null, feeRow, approvedBy);
+  }
+
+  await db.insert(mainSwapEvents).values({
+    playerId,
+    prevMainCharacterId,
+    newMainCharacterId,
+    feeGp,
+    feeGpLedgerId,
+    affectedBefore: affected.map((a) => ({ id: a.id, charType: a.charType, mainCharacterId: a.mainCharacterId })),
+    swappedBy: approvedBy,
+    swappedAt: now,
+  });
+
+  // Only the fee moved a number; refresh that one player's standings.
+  await refreshStandings(db, { playerIds: [playerId] });
+
+  return {};
+}
+
+// post-live-test-1 LT-30 — undo a main swap: restore the pre-swap
+// char_type/main_character_id of every character it re-typed, restore the
+// player's main pointer, and delete the fee gp_ledger row (refunding
+// exactly what was charged — 0 if it was waived). GL/admin only (the
+// caller gates); no time limit. Refuses if the player's main has since
+// changed again — reverse the newer swap first.
+export async function reverseMainSwap(db: Db, eventId: number, reversedBy: string): Promise<SwapMainResult> {
+  const [event] = await db.select().from(mainSwapEvents).where(eq(mainSwapEvents.id, eventId));
+  if (!event) return { error: "Main-swap record not found." };
+  if (event.reversedAt) return { error: "This main swap was already reversed." };
+
+  const [player] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, event.playerId));
+  if (!player) return { error: "Player not found." };
+  if (player.mainCharacterId !== event.newMainCharacterId) {
+    return { error: "This player's main has changed since this swap — reverse the later change first." };
+  }
+
+  const now = new Date();
+
+  for (const snap of event.affectedBefore) {
+    await db
+      .update(characters)
+      .set({ charType: snap.charType as "main" | "alt" | "mule", mainCharacterId: snap.mainCharacterId, updatedAt: now })
+      .where(eq(characters.id, snap.id));
+  }
+
+  await db
+    .update(players)
+    .set({
+      mainCharacterId: event.prevMainCharacterId,
+      mainCharacterChangedBy: reversedBy,
+      mainCharacterChangedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(players.id, event.playerId));
+
+  // Mark the event reversed and drop its fee_gp_ledger_id pointer BEFORE
+  // deleting that gp_ledger row — the FK from main_swap_events would
+  // otherwise block the delete. The `feeGp` amount stays on the row and
+  // the ledger_audit_log "delete" entry below keeps the full record.
+  await db
+    .update(mainSwapEvents)
+    .set({ reversedAt: now, reversedBy, feeGpLedgerId: null })
+    .where(eq(mainSwapEvents.id, eventId));
+
+  if (event.feeGpLedgerId != null) {
+    const [feeRow] = await db.select().from(gpLedger).where(eq(gpLedger.id, event.feeGpLedgerId));
+    if (feeRow) {
+      await db.delete(gpLedger).where(eq(gpLedger.id, feeRow.id));
+      await recordLedgerChange(db, "gp", feeRow.id, "delete", feeRow, null, reversedBy);
+    }
+  }
+
+  await refreshStandings(db, { playerIds: [event.playerId] });
 
   return {};
 }

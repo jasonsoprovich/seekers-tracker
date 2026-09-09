@@ -9,7 +9,13 @@ import { canManageAnyCharacter, canManageEpgp, canManageRoles, getUserRole, LEAD
 import { getDb } from "@/lib/db";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { refreshStandings } from "@/lib/epgp/standings";
-import { assignCharacterToUser, swapMainCharacter, type SwapMainResult } from "@/lib/players";
+import {
+  assignCharacterToUser,
+  MAIN_SWAP_FEE_GP,
+  reverseMainSwap,
+  swapMainCharacter,
+  type SwapMainResult,
+} from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type SetRoleResult = { error?: string };
@@ -79,18 +85,40 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
 // only (canManageRoles — same bar as role promotion/demotion, §4c/§10's
 // "leader-approved"), unlike claim approval (canManageAnyCharacter, includes
 // officers) — a main swap changes who a player's roster/priority identity
-// is, a bigger call than approving an ownership claim.
-export async function setPlayerMainCharacter(playerId: number, characterId: number): Promise<SwapMainResult> {
+// is, a bigger call than approving an ownership claim. post-live-test-1
+// LT-30: officers are explicitly excluded, and every swap charges the new
+// main MAIN_SWAP_FEE_GP unless `waiveFee` is set on the confirm dialog.
+export async function setPlayerMainCharacter(
+  playerId: number,
+  characterId: number,
+  waiveFee: boolean,
+): Promise<SwapMainResult> {
   const session = await getSession();
   if (!session) redirect("/login");
 
   const role = await getUserRole(session.user.id);
   if (!canManageRoles(role)) {
-    return { error: "Only leaders can change a player's main character." };
+    return { error: "Only leaders and admins can change a player's main character." };
   }
 
   const db = await getDb();
-  return swapMainCharacter(db, playerId, characterId, session.user.id);
+  return swapMainCharacter(db, playerId, characterId, session.user.id, waiveFee ? 0 : MAIN_SWAP_FEE_GP);
+}
+
+// post-live-test-1 LT-30 — reverse a recorded main swap (restore the
+// char-type grouping + refund the exact GP fee). Same GL/admin bar; no
+// time limit.
+export async function reverseMainSwapAction(eventId: number): Promise<SwapMainResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const role = await getUserRole(session.user.id);
+  if (!canManageRoles(role)) {
+    return { error: "Only leaders and admins can reverse a main swap." };
+  }
+
+  const db = await getDb();
+  return reverseMainSwap(db, eventId, session.user.id);
 }
 
 export type AssignCharacterResult = { error?: string };

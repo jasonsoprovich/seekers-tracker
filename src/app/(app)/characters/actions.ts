@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characters, users } from "@/db";
+import { characters, players, users } from "@/db";
 import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
 import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
@@ -155,12 +155,12 @@ export async function updateCharacter(
   const mainError = await validateMainCharacterId(db, parsed.data.mainCharacterId);
   if (mainError) return { error: mainError };
 
-  // Self-service alt linking (post-live-test-1 LT-15): a member linking one
-  // of their own alts may only point it at a main they also own. Officers
-  // (canManageAnyCharacter) keep the guild-wide picker for record-keeping.
-  if (parsed.data.charType === "alt" && parsed.data.mainCharacterId !== null) {
-    const role = await getUserRole(session.user.id);
-    if (!canManageAnyCharacter(role)) {
+  const role = await getUserRole(session.user.id);
+  if (!canManageAnyCharacter(role)) {
+    // Self-service alt linking (post-live-test-1 LT-15): a member linking
+    // one of their own alts may only point it at a main they also own.
+    // Officers (canManageAnyCharacter) keep the guild-wide picker.
+    if (parsed.data.charType === "alt" && parsed.data.mainCharacterId !== null) {
       const [target] = await db
         .select({ ownerId: characters.ownerId })
         .from(characters)
@@ -168,6 +168,24 @@ export async function updateCharacter(
       if (!target || target.ownerId !== session.user.id) {
         return { error: "You can only link an alt to a main character you own." };
       }
+    }
+
+    // post-live-test-1 LT-30: a member cannot change WHICH of their
+    // characters is the main. Linking alts is fine (above); demoting the
+    // current main, or promoting anything to main when one already exists,
+    // is a leader/admin-only main swap (with its GP fee) — not an edit-form
+    // field. `existing` is the full pre-edit row.
+    const [player] =
+      existing.playerId !== null
+        ? await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, existing.playerId))
+        : [undefined];
+    const playerMainId = player?.mainCharacterId ?? null;
+
+    if (existing.id === playerMainId && parsed.data.charType !== "main") {
+      return { error: "Only an officer or leader can change which character is your main — ask a leader to swap it." };
+    }
+    if (parsed.data.charType === "main" && existing.charType !== "main" && playerMainId !== null) {
+      return { error: "Only an officer or leader can promote a character to main." };
     }
   }
 

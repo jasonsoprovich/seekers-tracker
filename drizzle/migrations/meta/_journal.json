@@ -232,6 +232,13 @@
       "when": 1788755111075,
       "tag": "0032_long_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1788922235855,
+      "tag": "0033_curly_justice",
+      "breakpoints": true
     }
   ]
 }

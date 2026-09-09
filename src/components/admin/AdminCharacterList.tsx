@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
+import { ReverseMainSwapButton } from "@/components/admin/ReverseMainSwapButton";
 import { MainCharacterSelect } from "@/components/MainCharacterSelect";
 import { RoleSelect } from "@/components/RoleSelect";
 import { fieldClasses } from "@/components/ui/Field";
@@ -46,7 +47,16 @@ export type AdminCharacterRow = {
 // non-mule characters). Folded in here so the old standalone "Player Main
 // Characters" section — a second hundreds-of-rows list — is gone: the
 // swap now lives inline on the player's main-character row.
-export type PlayerMainInfo = Record<string, { currentMainCharacterId: number | null; options: { id: number; name: string }[] }>;
+export type PlayerMainInfo = Record<
+  string,
+  {
+    currentMainCharacterId: number | null;
+    options: { id: number; name: string }[];
+    // post-live-test-1 LT-30: the player's most recent un-reversed main
+    // swap, if any — drives the inline "Reverse last main swap" button.
+    lastSwap?: { eventId: number; prevMainName: string | null; newMainName: string; feeGp: number };
+  }
+>;
 
 // Same search/filter set as RosterTable, so admins can find a character here
 // the same way they'd look it up on /roster.
@@ -353,7 +363,7 @@ export function AdminCharacterList({
             </>
           )}
           {canEditRoles && c.charType === "main" && c.playerId !== null && mainInfo && mainInfo.options.length >= 2 && (
-            <span className="flex items-center gap-2 text-xs text-neutral-500">
+            <span className="flex items-start gap-2 text-xs text-neutral-500">
               Main
               <MainCharacterSelect
                 playerId={c.playerId}
@@ -361,6 +371,14 @@ export function AdminCharacterList({
                 currentMainCharacterId={mainInfo.currentMainCharacterId}
               />
             </span>
+          )}
+          {canEditRoles && c.charType === "main" && c.playerId !== null && mainInfo?.lastSwap && (
+            <ReverseMainSwapButton
+              eventId={mainInfo.lastSwap.eventId}
+              prevMainName={mainInfo.lastSwap.prevMainName}
+              newMainName={mainInfo.lastSwap.newMainName}
+              feeGp={mainInfo.lastSwap.feeGp}
+            />
           )}
         </div>
       </li>

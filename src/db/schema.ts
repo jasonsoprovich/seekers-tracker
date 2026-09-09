@@ -530,6 +530,51 @@ export const playerEpgpTotals = sqliteTable("player_epgp_totals", {
     .default(sql`(unixepoch())`),
 });
 
+// One row per leader/admin main<->alt swap (post-live-test-1 LT-30). The
+// lightweight players.mainCharacterChangedBy/At pair records the *last*
+// swap's who/when; this table exists because a swap now (a) charges a GP
+// fee and (b) must be individually reversible long after the fact — both
+// need the pre-swap state kept, not just overwritten.
+export const mainSwapEvents = sqliteTable(
+  "main_swap_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    playerId: integer("player_id")
+      .notNull()
+      .references(() => players.id),
+    // The player's main before this swap — NULL only if they somehow had
+    // none. `newMainCharacterId` is the character promoted to main.
+    prevMainCharacterId: integer("prev_main_character_id").references((): AnySQLiteColumn => characters.id),
+    newMainCharacterId: integer("new_main_character_id")
+      .notNull()
+      .references((): AnySQLiteColumn => characters.id),
+    // GP charged to the new main for the swap — 500 (MAIN_SWAP_FEE_GP in
+    // src/lib/players.ts) by default, 0 when the leader waived it on the
+    // confirm dialog. Stored so a reversal refunds exactly this even if the
+    // constant changes later.
+    feeGp: real("fee_gp").notNull().default(0),
+    // The gp_ledger row that fee wrote — deleted on reversal. NULL when the
+    // fee was waived (no row written).
+    feeGpLedgerId: integer("fee_gp_ledger_id").references((): AnySQLiteColumn => gpLedger.id),
+    // Prior char_type + main_character_id of every non-mule character the
+    // swap re-typed: [{ id, charType, mainCharacterId }]. A reversal
+    // restores this verbatim rather than re-deriving the grouping.
+    affectedBefore: text("affected_before", { mode: "json" })
+      .notNull()
+      .$type<{ id: number; charType: string; mainCharacterId: number | null }[]>(),
+    swappedBy: text("swapped_by").references(() => users.id),
+    swappedAt: integer("swapped_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Reversal keeps the row (like decay_events) so the swap-and-undo stays
+    // on record.
+    reversedAt: integer("reversed_at", { mode: "timestamp" }),
+    reversedBy: text("reversed_by").references(() => users.id),
+    note: text("note"),
+  },
+  (table) => [index("main_swap_events_player_idx").on(table.playerId, table.reversedAt)],
+);
+
 // Optional label + note for a raid night, keyed by its UTC calendar date.
 // Raids themselves aren't a stored entity — the /epgp/raids view derives
 // them by grouping `source='parse'` ep_ledger attendance rows and

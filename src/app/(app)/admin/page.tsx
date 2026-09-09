@@ -1,4 +1,4 @@
-import { eq, isNotNull } from "drizzle-orm";
+import { desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -6,7 +6,7 @@ import { AdminCharacterList, type AdminCharacterRow, type PlayerMainInfo } from 
 import { MembersRolesList } from "@/components/admin/MembersRolesList";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characterClaims, characterPopFlags, characters, players, users } from "@/db";
+import { characterClaims, characterPopFlags, characters, mainSwapEvents, players, users } from "@/db";
 import {
   canManageAnyCharacter,
   canManageEpgp,
@@ -183,6 +183,45 @@ export default async function AdminPage() {
     for (const p of playerRows) {
       const options = (charactersByPlayer.get(p.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
       if (options.length >= 2) playerMains[String(p.id)] = { currentMainCharacterId: p.mainCharacterId, options };
+    }
+
+    // post-live-test-1 LT-30: attach each player's most recent un-reversed
+    // main swap so the list can offer a one-click reverse (restores the
+    // grouping + refunds the GP fee).
+    const swapRows = await db
+      .select({
+        id: mainSwapEvents.id,
+        playerId: mainSwapEvents.playerId,
+        prevMainCharacterId: mainSwapEvents.prevMainCharacterId,
+        newMainCharacterId: mainSwapEvents.newMainCharacterId,
+        feeGp: mainSwapEvents.feeGp,
+      })
+      .from(mainSwapEvents)
+      .where(isNull(mainSwapEvents.reversedAt))
+      .orderBy(desc(mainSwapEvents.id));
+    const latestSwapByPlayer = new Map<number, (typeof swapRows)[number]>();
+    for (const r of swapRows) if (!latestSwapByPlayer.has(r.playerId)) latestSwapByPlayer.set(r.playerId, r);
+    const swapNameIds = [...latestSwapByPlayer.values()]
+      .flatMap((r) => [r.prevMainCharacterId, r.newMainCharacterId])
+      .filter((x): x is number => x != null);
+    const swapNames = new Map<number, string>();
+    if (swapNameIds.length > 0) {
+      for (const n of await db
+        .select({ id: characters.id, name: characters.name })
+        .from(characters)
+        .where(inArray(characters.id, swapNameIds))) {
+        swapNames.set(n.id, n.name);
+      }
+    }
+    for (const [pid, r] of latestSwapByPlayer) {
+      const info = playerMains[String(pid)];
+      if (!info) continue;
+      info.lastSwap = {
+        eventId: r.id,
+        prevMainName: r.prevMainCharacterId != null ? swapNames.get(r.prevMainCharacterId) ?? null : null,
+        newMainName: swapNames.get(r.newMainCharacterId) ?? "the new main",
+        feeGp: r.feeGp,
+      };
     }
   }
 
