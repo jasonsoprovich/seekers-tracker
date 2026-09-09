@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { characters, epLedger } from "@/db";
@@ -24,6 +24,39 @@ type AttendanceRequestBody = {
   zone?: unknown;
   raidName?: unknown;
 };
+
+// Pre-submit "is this capture already in the ledger?" check for the parser
+// app's Attendance tab (2026-09-09 sim feedback: after Clear all + a
+// re-capture of the same log lines, the app happily let a Raid-Start be
+// re-submitted — the server deduped it to 0 rows, but nothing warned the
+// officer up front). The POST dedupe key is (playerId, activity,
+// occurredAt); this mirrors it at the capture level — any `source='parse'`
+// ep_ledger row with this exact activity + occurredAt means the whole
+// capture would be a no-op.
+export async function GET(request: Request) {
+  const auth = await requireOfficerApiKey(request);
+  if ("error" in auth) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const url = new URL(request.url);
+  const activityCheck = boundedString(url.searchParams.get("activity"), { max: LIMITS.activity, min: 1, field: "activity" });
+  if (!activityCheck.ok) {
+    return Response.json({ error: activityCheck.error }, { status: 400 });
+  }
+  const dateCheck = isoDate(url.searchParams.get("occurredAt"), "occurredAt");
+  if (!dateCheck.ok) {
+    return Response.json({ error: dateCheck.error }, { status: 400 });
+  }
+
+  const db = await getDb();
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(epLedger)
+    .where(and(eq(epLedger.activity, activityCheck.value), eq(epLedger.occurredAt, dateCheck.value), eq(epLedger.source, "parse")));
+  const count = row?.count ?? 0;
+  return Response.json({ exists: count > 0, count });
+}
 
 // Bulk EP award from the officer app's Attendance capture (one "/who
 // guild" snapshot -> everyone in it gets the same activity/points). Points
