@@ -98,6 +98,22 @@ function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: 
           discord: {
             clientId: process.env.DISCORD_CLIENT_ID as string,
             clientSecret: process.env.DISCORD_CLIENT_SECRET as string,
+            // better-auth's Discord provider defaults `prompt` to "none"
+            // (see @better-auth/core's discord.ts: `prompt: options.prompt
+            // || "none"`), i.e. "authorise silently, never show me any UI".
+            // Discord only completes that when the browser already has a
+            // live Discord session AND a prior authorisation for this exact
+            // client + scope set; otherwise it bounces straight back to the
+            // callback with `?error=consent_required`, better-auth lands on
+            // /api/auth/error, no session is created, and the user is stuck
+            // in a "click Sign in, get thrown back, click again" loop —
+            // which is what a tab left open overnight (Discord session or
+            // app authorisation lapsed) hits every time. "consent" makes
+            // Discord actually render its authorise screen when it can't
+            // proceed silently, so a lapsed user gets a real button instead
+            // of a dead end. Cost: one extra "Authorise" click per login.
+            // "none" | "consent" are the only values this provider accepts.
+            prompt: "consent",
             // better-auth appends `scope` to the provider's own defaults
             // (identify + email) unless told otherwise, so disable those and
             // request exactly what we use: "identify" for the profile,
