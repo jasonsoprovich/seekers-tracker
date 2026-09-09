@@ -35,7 +35,15 @@ export const getSession = cache(async function getSession() {
         const session = await auth.api.getSession({ headers: hdrs });
         if (session || attempt === maxAttempts) {
           if (!session && hasAuthCookie) {
-            perfNote("getSession -> null despite an auth cookie after retries; redirecting to /login");
+            // Always log this one (not perfNote / PERF_DEBUG-gated): a
+            // request that arrives WITH an auth cookie but resolves to no
+            // session after every retry is the "keeps deauthing" loop, and
+            // it needs to be visible in `wrangler tail` in normal operation
+            // without a redeploy to flip PERF_DEBUG. Failure path only, so
+            // it stays silent when things are healthy.
+            console.warn(
+              "[auth] getSession -> null despite an auth cookie after retries; redirecting to /login",
+            );
           }
           return session;
         }

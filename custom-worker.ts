@@ -465,6 +465,22 @@ export default {
     const db = drizzle(env.DATABASE, { schema });
     const { players } = await rebuildAllStandings(db);
     console.log(`[cron] rebuilt standings + last_activity for ${players} players`);
+
+    // Prune expired session rows. better-auth's session.create.after hook
+    // mints a fresh `sessions` row on every login and nothing ever deletes
+    // them, so the table grows one row per login forever (84 rows / 11
+    // users as of 2026-09-09, ~half already expired). Nothing reads an
+    // expired row — better-auth filters on expires_at itself — this just
+    // keeps the table from accreting dead rows indefinitely. Best-effort:
+    // a failure here must not fail the standings rebuild above.
+    try {
+      const res = await db.run(
+        sql`DELETE FROM sessions WHERE expires_at < strftime('%s','now')`,
+      );
+      console.log(`[cron] pruned ${res.meta.changes ?? 0} expired session rows`);
+    } catch (e) {
+      console.log(`[cron] session prune failed (non-fatal): ${e}`);
+    }
   },
 } satisfies ExportedHandler<CloudflareEnv>;
 

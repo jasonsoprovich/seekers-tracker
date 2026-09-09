@@ -91,8 +91,14 @@ function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: 
         // lingering up to maxAge — doesn't apply: nothing in this app
         // revokes a session out from under a device (sign-out clears the
         // cookie on that device itself).
+        // 30 min, not 5: the 5-min window was short enough that a tab left
+        // idle for a coffee break came back past it and the first click
+        // paid a cold-isolate getSession() against D1 — exactly the read
+        // that intermittently returns null and bounces to /login ("keeps
+        // deauthing"). Nothing above needs sub-30-min freshness, so widen
+        // the stateless window.
         session: {
-          cookieCache: { enabled: true, maxAge: 5 * 60 },
+          cookieCache: { enabled: true, maxAge: 30 * 60 },
         },
         socialProviders: {
           discord: {
