@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger, mainSwapEvents, playerEpgpTotals, players, users } from "@/db";
@@ -360,4 +360,51 @@ export async function createStandalonePlayer(db: Db, characterId: number, displa
   await db.update(players).set({ mainCharacterId: characterId }).where(eq(players.id, player.id));
   await db.update(characters).set({ playerId: player.id, updatedAt: new Date() }).where(eq(characters.id, characterId));
   return player.id;
+}
+
+// Nightly self-heal (2026-09-11, after Tunedup/Nixzard). players.
+// main_character_id is the one source of truth for "which character is
+// this account's main"; characters.char_type / main_character_id are the
+// display copy the Roster, dashboard, parser routes and ledger-entry all
+// group by. Every write path now keeps them in step (swapMainCharacter,
+// reconcilePlayerMain, updateCharacter's Type guard), but a copy that can
+// drift eventually will — so the nightly cron also re-derives the copy
+// from the pointer:
+//   1. on an account with a pointer, every other non-mule character is an
+//      alt of the pointer, and the pointer's character is typed main;
+//   2. on an account with NO pointer but exactly one live typed-main
+//      character, the pointer is set to it (the same bootstrap
+//      attachCharacterToPlayer does on claim).
+// Never touches mules, never charges a fee, never writes a swap event —
+// this is a display-copy repair, not a swap. EP/GP are keyed on
+// ep_ledger/gp_ledger.player_id and are not involved at all.
+export async function reconcileMainPointers(db: Db): Promise<{ altsRetyped: number; mainsRetyped: number; pointersSet: number }> {
+  const alts = await db.run(sql`
+    UPDATE characters
+       SET char_type = 'alt',
+           main_character_id = (SELECT p.main_character_id FROM players p WHERE p.id = characters.player_id),
+           updated_at = unixepoch()
+     WHERE player_id IN (SELECT id FROM players WHERE main_character_id IS NOT NULL)
+       AND char_type <> 'mule'
+       AND id <> (SELECT p.main_character_id FROM players p WHERE p.id = characters.player_id)
+       AND (char_type <> 'alt'
+            OR main_character_id IS NOT (SELECT p.main_character_id FROM players p WHERE p.id = characters.player_id))`);
+  const mains = await db.run(sql`
+    UPDATE characters
+       SET char_type = 'main', main_character_id = NULL, updated_at = unixepoch()
+     WHERE id IN (SELECT main_character_id FROM players WHERE main_character_id IS NOT NULL)
+       AND (char_type <> 'main' OR main_character_id IS NOT NULL)`);
+  const pointers = await db.run(sql`
+    UPDATE players
+       SET main_character_id = (SELECT c.id FROM characters c
+                                 WHERE c.player_id = players.id AND c.char_type = 'main' AND c.status <> 'removed'),
+           updated_at = unixepoch()
+     WHERE main_character_id IS NULL
+       AND (SELECT count(*) FROM characters c
+             WHERE c.player_id = players.id AND c.char_type = 'main' AND c.status <> 'removed') = 1`);
+  return {
+    altsRetyped: alts.meta.changes ?? 0,
+    mainsRetyped: mains.meta.changes ?? 0,
+    pointersSet: pointers.meta.changes ?? 0,
+  };
 }
