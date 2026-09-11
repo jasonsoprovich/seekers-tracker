@@ -362,7 +362,8 @@ root causes found by measurement, all fixed:
   `players.id` (`removePlayerFromGuild` / `reinstatePlayer` in
   admin/actions.ts; the user-keyed pair delegates to the same core) so an
   account that never claimed a site login can be removed too.
-  `tsc` + OpenNext build clean; **not browser-verified**.
+  `tsc` + OpenNext build clean; **not browser-verified**. Deployed as
+  Worker `fa059c75` (build `f5a1dbe`).
 - **Still open (planned, not built):** cold isolate starts of 1-1.7s on
   the 13.6 MB bundle (the "freeze" on the first click after idle — the
   3-min cron warms one colo only); Discord-departure detection (needs a
