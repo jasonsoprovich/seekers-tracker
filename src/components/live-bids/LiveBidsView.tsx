@@ -196,6 +196,25 @@ export function LiveBidsView() {
     }
   }
 
+  // "Clear all" (2026-09-10): dismiss every resolved card for this viewer
+  // in one call — same per-account semantics as a single Dismiss.
+  function onDismissAllResolved() {
+    const resolvedNames = rounds.filter((r) => r.status === "resolved").map((r) => r.itemName);
+    if (resolvedNames.length === 0) return;
+    setPendingDismiss((prev) => new Set([...prev, ...resolvedNames]));
+    fetch("/api/live-bids/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    }).catch(() => {
+      setPendingDismiss((prev) => {
+        const next = new Set(prev);
+        for (const n of resolvedNames) next.delete(n);
+        return next;
+      });
+    });
+  }
+
   function onDismiss(itemName: string, status: LiveStatus) {
     if (status !== "resolved") {
       // Collecting-round "Hide" — local declutter only, never hits the
@@ -280,14 +299,26 @@ export function LiveBidsView() {
           <span className="h-1.5 w-1.5 rounded-full bg-current" />
           {pill.text}
         </span>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="ml-auto rounded-md border border-field px-3 py-1 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-900/60 disabled:opacity-60"
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {resolvedCount > 0 && (
+            <button
+              type="button"
+              onClick={onDismissAllResolved}
+              title="Hides every finalized card for your account — live rounds stay. Everyone else keeps seeing them until they clear too."
+              className="rounded-md border border-field px-3 py-1 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-900/60"
+            >
+              Clear {resolvedCount} resolved
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="rounded-md border border-field px-3 py-1 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-900/60 disabled:opacity-60"
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {visibleRounds.length === 0 ? (

@@ -11,14 +11,12 @@ import { DurableObject } from "cloudflare:workers";
 // every caller resolves it that way (see `liveAuctionStub` in
 // custom-worker.ts).
 //
-// Deliberately in-memory only, no `ctx.storage` reads/writes of round data
-// on the hot path: every push/broadcast during a raid never touches billed
-// storage, which is what keeps constant live-viewing free-tier-safe at
-// 5-50 viewers. A DO eviction between events just means the next
-// "send tells" starts from empty state, which is correct anyway. The one
-// storage touch is `ctx.storage.setAlarm()` (scheduling a timer, not a
-// data write) to sweep expired rounds — debounced so a 5-10x/minute poll
-// across all officers doesn't churn it.
+// Round state is held in memory AND written through to `ctx.storage` on
+// every push/resolve (one small write each — see the constructor's comment
+// for the eviction bug that forced this; the old "in-memory only, free-tier
+// safe" design predates the paid plan). Heartbeats and broadcasts never
+// touch storage. `ctx.storage.setAlarm()` sweeps expired rounds — debounced
+// so a 5-10x/minute poll across all officers doesn't churn it.
 //
 // A round is "collecting" (bids still coming in) or "resolved" (Phase 16 —
 // the officer finalized it; it lingers with its winner(s) so members can
@@ -95,12 +93,14 @@ type PushBody = {
 };
 type ValidPushBody = {
   itemName: string;
+  // Single-tell form (parser <= v0.1.12). Absent on a snapshot push.
   characterName: string;
   tier: string;
   occurredAt: string;
   priorityRating?: unknown;
   officerId?: unknown;
   officerName?: unknown;
+  bids?: unknown;
 };
 type HeartbeatBody = { itemName?: unknown; officerId?: unknown; officerName?: unknown };
 type ClearBody = { itemName?: unknown; officerId?: unknown };
@@ -113,21 +113,23 @@ type ResolveBidBody = { characterName?: unknown; tier?: unknown; priorityRating?
 type ResolveBody = { itemName?: unknown; winners?: unknown; bids?: unknown; officerId?: unknown; officerName?: unknown };
 
 function isPushBody(v: unknown): v is ValidPushBody {
-  const b = v as PushBody;
-  return (
-    typeof b?.itemName === "string" &&
-    typeof b?.characterName === "string" &&
-    typeof b?.tier === "string" &&
-    typeof b?.occurredAt === "string"
-  );
+  const b = v as PushBody & { bids?: unknown };
+  if (typeof b?.itemName !== "string") return false;
+  // Snapshot form: `bids` array, no single tell fields required.
+  if (Array.isArray(b.bids)) return true;
+  return typeof b?.characterName === "string" && typeof b?.tier === "string" && typeof b?.occurredAt === "string";
 }
 
 function key(itemName: string): string {
   return itemName.trim().toLowerCase();
 }
 
-// ctx.storage key prefix for a persisted resolved round — see the
-// constructor's comment for why only resolved rounds get this.
+// ctx.storage key prefix for a persisted round. Since 2026-09-10 EVERY
+// round is persisted (collecting and resolved) — see the constructor's
+// comment. `resolved:` is the pre-2026-09-10 prefix, still read on
+// construction so a card that was on the board across the deploy survives,
+// then migrated to `round:`.
+const ROUND_STORAGE_PREFIX = "round:";
 const RESOLVED_STORAGE_PREFIX = "resolved:";
 
 // ctx.storage key for one viewer's dismissal of one round:
@@ -154,29 +156,38 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
 
   constructor(ctx: DurableObjectState, env: CloudflareEnv) {
     super(ctx, env);
-    // Collecting rounds are deliberately never persisted (see the class
-    // comment) — losing one on eviction is fine, bounded, and cheap to
-    // rebuild from the next push. A RESOLVED round is a different promise:
-    // Phase 16 explicitly says it "never times out... stays on the board
-    // until a member dismisses it" — but a plain class-field Map does not
-    // survive this Durable Object being evicted from memory, which the
-    // Hibernatable WebSockets API this class uses (`ctx.acceptWebSocket`)
-    // allows even while a viewer's socket stays connected, independent of
-    // any dismiss/clear action. That silently broke the "never times out"
-    // promise (leader, 2026-09-05: "live bids still seem to disappear
-    // without me clearing anything") — every collecting round is cheap and
-    // hot-path-frequent (a push every few seconds per officer) so those
-    // still skip storage, but a resolve is a single, infrequent write, and
-    // hydrating on construction is what makes the "until dismissed"
-    // guarantee actually hold across an eviction.
+    // EVERY round is persisted and hydrated here (2026-09-10). Until now
+    // only resolved rounds were: collecting rounds lived in this class's
+    // Map on the theory that an eviction between events was harmless. It
+    // wasn't — this DO uses Hibernatable WebSockets, and the runtime is
+    // free to hibernate (evict from memory) the moment there's no in-flight
+    // event, i.e. inside any quiet stretch of a round: the parser pushed
+    // ONLY newly-detected tells and heartbeated every ~20s, so a gap of a
+    // few seconds with no new tell was enough. On the next push the
+    // constructor ran again with an empty Map, the round came back as a
+    // brand-new one containing just that one tell, and every viewer saw
+    // the card vanish and then reappear with a wrong "leading" bidder
+    // (leader report, 2026-09-10). A resolve is one write; a push is one
+    // write per tell (a few hundred per raid — nothing on the paid plan).
+    // The parser now also pushes its full bid list each tick (see /push's
+    // snapshot handling) so the board self-heals even if a write is lost.
     ctx.blockConcurrencyWhile(async () => {
-      const stored = await ctx.storage.list<Round>({ prefix: RESOLVED_STORAGE_PREFIX });
+      const stored = await ctx.storage.list<Round>({ prefix: ROUND_STORAGE_PREFIX });
       for (const [storageKey, round] of stored) {
-        // Rounds persisted before lastBidAt existed won't carry it. Since
-        // LT-32 a resolved round's expiry IS measured from resolvedAt, but
-        // keep the fallback honest in case this item goes live again.
         if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
-        this.rounds.set(storageKey.slice(RESOLVED_STORAGE_PREFIX.length), round);
+        this.rounds.set(storageKey.slice(ROUND_STORAGE_PREFIX.length), round);
+      }
+      // Legacy `resolved:` rows from before this deploy — adopt, then move
+      // them under the new prefix so this branch is a one-time migration.
+      const legacy = await ctx.storage.list<Round>({ prefix: RESOLVED_STORAGE_PREFIX });
+      for (const [storageKey, round] of legacy) {
+        const k = storageKey.slice(RESOLVED_STORAGE_PREFIX.length);
+        if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
+        if (!this.rounds.has(k)) {
+          this.rounds.set(k, round);
+          await ctx.storage.put(ROUND_STORAGE_PREFIX + k, round);
+        }
+        await ctx.storage.delete(storageKey);
       }
       // Per-viewer dismissals (LT-32) — key shape `dismiss:<userId>|<roundKey>`.
       const dismissed = await ctx.storage.list<number>({ prefix: DISMISS_STORAGE_PREFIX });
@@ -276,22 +287,51 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         round.resolvedAt = 0;
       }
 
-      const priorityRating = typeof body.priorityRating === "number" ? body.priorityRating : null;
-      const tell: LiveBidTell = {
-        characterName: body.characterName,
-        tier: body.tier,
-        occurredAt: body.occurredAt,
-        priorityRating,
-      };
-      // Latest tell per character wins — same "changed my mind" rule as the
-      // parser app's ResolveLatestPerCharacter, so this view matches the
-      // officer's own review table.
-      const i = round.bids.findIndex((b) => b.characterName.toLowerCase() === tell.characterName.toLowerCase());
-      if (i >= 0) round.bids[i] = tell;
-      else round.bids.push(tell);
+      const before = JSON.stringify(round.bids.map((b) => [b.characterName, b.tier, b.occurredAt]));
+      const snapshot = (body as { bids?: unknown }).bids;
+      if (Array.isArray(snapshot)) {
+        // Snapshot push (parser >= v0.1.13): the officer's FULL current bid
+        // list for this item, every tick. Replace wholesale — this is the
+        // authoritative view of the officer's own log, so a viewer can
+        // never see fewer bids than the officer does, and a round that was
+        // lost to an eviction or a dropped push is rebuilt in one tick.
+        // Latest tell per character wins, same rule as before.
+        const byName = new Map<string, LiveBidTell>();
+        for (const raw of snapshot) {
+          if (!raw || typeof raw !== "object") continue;
+          const b = raw as { characterName?: unknown; tier?: unknown; occurredAt?: unknown; priorityRating?: unknown };
+          if (typeof b.characterName !== "string" || typeof b.tier !== "string" || typeof b.occurredAt !== "string") continue;
+          byName.set(b.characterName.toLowerCase(), {
+            characterName: b.characterName,
+            tier: b.tier,
+            occurredAt: b.occurredAt,
+            priorityRating: typeof b.priorityRating === "number" ? b.priorityRating : null,
+          });
+        }
+        round.bids = [...byName.values()];
+      } else {
+        const priorityRating = typeof body.priorityRating === "number" ? body.priorityRating : null;
+        const tell: LiveBidTell = {
+          characterName: body.characterName,
+          tier: body.tier,
+          occurredAt: body.occurredAt,
+          priorityRating,
+        };
+        // Latest tell per character wins — same "changed my mind" rule as the
+        // parser app's ResolveLatestPerCharacter, so this view matches the
+        // officer's own review table.
+        const i = round.bids.findIndex((b) => b.characterName.toLowerCase() === tell.characterName.toLowerCase());
+        if (i >= 0) round.bids[i] = tell;
+        else round.bids.push(tell);
+      }
+      const after = JSON.stringify(round.bids.map((b) => [b.characterName, b.tier, b.occurredAt]));
 
       round.lastSeenAt = now;
-      round.lastBidAt = now; // a real tell — resets the abandon timer (heartbeats don't)
+      // A real change to the bid set resets the abandon timer (heartbeats
+      // and an unchanged snapshot re-send don't — otherwise a parser left
+      // open on a dead round could pin it on the board forever).
+      if (after !== before) round.lastBidAt = now;
+      await this.persistRound(k, round);
       await this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }
@@ -398,7 +438,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       // Persist so this survives a DO eviction — see the constructor's
       // comment. One write per resolve (rare — once per finalized item),
       // never on the push/heartbeat hot path.
-      await this.ctx.storage.put(RESOLVED_STORAGE_PREFIX + k, round);
+      await this.persistRound(k, round);
 
       // custom-worker sends a fresh name→priority map post-charge (see its
       // /resolve handler). Re-price every OTHER still-collecting round so an
@@ -435,7 +475,17 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       } catch {
         // no body is fine
       }
-      const { itemName, userId } = body as DismissBody;
+      const { itemName, userId, all } = body as DismissBody & { all?: unknown };
+      // "Clear all" (2026-09-10): dismiss every resolved round on the board
+      // for this one viewer. Collecting rounds are left alone — they're
+      // someone's live auction.
+      if (all === true && typeof userId === "string" && userId) {
+        for (const [rk, round] of this.rounds) {
+          if (round.state === "resolved") await this.recordDismissal(userId, rk);
+        }
+        this.broadcast();
+        return Response.json({ ok: true }, { status: 200 });
+      }
       if (typeof itemName !== "string" || !itemName.trim()) {
         return Response.json({ ok: true }, { status: 200 });
       }
@@ -567,8 +617,21 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   // don't pile up and a future same-named drop starts un-dismissed for
   // everyone. Called only when something actually left the board — never on
   // the push/heartbeat hot path when nothing expired.
+  // Write-through for one round's current state. One storage write per
+  // push/resolve — see the constructor's comment for why collecting rounds
+  // are persisted too.
+  private async persistRound(k: string, round: Round): Promise<void> {
+    try {
+      await this.ctx.storage.put(ROUND_STORAGE_PREFIX + k, round);
+    } catch {
+      // Storage hiccup — the in-memory copy still serves this DO's
+      // lifetime, and the parser's next snapshot push rebuilds it anyway.
+    }
+  }
+
   private async purgeRounds(roundKeys: string[]): Promise<void> {
     for (const k of roundKeys) {
+      await this.ctx.storage.delete(ROUND_STORAGE_PREFIX + k);
       await this.ctx.storage.delete(RESOLVED_STORAGE_PREFIX + k);
       for (const [userId, set] of this.dismissals) {
         if (!set.delete(k)) continue;

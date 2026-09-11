@@ -109,11 +109,15 @@ async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Prom
   }
 
   let itemName: unknown;
+  let all: unknown;
   try {
-    ({ itemName } = (await request.json()) as { itemName?: unknown });
+    ({ itemName, all } = (await request.json()) as { itemName?: unknown; all?: unknown });
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+  // `all: true` — the board's "Clear all" (2026-09-10): dismiss every
+  // resolved card for this viewer in one call.
+  if (all === true) return forwardToDO(env, "dismiss", { all: true, userId: session.user.id });
   if (typeof itemName !== "string" || !itemName.trim()) {
     return Response.json({ error: "`itemName` is required." }, { status: 400 });
   }
@@ -137,7 +141,48 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
   }
 
   if (action === "push") {
-    for (const f of ["itemName", "characterName", "tier"] as const) {
+    if (typeof body.itemName !== "string" || !body.itemName.trim()) {
+      return Response.json({ error: "`itemName` is required." }, { status: 400 });
+    }
+
+    // Snapshot push (parser >= v0.1.13): the officer's whole current bid
+    // list for this item, every tick — see the DO's /push handler for why.
+    // Priority for every name is resolved in ONE roster query (COLLATE
+    // NOCASE, matching the characters unique index) + the cached standings.
+    if (Array.isArray(body.bids)) {
+      const raw = body.bids as unknown[];
+      const tells: { characterName: string; tier: string; occurredAt: string }[] = [];
+      for (const r of raw.slice(0, 200)) {
+        if (!r || typeof r !== "object") continue;
+        const b = r as { characterName?: unknown; tier?: unknown; occurredAt?: unknown };
+        if (typeof b.characterName !== "string" || !b.characterName.trim()) continue;
+        if (typeof b.tier !== "string" || typeof b.occurredAt !== "string") continue;
+        if (Number.isNaN(new Date(b.occurredAt).getTime())) continue;
+        tells.push({ characterName: b.characterName.trim(), tier: b.tier.trim(), occurredAt: b.occurredAt });
+      }
+      const priorityByName = new Map<string, number | null>();
+      const names = [...new Set(tells.map((t) => t.characterName))];
+      if (names.length > 0) {
+        const [chars, totals] = await Promise.all([
+          db
+            .select({ name: characters.name, playerId: characters.playerId })
+            .from(characters)
+            .where(sql`${characters.name} COLLATE NOCASE IN (${sql.join(names.map((n) => sql`${n}`), sql`, `)})`),
+          getStandings(db),
+        ]);
+        for (const c of chars) {
+          priorityByName.set(c.name.toLowerCase(), c.playerId != null ? (totals.get(c.playerId)?.priorityRating ?? null) : null);
+        }
+      }
+      return forwardToDO(env, "push", {
+        itemName: (body.itemName as string).trim(),
+        bids: tells.map((t) => ({ ...t, priorityRating: priorityByName.get(t.characterName.toLowerCase()) ?? null })),
+        officerId: auth.userId,
+        officerName: collectedByFromBody(body, officerName),
+      });
+    }
+
+    for (const f of ["characterName", "tier"] as const) {
       if (typeof body[f] !== "string" || !(body[f] as string).trim()) {
         return Response.json({ error: `\`${f}\` is required.` }, { status: 400 });
       }
@@ -364,33 +409,20 @@ function canonicalRedirect(request: Request, url: URL): Response | null {
 // parser also sends the exact character whose log it parsed
 // (`capturedByCharacter`); when present that wins, since an officer may be
 // running an alt. Falls back to the username, then a generic label.
-// Read-only, guild-wide pages where a few seconds of staleness is fine
-// (post-live-test-1 LT-26 #3). We tag their 200 responses — and their RSC
-// payloads, same pathname — with a short PRIVATE cache window so a quick
-// back-and-forth or re-nav is served from the viewer's own browser cache
-// with no Worker hit at all, sidestepping the cold-start tax entirely.
-// `private` = never shared/edge-cached, so per-viewer content is safe.
-// Excluded on purpose: /live-bids (realtime), /admin/* and /profile and
-// /characters/* and /epgp/{settings,decay,sql} (mutating / sensitive),
-// every /api/* route.
-const READ_CACHE_PATHS = new Set([
-  "/roster",
-  "/dashboard",
-  "/bank",
-  "/progression",
-  "/epgp/ledger",
-  "/epgp/raids",
-  "/epgp/info",
-]);
-
-function withReadCache(request: Request, url: URL, resp: Response): Response {
-  if (request.method !== "GET" || resp.status !== 200) return resp;
-  const p = url.pathname;
-  if (!READ_CACHE_PATHS.has(p) && !p.startsWith("/epgp/raids/")) return resp;
-  const headers = new Headers(resp.headers);
-  headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
-  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
-}
+// NOTE (2026-09-10): the "short private browser cache" that used to sit
+// here (Cache-Control: private, max-age=15, stale-while-revalidate=60 on
+// /roster, /dashboard, /epgp/ledger, ...) is GONE, deliberately. A Next
+// client-side navigation is an RSC fetch, and when (app)/layout.tsx throws
+// redirect("/login") during one of those the response is HTTP **200** with
+// the redirect inside the flight payload — so a single transient "no
+// session" (a cold-isolate blip, or one genuine lapse) got "go to /login"
+// cached in the viewer's browser for that page for up to 75s. They'd log
+// back in, click the same page, replay the cached redirect, and land on
+// /login again — the "it keeps logging me out" loop, visible in the
+// sessions table as logins seconds apart. Verified live with
+// `curl -H 'RSC: 1' /roster` → 200 + that cache header. Speed comes from
+// the server-side fixes (batched writes, standings cache), not from
+// caching auth-gated responses in the browser.
 
 async function resolveCollectedByName(db: ReturnType<typeof drizzle>, userId: string): Promise<string> {
   const [main] = await db
@@ -429,13 +461,11 @@ export default {
     if (officer && request.method === "POST") return handleOfficerLiveBids(request, env, officer[1]);
 
     const t0 = perfEnabled() ? Date.now() : 0;
-    let resp: Response;
     try {
-      resp = await handler.fetch(request, env, ctx);
+      return await handler.fetch(request, env, ctx);
     } finally {
       if (perfEnabled()) console.log(`[perf] request ${request.method} ${url.pathname} ${Date.now() - t0}ms`);
     }
-    return withReadCache(request, url, resp);
   },
 
   // Two crons (wrangler.jsonc `triggers.crons`), dispatched on event.cron.
