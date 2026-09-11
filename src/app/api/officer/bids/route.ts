@@ -1,11 +1,10 @@
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 
-import { bids as bidsTable, characters, lootEvents } from "@/db";
+import { bids as bidsTable, characters, epgpPointValues, lootEvents } from "@/db";
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getDb } from "@/lib/db";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
-import { getActivePointValue } from "@/lib/epgp/point-values";
-import { getStandings } from "@/lib/epgp/standings";
+import { getStandings, refreshStandings } from "@/lib/epgp/standings";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
 import { guildDateTime } from "@/lib/guild-timezone";
 
@@ -141,11 +140,21 @@ export async function POST(request: Request) {
 
   // Every winner must resolve (name + tier) before anything is written —
   // a doomed request shouldn't leave a half-recorded loot event behind.
+  // Every active GP tier's point value in one query (2026-09-10 perf fix:
+  // this used to be one lookup per entry, plus one per winner).
+  const tierPoints = new Map<string, number>();
+  for (const pv of await db
+    .select({ activity: epgpPointValues.activity, points: epgpPointValues.points })
+    .from(epgpPointValues)
+    .where(and(eq(epgpPointValues.kind, "gp"), eq(epgpPointValues.retired, false)))) {
+    tierPoints.set(pv.activity, pv.points);
+  }
+
   for (const w of winners) {
     if (!byLowerName.get(w.characterName.trim().toLowerCase())) {
       return Response.json({ error: `No character found named "${w.characterName}" — fix the name and resubmit.` }, { status: 422 });
     }
-    if ((await getActivePointValue(db, "gp", w.tier)) === null) {
+    if (!tierPoints.has(w.tier)) {
       return Response.json({ error: `"${w.tier}" isn't a current GP tier.` }, { status: 422 });
     }
   }
@@ -160,30 +169,43 @@ export async function POST(request: Request) {
   let winningBidId: number | null = null;
   let inserted = 0;
 
+  // All bid rows in one multi-row insert (one round trip) instead of one
+  // insert per entry. `returning()` keeps the ids so winningBidId can point
+  // at the first winner's row exactly as before.
+  const bidValues: (typeof bidsTable.$inferInsert & { _isWinner: boolean })[] = [];
   for (const entry of entries) {
     const character = byLowerName.get(entry.characterName.trim().toLowerCase());
     if (!character) {
       unmatched.push(entry.characterName);
       continue;
     }
-    const points = await getActivePointValue(db, "gp", entry.tier);
-    if (points === null) {
+    if (!tierPoints.has(entry.tier)) {
       invalidTiers.push(`${entry.characterName}: "${entry.tier}"`);
       continue;
     }
-    const [row] = await db
-      .insert(bidsTable)
-      .values({
-        lootEventId: lootEvent.id,
-        characterId: character.id,
-        tier: entry.tier,
-        status: entry.isWinner ? "won" : "lost",
-        prioritySnapshot: priorityFor(character),
-        note,
-      })
-      .returning();
-    inserted++;
-    if (entry.isWinner && winningBidId === null) winningBidId = row.id;
+    bidValues.push({
+      lootEventId: lootEvent.id,
+      characterId: character.id,
+      tier: entry.tier,
+      status: entry.isWinner ? "won" : "lost",
+      prioritySnapshot: priorityFor(character),
+      note,
+      _isWinner: entry.isWinner,
+    });
+  }
+  if (bidValues.length > 0) {
+    // db.batch() of one-row inserts (D1 caps a statement at 100 bound
+    // parameters, so a multi-row VALUES insert can't carry a whole round);
+    // one round trip + one transaction per 40 rows, results in order.
+    const ids: number[] = [];
+    for (let i = 0; i < bidValues.length; i += 40) {
+      const chunk = bidValues.slice(i, i + 40).map(({ _isWinner: _unused, ...v }) => db.insert(bidsTable).values(v).returning({ id: bidsTable.id }));
+      const results = await db.batch(chunk as unknown as [(typeof chunk)[number], ...(typeof chunk)[number][]]);
+      for (const r of results) ids.push(r[0].id);
+    }
+    inserted = ids.length;
+    const firstWinnerIdx = bidValues.findIndex((v) => v._isWinner);
+    if (firstWinnerIdx >= 0 && ids[firstWinnerIdx] !== undefined) winningBidId = ids[firstWinnerIdx];
   }
 
   if (winningBidId !== null) {
@@ -203,21 +225,27 @@ export async function POST(request: Request) {
   // (If a stale round ever does linger, the DO's own 5-min idle expiry
   // sweeps it — no signal from a finalized round's poller means it ages
   // out regardless.)
+  const chargedPlayerIds = new Set<number>();
   for (const w of winners) {
     const character = byLowerName.get(w.characterName.trim().toLowerCase());
     if (!character) continue;
-    const points = await getActivePointValue(db, "gp", w.tier);
-    if (points === null) continue;
+    const points = tierPoints.get(w.tier);
+    if (points === undefined) continue;
     const gpResult = await insertLedgerEntry(
       db,
       { kind: "gp", characterId: character.id, tier: w.tier, itemName, points, occurredAt: w.occurredAt, note: note ?? "" },
       auth.userId,
       "parse",
+      { deferStandingsRefresh: true },
     );
     if (!gpResult.ok) {
       return Response.json({ error: `Recorded the bids, but couldn't charge GP for ${w.characterName}: ${gpResult.error}` }, { status: 422 });
     }
+    if (gpResult.playerId != null) chargedPlayerIds.add(gpResult.playerId);
   }
+  // One standings refresh for every winner charged (a duplicate drop can
+  // have several) rather than one per winner.
+  if (chargedPlayerIds.size > 0) await refreshStandings(db, { playerIds: [...chargedPlayerIds] });
 
   return Response.json({ lootEventId: lootEvent.id, inserted, unmatched, invalidTiers }, { status: 201 });
 }

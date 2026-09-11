@@ -77,7 +77,12 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
   ]);
 
   const now = new Date();
-  for (const t of totals.values()) {
+  // Upserts go out as db.batch() chunks — one round trip (and one
+  // transaction) per chunk instead of one per player. A full rebuild is
+  // ~256 rows: 7 round trips, not 256; a 50-player attendance refresh is
+  // 2, not 50. (2026-09-10 perf fix — this loop was a large share of the
+  // 20-45s attendance submit.)
+  const upserts = [...totals.values()].map((t) => {
     const row = {
       playerId: t.playerId,
       ep: t.ep,
@@ -92,10 +97,14 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
       lastActivityAt: lastActivity.get(t.playerId) ?? null,
       updatedAt: now,
     };
-    await db
-      .insert(playerEpgpTotals)
-      .values(row)
-      .onConflictDoUpdate({ target: playerEpgpTotals.playerId, set: row });
+    return db.insert(playerEpgpTotals).values(row).onConflictDoUpdate({ target: playerEpgpTotals.playerId, set: row });
+  });
+  const UPSERT_CHUNK = 40;
+  for (let i = 0; i < upserts.length; i += UPSERT_CHUNK) {
+    const chunk = upserts.slice(i, i + UPSERT_CHUNK);
+    // drizzle's batch() wants a non-empty tuple type; the slice is never
+    // empty here.
+    await db.batch(chunk as unknown as [(typeof chunk)[number], ...(typeof chunk)[number][]]);
   }
 
   // Prune stale rows: a scoped refresh only revisits the ids it was asked
@@ -110,8 +119,8 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
     const existing = await db.select({ id: playerEpgpTotals.playerId }).from(playerEpgpTotals);
     gone = existing.map((r) => r.id).filter((id) => !totals.has(id));
   }
-  for (let i = 0; i < gone.length; i += 100) {
-    await db.delete(playerEpgpTotals).where(inArray(playerEpgpTotals.playerId, gone.slice(i, i + 100)));
+  for (let i = 0; i < gone.length; i += 90) {
+    await db.delete(playerEpgpTotals).where(inArray(playerEpgpTotals.playerId, gone.slice(i, i + 90)));
   }
 
   // A write just landed — drop the read cache so this isolate serves fresh

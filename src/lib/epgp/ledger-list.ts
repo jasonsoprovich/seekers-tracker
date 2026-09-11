@@ -1,4 +1,4 @@
-import { desc, eq, isNotNull, like, or } from "drizzle-orm";
+import { desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, players, users } from "@/db";
@@ -29,6 +29,18 @@ export type GpLedgerRow = {
 };
 
 export type ListResult<T> = { rows: T[]; hasNext: boolean };
+
+// The "Recorded by" column shows the recording officer's MAIN CHARACTER
+// (the name members know them by in game), not their Discord username —
+// leader request 2026-09-10. Correlated subquery, not a join: a user can
+// in principle have more than one players row, and a join would duplicate
+// ledger rows. Falls back to the username when the officer has no linked
+// main (e.g. a site-only account).
+const enteredByDisplayName = sql<string | null>`coalesce(
+  (select c.name from players p join characters c on c.id = p.main_character_id where p.user_id = ${users.id} limit 1),
+  ${users.username}
+)`;
+
 
 // Shared by the website's /epgp/ledger page and the officer app's GET
 // /api/officer/ledger route — previously two verbatim copies of this exact
@@ -63,7 +75,7 @@ export async function listLedgerRows(
         note: epLedger.note,
         zone: epLedger.zone,
         source: epLedger.source,
-        enteredByName: users.username,
+        enteredByName: enteredByDisplayName,
       })
       .from(epLedger)
       .innerJoin(characters, eq(epLedger.characterId, characters.id))
@@ -85,7 +97,7 @@ export async function listLedgerRows(
       points: gpLedger.points,
       note: gpLedger.note,
       source: gpLedger.source,
-      enteredByName: users.username,
+      enteredByName: enteredByDisplayName,
     })
     .from(gpLedger)
     .innerJoin(characters, eq(gpLedger.characterId, characters.id))

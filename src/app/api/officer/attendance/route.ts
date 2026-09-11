@@ -1,11 +1,10 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { characters, epLedger } from "@/db";
 import { checkMinAttendance } from "@/lib/epgp/attendance";
-import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
-import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
+import { insertEpLedgerBatch } from "@/lib/epgp/ledger-entry";
 import { nameRaidFromCapture } from "@/lib/epgp/raids";
 import { refreshStandings } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
@@ -137,67 +136,112 @@ export async function POST(request: Request) {
     );
   }
 
+  // 2026-09-10 perf rewrite. This used to loop names one at a time — name
+  // lookup, player lookup, dupe check, then insertLedgerEntry's own 4-5
+  // queries — ~7 sequential D1 round trips per name, ~15-20ms each in
+  // production, so a 50-name capture took 6-10s and a Start/Mid/End submit
+  // 20-45s. Now: one name-resolution query, one dupe query, then
+  // insertEpLedgerBatch (fixed round-trip count) and one standings refresh.
+  //
+  // Name resolution — COLLATE NOCASE to match characters' own unique index
+  // (see findCharacterIdByName), for every captured name in one query.
+  const byLowerName = new Map<string, { id: number; playerId: number | null }>();
+  // Chunked under D1's 100-bound-parameter-per-statement cap.
+  for (let i = 0; i < names.length; i += 90) {
+    const chunk = names.slice(i, i + 90);
+    const found = await db
+      .select({ id: characters.id, name: characters.name, playerId: characters.playerId })
+      .from(characters)
+      .where(sql`${characters.name} COLLATE NOCASE IN (${sql.join(chunk.map((n) => sql`${n}`), sql`, `)})`);
+    for (const c of found) byLowerName.set(c.name.toLowerCase(), { id: c.id, playerId: c.playerId });
+  }
+
   const unmatched: string[] = [];
   const duplicates: string[] = [];
   // §4h-1: Project Quarm bans multiboxing, so one `/who` capture can't
   // legitimately contain two characters of the same player — but a player
   // swapping characters between two captures of the same activity (or a
   // duplicate paste of the same block) would otherwise award them twice.
-  // Dedupe by resolved player id per (activity, occurredAt): once in this
-  // request's own name list, and once against rows already on ep_ledger
-  // (catches a resubmission of the same capture in a separate request).
-  const seenPlayerKeys = new Set<number>();
-  const awardedPlayerIds = new Set<number>();
-  let inserted = 0;
-
+  // Dedupe by resolved player id per (activity, occurredAt): once within
+  // this request's own name list, and once against rows already on
+  // ep_ledger (a resubmission of the same capture in a separate request).
+  // A character with no player_id yet (PLAN.md §16) is keyed by its own
+  // character id so it's still checked against itself.
+  type Resolved = { name: string; characterId: number; playerKey: number; playerId: number | null };
+  const resolved: Resolved[] = [];
   for (const name of names) {
-    const characterId = await findCharacterIdByName(db, name);
-    if (characterId === null) {
+    const c = byLowerName.get(name.toLowerCase());
+    if (!c) {
       unmatched.push(name);
       continue;
     }
-
-    const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.id, characterId));
-    // A character with no player_id yet (PLAN.md §16 — created through the
-    // site's own claim/new-character flow) has no group to dedupe against;
-    // fall back to its own character id so it's still checked against
-    // itself rather than skipped or crashing.
-    const playerKey = character?.playerId ?? characterId;
-
-    if (seenPlayerKeys.has(playerKey)) {
-      duplicates.push(name);
-      console.warn(`attendance: skipped "${name}" — player ${playerKey} already awarded "${activity}" at ${occurredAtIso} in this submission`);
-      continue;
-    }
-
-    const [existing] = await db
-      .select({ id: epLedger.id })
-      .from(epLedger)
-      .where(and(eq(epLedger.playerId, playerKey), eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt)));
-    if (existing) {
-      duplicates.push(name);
-      console.warn(`attendance: skipped "${name}" — player ${playerKey} already has an "${activity}" row at ${occurredAtIso} (duplicate capture?)`);
-      continue;
-    }
-
-    seenPlayerKeys.add(playerKey);
-    // Defer the per-row standings refresh — a `/who` capture awards 20-40
-    // players at once, so one `refreshStandings({ playerIds })` for the
-    // whole batch below beats one recompute per name.
-    const result = await insertLedgerEntry(
-      db,
-      { kind: "ep", characterId, activity, points, occurredAt: occurredAtIso, note, zone },
-      auth.userId,
-      "parse",
-      { deferStandingsRefresh: true },
-    );
-    if (result.ok) {
-      inserted++;
-      if (result.playerId != null) awardedPlayerIds.add(result.playerId);
-    } else unmatched.push(name);
+    resolved.push({ name, characterId: c.id, playerKey: c.playerId ?? c.id, playerId: c.playerId });
   }
 
-  if (awardedPlayerIds.size > 0) await refreshStandings(db, { playerIds: [...awardedPlayerIds] });
+  // Rows already on the ledger for this exact (activity, occurredAt), for
+  // any player / character in this capture — one query.
+  const existingPlayerIds = new Set<number>();
+  const existingCharacterIds = new Set<number>();
+  if (resolved.length > 0) {
+    const pids = [...new Set(resolved.map((r) => r.playerId).filter((v): v is number => v != null))];
+    const cids = [...new Set(resolved.filter((r) => r.playerId == null).map((r) => r.characterId))];
+    const lookups: Promise<{ playerId: number | null; characterId: number | null }[]>[] = [];
+    for (let i = 0; i < pids.length; i += 90) {
+      lookups.push(
+        db
+          .select({ playerId: epLedger.playerId, characterId: epLedger.characterId })
+          .from(epLedger)
+          .where(and(eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt), inArray(epLedger.playerId, pids.slice(i, i + 90)))),
+      );
+    }
+    for (let i = 0; i < cids.length; i += 90) {
+      lookups.push(
+        db
+          .select({ playerId: epLedger.playerId, characterId: epLedger.characterId })
+          .from(epLedger)
+          .where(and(eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt), inArray(epLedger.characterId, cids.slice(i, i + 90)))),
+      );
+    }
+    for (const existing of await Promise.all(lookups)) {
+      for (const e of existing) {
+        if (e.playerId != null) existingPlayerIds.add(e.playerId);
+        if (e.characterId != null) existingCharacterIds.add(e.characterId);
+      }
+    }
+  }
+
+  const seenPlayerKeys = new Set<number>();
+  const toInsert: { characterId: number; activity: string; points: number; occurredAt: string; note: string; zone: string | null }[] = [];
+  for (const r of resolved) {
+    if (seenPlayerKeys.has(r.playerKey)) {
+      duplicates.push(r.name);
+      console.warn(`attendance: skipped "${r.name}" — player ${r.playerKey} already awarded "${activity}" at ${occurredAtIso} in this submission`);
+      continue;
+    }
+    const alreadyRecorded = r.playerId != null ? existingPlayerIds.has(r.playerId) : existingCharacterIds.has(r.characterId);
+    if (alreadyRecorded) {
+      duplicates.push(r.name);
+      console.warn(`attendance: skipped "${r.name}" — player ${r.playerKey} already has an "${activity}" row at ${occurredAtIso} (duplicate capture?)`);
+      continue;
+    }
+    seenPlayerKeys.add(r.playerKey);
+    toInsert.push({ characterId: r.characterId, activity, points, occurredAt: occurredAtIso, note, zone });
+  }
+
+  let inserted = 0;
+  if (toInsert.length > 0) {
+    const result = await insertEpLedgerBatch(db, toInsert, auth.userId, "parse");
+    inserted = result.inserted;
+    for (const f of result.failed) {
+      const row = toInsert.find((t) => t.characterId === f.characterId);
+      const name = resolved.find((r) => r.characterId === f.characterId)?.name ?? String(f.characterId);
+      console.warn(`attendance: could not store "${name}": ${f.error}`);
+      if (row) unmatched.push(name);
+    }
+    // One recompute for every player this capture touched (instead of one
+    // per name) — and the standings upserts inside are batched too.
+    if (result.playerIds.length > 0) await refreshStandings(db, { playerIds: result.playerIds });
+  }
 
   // Best-effort: a name that couldn't be stored (bad date, race) must not
   // fail an otherwise-good attendance submit — the officer can still name
