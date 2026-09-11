@@ -1,11 +1,13 @@
 // Query Workers Logs (the dashboard's Observability > Logs) from the shell,
 // so a "site froze at 9:35pm" report can be checked against what the
 // Worker actually saw, hours later — `wrangler tail` only shows live
-// traffic. Needs CLOUDFLARE_API_TOKEN in the environment: an API token
-// with "Workers Observability: Read" (Account > Workers Observability) —
-// wrangler's OAuth login is not reused here on purpose.
+// traffic. Needs SEEKERS_CF_LOGS_TOKEN in the environment: an API token
+// with "Workers Observability: Read" (Account > Workers Observability).
+// Deliberately NOT named CLOUDFLARE_API_TOKEN — wrangler would pick that
+// up in place of the browser login, and a logs-only token can't deploy or
+// touch D1. Set it once in ~/.zshenv (see README).
 //
-//   CLOUDFLARE_API_TOKEN=... node scripts/workers-logs.mjs [hours] [needle] [level]
+//   node scripts/workers-logs.mjs [hours] [needle] [level]
 //     hours   look back this many hours (default 24)
 //     needle  substring to search for, e.g. "[slow]" or "[auth]" (default: none)
 //     level   error | warn | info | log (default: any)
@@ -13,9 +15,9 @@
 //
 // Prints one line per event: time, level, method, path, status, wall ms,
 // message. Same query endpoint the dashboard uses.
-const token = process.env.CLOUDFLARE_API_TOKEN;
+const token = process.env.SEEKERS_CF_LOGS_TOKEN;
 if (!token) {
-  console.error("CLOUDFLARE_API_TOKEN is not set");
+  console.error("SEEKERS_CF_LOGS_TOKEN is not set (add `export SEEKERS_CF_LOGS_TOKEN=...` to ~/.zshenv)");
   process.exit(1);
 }
 const account = process.env.CLOUDFLARE_ACCOUNT_ID ?? "a12d86f29792323791c2fdc101759089";
