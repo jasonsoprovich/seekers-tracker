@@ -161,6 +161,14 @@ export const characters = sqliteTable("characters", {
   // gear/stat detail beyond what this app's own hover cards show — see
   // GearList.tsx.
   quarmyUrl: text("quarmy_url"),
+  // In-game officer tag for THIS character (2026-09-11, leader request).
+  // Site role lives on the account (players.user_id -> users.role) and is
+  // what the roster/dashboard show for the account's main; an alt or mule
+  // only shows the account's role when this is on, because in-game an
+  // officer's alts aren't all tagged. Toggled per character on the Account
+  // tab by officer+. Defaults on so an officer's characters display as they
+  // did before this column existed; untick the ones that aren't tagged.
+  officerTagged: integer("officer_tagged", { mode: "boolean" }).notNull().default(true),
   // Denormalized "last non-decay ep_ledger/gp_ledger occurred_at for this
   // character" — the value the roster/dashboard/progression "recently
   // active" filters need per-CHARACTER (not per-player; see

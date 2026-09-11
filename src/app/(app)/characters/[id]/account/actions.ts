@@ -187,3 +187,20 @@ export async function reconcilePlayerMain(playerId: number, characterId: number)
     .where(eq(players.id, playerId));
   return {};
 }
+
+// In-game officer tag per character (characters.officer_tagged). The site
+// role is on the account; this only decides whether an alt/mule DISPLAYS
+// it on the roster (the account's main always does). Officer+ only —
+// it's a roster-display fact about the guild, not a member preference.
+export async function setCharacterOfficerTag(characterId: number, tagged: boolean): Promise<AccountActionResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const role = await getUserRole(session.user.id);
+  if (!canManageAnyCharacter(role)) return { error: "Only officers, leaders, and admins can change a character's officer tag." };
+
+  const db = await getDb();
+  const [character] = await db.select({ id: characters.id }).from(characters).where(eq(characters.id, characterId));
+  if (!character) return { error: "Character not found." };
+  await db.update(characters).set({ officerTagged: tagged, updatedAt: new Date() }).where(eq(characters.id, characterId));
+  return {};
+}

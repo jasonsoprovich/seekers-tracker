@@ -239,6 +239,13 @@
       "when": 1788922235855,
       "tag": "0033_curly_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1789163632591,
+      "tag": "0034_character_officer_tag",
+      "breakpoints": true
     }
   ]
 }

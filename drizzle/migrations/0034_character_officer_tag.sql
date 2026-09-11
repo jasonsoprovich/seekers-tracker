@@ -1,0 +1,1 @@
+ALTER TABLE `characters` ADD `officer_tagged` integer DEFAULT true NOT NULL;

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { setPlayerMainCharacter } from "@/app/(app)/admin/actions";
-import { detachCharacterFromAccount, setCharacterType } from "@/app/(app)/characters/[id]/account/actions";
+import { detachCharacterFromAccount, setCharacterOfficerTag, setCharacterType } from "@/app/(app)/characters/[id]/account/actions";
 import { Button } from "@/components/ui/Button";
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { useConfirm, useConfirmWith } from "@/components/ui/ConfirmDialog";
@@ -26,6 +26,7 @@ export type AccountCharacter = {
   status: CharacterStatus;
   isMain: boolean;
   lastActivity: string | null;
+  officerTagged: boolean;
 };
 
 // One row of the account's character list. Which controls render is
@@ -40,6 +41,8 @@ export function AccountCharacterRow({
   canRetype,
   canPromote,
   canUnlink,
+  showOfficerTag,
+  canToggleOfficerTag,
 }: {
   character: AccountCharacter;
   playerId: number;
@@ -47,6 +50,11 @@ export function AccountCharacterRow({
   canRetype: boolean;
   canPromote: boolean;
   canUnlink: boolean;
+  // The account's site role is officer+ — show the in-game officer tag
+  // state; officer+ viewers can toggle it on non-main characters. The main
+  // always carries the account's role.
+  showOfficerTag: boolean;
+  canToggleOfficerTag: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -84,6 +92,10 @@ export function AccountCharacterRow({
     });
     if (!ok) return;
     await run(() => setPlayerMainCharacter(playerId, character.id, waive));
+  }
+
+  async function onToggleOfficerTag(tagged: boolean) {
+    await run(() => setCharacterOfficerTag(character.id, tagged));
   }
 
   async function onUnlink() {
@@ -126,6 +138,28 @@ export function AccountCharacterRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {showOfficerTag &&
+            (character.isMain ? (
+              <span className="rounded border border-sky-800 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-sky-400">
+                Officer
+              </span>
+            ) : canToggleOfficerTag ? (
+              <label className="flex items-center gap-1.5 text-xs text-neutral-300" title="Show this character with the account's officer role on the roster">
+                <input
+                  type="checkbox"
+                  checked={character.officerTagged}
+                  disabled={pending}
+                  onChange={(e) => void onToggleOfficerTag(e.target.checked)}
+                />
+                Officer tag
+              </label>
+            ) : (
+              character.officerTagged && (
+                <span className="rounded border border-sky-800 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-sky-400">
+                  Officer
+                </span>
+              )
+            ))}
           {!character.isMain && canRetype && (
             <select
               value={character.charType === "mule" ? "mule" : "alt"}

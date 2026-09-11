@@ -1,11 +1,11 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { GuildLeadership } from "@/components/dashboard/GuildLeadership";
 import { GuildPopMeter } from "@/components/dashboard/GuildPopMeter";
 import { RosterOverview, type RosterEntry } from "@/components/dashboard/RosterOverview";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characterPopFlags, characters, users } from "@/db";
+import { characterPopFlags, characters, players, users } from "@/db";
 import { LEADERSHIP_ROLES } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getStandings } from "@/lib/epgp/standings";
@@ -90,10 +90,14 @@ export default async function DashboardPage() {
   // leadership seat; the leader wants the Leaders column to be the in-game
   // guild leads only. (authz.ts LEADERSHIP_ROLES still governs permissions
   // everywhere else — this is display grouping for one dashboard card.)
+  // Keyed by the ACCOUNT's main (players.user_id -> players.main_character_id),
+  // not by a character's own claim link — same fix as the roster's role
+  // column (2026-09-11).
   const roleHolders = await db
     .select({ username: users.username, role: users.role, mainCharacterName: characters.name })
     .from(users)
-    .innerJoin(characters, and(eq(characters.ownerId, users.id), eq(characters.charType, "main")))
+    .innerJoin(players, eq(players.userId, users.id))
+    .innerJoin(characters, eq(characters.id, players.mainCharacterId))
     .where(inArray(users.role, [...LEADERSHIP_ROLES, "officer"]));
   const leadership = roleHolders.filter((r) => r.role === "leader");
   const officers = roleHolders.filter((r) => r.role === "officer" || r.role === "admin");

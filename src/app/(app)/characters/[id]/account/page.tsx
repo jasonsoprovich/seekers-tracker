@@ -107,6 +107,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
         status: characters.status,
         ownerId: characters.ownerId,
         lastActivityAt: characters.lastActivityAt,
+        officerTagged: characters.officerTagged,
       })
       .from(characters)
       .where(eq(characters.playerId, player.id)),
@@ -128,7 +129,11 @@ export default async function CharacterAccountPage({ params }: { params: Promise
       status: c.status,
       isMain: c.id === player.mainCharacterId,
       lastActivity: c.lastActivityAt ? guildDate(c.lastActivityAt) : null,
+      officerTagged: c.officerTagged,
     }));
+  // Officer tag toggles only mean something on an account whose site role
+  // is officer or above — on anyone else's the badge would be MEMBER anyway.
+  const accountIsOfficer = canManageAnyCharacter((player.accountRole ?? "member") as Role);
   const nameById = new Map(members.map((m) => [m.id, m.name]));
   const mainName = player.mainCharacterId ? (nameById.get(player.mainCharacterId) ?? null) : null;
   const accountName = mainName ?? player.displayName;
@@ -243,6 +248,8 @@ export default async function CharacterAccountPage({ params }: { params: Promise
                 canRetype={isOfficer || ownsThis || isAccountOwner}
                 canPromote={isLeader}
                 canUnlink={isOfficer}
+                showOfficerTag={accountIsOfficer}
+                canToggleOfficerTag={isOfficer}
               />
             );
           })}

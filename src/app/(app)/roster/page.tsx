@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { redirect } from "next/navigation";
 
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
@@ -26,6 +27,11 @@ export default async function RosterPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
+  // The account's site login (players.user_id), distinct from the
+  // character's own claim link (characters.owner_id): an alt linked to an
+  // officer's account by a leader has no owner_id of its own, and used to
+  // show MEMBER / Unclaimed (Babou on Sandrian's account, 2026-09-11).
+  const accountUsers = alias(users, "account_users");
   const [rows, totals] = await Promise.all([
     db
       .select({
@@ -39,6 +45,10 @@ export default async function RosterPage() {
         status: characters.status,
         mainCharacterId: characters.mainCharacterId,
         playerId: characters.playerId,
+        officerTagged: characters.officerTagged,
+        playerMainId: players.mainCharacterId,
+        accountUsername: accountUsers.username,
+        accountRole: accountUsers.role,
         // Per-CHARACTER last activity, materialized (schema.ts) — not the
         // player-level total's lastActivityAt, which every alt inherits
         // from its main (see character-activity.ts).
@@ -50,6 +60,7 @@ export default async function RosterPage() {
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
       .leftJoin(players, eq(players.id, characters.playerId))
+      .leftJoin(accountUsers, eq(accountUsers.id, players.userId))
       .orderBy(characters.name),
     // Materialized standings — one ~255-row scan, always current.
     getStandings(db),
@@ -63,11 +74,18 @@ export default async function RosterPage() {
 
   const rosterRows: RosterRow[] = rows.map((r) => {
     const total = totalsFor(r);
+    // Role and owner come from the account when it has a site login; the
+    // character's own claim is the fallback for characters with no account.
+    // The account's main always carries the account's role; an alt/mule
+    // only when its in-game officer tag is on (characters.officer_tagged).
+    const accountRole = r.accountRole ?? r.ownerRole;
+    const isAccountMain = r.playerMainId !== null && r.playerMainId === r.id;
+    const shownRole = accountRole && (isAccountMain || r.officerTagged) ? accountRole : "member";
     return {
       id: r.id,
       name: r.name,
-      ownerUsername: r.ownerUsername,
-      ownerRole: r.ownerRole,
+      ownerUsername: r.accountUsername ?? r.ownerUsername,
+      ownerRole: shownRole,
       classId: r.classId,
       className: charClassLabel(r.classId),
       raceId: r.raceId,

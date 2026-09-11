@@ -5,8 +5,9 @@ export type RoleHolder = { username: string | null; role: string; mainCharacterN
 // character only — an officer's alts aren't part of "the officer roster".
 // Grouping is decided by the caller (dashboard/page.tsx): post-live-test-1
 // LT-12 puts `leader` under Leaders and `officer` + `admin` under Officers
-// — site-admin is a technical role, not a guild leadership seat. The Admin
-// badge below still tags whichever holders carry that role.
+// — site-admin is a technical role, not a guild leadership seat, and it is
+// not badged here at all (leader, 2026-09-11): members see officers, not
+// who holds the site's admin bit.
 export function GuildLeadership({ leadership, officers }: { leadership: RoleHolder[]; officers: RoleHolder[] }) {
   if (leadership.length === 0 && officers.length === 0) return null;
 
@@ -38,11 +39,6 @@ function RoleGroup({ title, holders }: { title: string; holders: RoleHolder[] })
             .map((h) => (
               <li key={h.mainCharacterName} className="flex items-baseline justify-between gap-2">
                 <span className="font-medium text-neutral-200">{h.mainCharacterName}</span>
-                {h.role === "admin" && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-400">
-                    Admin
-                  </span>
-                )}
               </li>
             ))}
         </ul>
