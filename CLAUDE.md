@@ -366,9 +366,9 @@ root causes found by measurement, all fixed:
   Worker `fa059c75` (build `f5a1dbe`).
 - **Still open (planned, not built):** cold isolate starts of 1-1.7s on
   the 13.6 MB bundle (the "freeze" on the first click after idle — the
-  3-min cron warms one colo only); Discord-departure detection (needs a
-  bot-token guild member sweep — nothing re-checks membership between
-  logins). See the "Seekers Stability Review" artifact.
+  3-min cron warms one colo only); Discord-departure detection — **deferred by the leader
+  (2026-09-10, the guild's own bot already notifies them); the manual
+  remove/wipe/reinstate is live. Plan in `docs/discord-departure-plan.md`.** See the "Seekers Stability Review" artifact.
 - **Plan headroom (Cloudflare analytics, 7 days to 2026-09-10):** 44.6k
   Worker requests, 1.3M CPU-ms, 2.4k DO requests; D1 ~2.4M rows read /
   4.5k written per day. Against the $5 plan's monthly allowances that's
