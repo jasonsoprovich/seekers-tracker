@@ -15,7 +15,12 @@ import { clearChunkReloadGuard } from "@/lib/chunk-reload";
 // chunk that fails before the next poll.
 const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID ?? "";
 
-const POLL_MS = 5 * 60 * 1000;
+// 2 minutes (was 5, 2026-09-10): this poll doubles as a keep-warm from
+// the viewer's own edge location — every open tab pings the Worker, so a
+// member who has the site open keeps an isolate warm near THEM, which the
+// server-side cron (one location) can't do. 50 open tabs × 30/hr is ~1.5k
+// requests an hour during a raid — noise against the plan's 10M/month.
+const POLL_MS = 2 * 60 * 1000;
 
 export function VersionGuard() {
   const [stale, setStale] = useState(false);

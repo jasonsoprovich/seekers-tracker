@@ -470,16 +470,26 @@ export default {
 
   // Two crons (wrangler.jsonc `triggers.crons`), dispatched on event.cron.
   async scheduled(event, env, ctx) {
-    // "*/3 * * * *" — keep-warm ping (LT-26/LT-27). Warm the D1 binding on
-    // THIS isolate, then self-fetch the tiny /api/_warm route so a
-    // render-path isolate stays hot too. Best-effort; a failure just means
-    // the next real request pays a cold start, same as before.
-    if (event.cron === "*/3 * * * *") {
+    // "*/2 * * * *" — keep-warm ping (LT-26/LT-27; 2 min since 2026-09-10).
+    // Warm the D1 binding on THIS isolate, then self-fetch the health route
+    // and an app page so a render-path isolate stays hot too. Best-effort;
+    // a failure just means the next real request pays a cold start.
+    if (event.cron === "*/2 * * * *") {
       const warm = (async () => {
         try {
           await drizzle(env.DATABASE, { schema }).run(sql`SELECT 1`);
-          const r = await fetch("https://seekersofsouls.com/api/health", { headers: { "x-warm": "cron" } });
-          console.log(`[cron] warm ping ${r.status}`);
+          // Two self-fetches: the API path, and a real app page. Next loads
+          // each route's module chunk lazily, so a warm /api/health alone
+          // still left the first /roster click paying that route's own
+          // module evaluation + the layout/auth chain. /roster without a
+          // cookie is a cheap 307 (getSession → null → redirect) that
+          // evaluates exactly those modules. "manual" redirect so the
+          // fetch doesn't follow it into /login.
+          const [h, p] = await Promise.all([
+            fetch("https://seekersofsouls.com/api/health", { headers: { "x-warm": "cron" } }),
+            fetch("https://seekersofsouls.com/roster", { headers: { "x-warm": "cron" }, redirect: "manual" }),
+          ]);
+          console.log(`[cron] warm ping health=${h.status} page=${p.status}`);
         } catch (e) {
           console.log(`[cron] warm ping failed: ${e}`);
         }

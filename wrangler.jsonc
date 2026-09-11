@@ -75,15 +75,15 @@
 	// Two crons, dispatched by custom-worker.ts's scheduled() on event.cron:
 	//  - "17 9 * * *"  nightly standings + last_activity rebuild (safety net;
 	//    refreshStandings already runs on every write). ~450k-row read/night.
-	//  - "*/3 * * * *" keep-warm ping (post-live-test-1 LT-26/LT-27): a fresh
-	//    isolate boot is ~0.5s of the "site feels frozen" latency, and on the
-	//    $5 plan with sporadic traffic isolates evict between clicks. This
-	//    self-fetches the tiny /api/health route so a render-path isolate
-	//    stays alive. Cost: ~14.6k invocations/mo (0.15% of the 10M included) + a
-	//    ~20-40ms-CPU render each (~0.5M CPU-ms/mo, <2% of the 30M included).
-	//    Well inside the $5 plan; dial the interval up if headroom shrinks.
+	//  - "*/2 * * * *" keep-warm ping (post-live-test-1 LT-26/LT-27; every 2
+	//    min since 2026-09-10 — measured cold boot of the 13.6 MB bundle is
+	//    1-1.7s vs ~0.2s warm, and 3 min was long enough to evict between a
+	//    lone tester's clicks). Self-fetches /api/health AND an app page
+	//    (/roster → the layout + auth chain) so the render path's modules
+	//    are loaded too, not just the API path. Cost: ~22k invocations/mo
+	//    (0.2% of 10M) + ~2 renders each (<3% of the 30M CPU-ms included).
 	"triggers": {
-		"crons": ["17 9 * * *", "*/3 * * * *"]
+		"crons": ["17 9 * * *", "*/2 * * * *"]
 	},
 	"observability": {
 		"enabled": true
