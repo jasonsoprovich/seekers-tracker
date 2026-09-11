@@ -326,6 +326,38 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Stability review, 2026-09-10 (commits `21892b4`, `24cd1aa`; parser
+`eb70376` — NOT yet deployed/released; deploy the tracker first, then cut
+the parser release, the two are backward compatible either way).** Three
+root causes found by measurement, all fixed:
+- **20-45s attendance/bids submits** — ~7 *sequential* D1 round trips per
+  name (each ~15-20ms measured in prod) plus one standings upsert per
+  player. Now `insertEpLedgerBatch` + `db.batch()` everywhere
+  (attendance, bids, `refreshStandings`); ~15 round trips per capture
+  regardless of size. **D1 caps a statement at 100 bound parameters** —
+  keep bulk writes as batches of one-row statements and IN lists ≤ 90.
+- **"Keeps logging me out"** — the `withReadCache` browser cache on
+  /roster etc. cached the HTTP-200 RSC *redirect-to-/login* payload for
+  75s, so one blip replayed as a login loop. Removed. Sessions were fine
+  all along (7 days, never deleted).
+- **Live-bid cards vanishing / wrong leader** — collecting rounds lived
+  only in DO memory and the Hibernatable-WebSocket DO gets evicted in
+  quiet gaps. Every round is now written through to `ctx.storage`
+  (`round:` prefix; legacy `resolved:` migrates), `/push` accepts a full
+  `bids` snapshot, and the parser sends snapshots (see parser CLAUDE.md).
+- Also: ledger "Recorded by" = officer's main character; live board
+  "Clear N resolved" (`/api/live-bids/dismiss {all:true}`).
+- **Still open (planned, not built):** cold isolate starts of 1-1.7s on
+  the 13.6 MB bundle (the "freeze" on the first click after idle — the
+  3-min cron warms one colo only); a player-level "character account"
+  page (main/alt/mule management in one place — the swap/fee/waive/
+  reverse logic already exists in `players.ts`, it's just spread across
+  /admin and /characters); Discord-departure detection (needs a bot-token
+  guild member sweep — nothing re-checks membership between logins);
+  `removeMemberFromGuild` is keyed by site user, so an unclaimed player
+  can't be removed. See the "Seekers Stability Review" artifact.
+
+
 **LT-33 sim follow-ups, 2026-09-09 (tracker Worker `83f9e5f2`, deployed;
 parser `v0.1.11` released).** Notes from the first sim run of the
 streamline below:
