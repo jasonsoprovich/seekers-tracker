@@ -1,12 +1,11 @@
-import { desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AdminCharacterList, type AdminCharacterRow, type PlayerMainInfo } from "@/components/admin/AdminCharacterList";
 import { MembersRolesList } from "@/components/admin/MembersRolesList";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characterClaims, characterPopFlags, characters, mainSwapEvents, players, users } from "@/db";
+import { characterClaims, characters, players, users } from "@/db";
 import {
   canManageAnyCharacter,
   canManageEpgp,
@@ -17,8 +16,7 @@ import {
   type Role,
 } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { charClassLabel, charRaceName, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
-import { resolveFlags } from "@/lib/pop-flags";
+import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { getSession } from "@/lib/session";
 
 // Latest published officer-app build — the release page always redirects to
@@ -55,82 +53,18 @@ export default async function AdminPage() {
     .where(eq(characterClaims.status, "pending"));
   const pendingClaimCount = pendingClaimRows.length;
 
+  // Admin is about PEOPLE (site accounts, roles, claims, guild membership)
+  // — characters are managed from the Roster, where every character page
+  // has Edit and Account tabs (2026-09-10: the "Members & Characters"
+  // list that used to live here duplicated the roster with clunkier
+  // controls, and a brand-new Discord member sat at the bottom of it).
   const roster = await db
-    .select({
-      id: characters.id,
-      name: characters.name,
-      class: characters.class,
-      race: characters.race,
-      level: characters.level,
-      charType: characters.charType,
-      status: characters.status,
-      mainCharacterId: characters.mainCharacterId,
-      playerId: characters.playerId,
-      ownerUsername: users.username,
-      ownerId: characters.ownerId,
-      ownerRole: users.role,
-    })
+    .select({ id: characters.id, name: characters.name, class: characters.class, charType: characters.charType, status: characters.status, ownerId: characters.ownerId })
     .from(characters)
-    .leftJoin(users, eq(characters.ownerId, users.id))
     .orderBy(characters.name);
-
-  // Owner → guild status ('departed' == removed by a leader). Small table
-  // (one row per signed-in account), so a plain map, not a join.
-  const playerStatusByUser = new Map(
-    (await db.select({ userId: players.userId, status: players.status }).from(players).where(isNotNull(players.userId))).map(
-      (r) => [r.userId as string, r.status],
-    ),
-  );
-
-  const nameById = new Map(roster.map((c) => [c.id, c.name]));
   const unresolvedClassCount = roster.filter((c) => c.class === UNKNOWN_CLASS_ID).length;
 
-  // Guild-wide table, not filtered by character ID list — see dashboard's
-  // identical comment: an inArray() of every character's ID hits D1's
-  // ~100-bound-parameter-per-statement limit once the roster grows past
-  // that.
-  const flagRows = await db.select().from(characterPopFlags);
-  const flagsByCharacter = new Map<number, typeof flagRows>();
-  for (const r of flagRows) {
-    if (!flagsByCharacter.has(r.characterId)) flagsByCharacter.set(r.characterId, []);
-    flagsByCharacter.get(r.characterId)!.push(r);
-  }
-
-  const rows: AdminCharacterRow[] = roster.map((c) => {
-    const resolved = resolveFlags(
-      (flagsByCharacter.get(c.id) ?? []).map((r) => ({
-        flagId: r.flagId,
-        done: r.done,
-        source: r.source,
-      })),
-    );
-    return {
-      id: c.id,
-      name: c.name,
-      classId: c.class,
-      className: charClassLabel(c.class),
-      raceId: c.race,
-      raceName: charRaceName(c.race),
-      level: c.level,
-      charType: c.charType,
-      status: c.status,
-      mainCharacterId: c.mainCharacterId,
-      mainName: c.charType === "alt" && c.mainCharacterId ? (nameById.get(c.mainCharacterId) ?? "(unknown)") : null,
-      playerId: c.playerId,
-      ownerUsername: c.ownerUsername,
-      ownerId: c.ownerId,
-      ownerRole: c.ownerRole,
-      ownerDeparted: c.ownerId ? playerStatusByUser.get(c.ownerId) === "departed" : false,
-      popDone: resolved.done,
-      popTotal: resolved.total,
-    };
-  });
-
   const canEditRoles = canManageRoles(role);
-  // Officers (canManageAnyCharacter — already the page's own access bar) can
-  // assign an unclaimed character to an account, so they need the member
-  // list too; only leaders/admins get the role picker + remove button on
-  // top of that.
   const members = await db
     .select({
       id: users.id,
@@ -138,92 +72,29 @@ export default async function AdminPage() {
       role: users.role,
       discordVerified: users.discordVerified,
       createdAt: users.createdAt,
-      // 'departed' == removed from the guild by a leader (blocks all
-      // site access) — see RemoveMemberButton / removeMemberFromGuild.
+      // 'departed' == removed from the guild by a leader — see
+      // RemoveMemberButton / removeMemberFromGuild.
       playerStatus: players.status,
     })
     .from(users)
     .leftJoin(players, eq(players.userId, users.id))
     .orderBy(users.username);
 
-  // Members & Roles is merged into the character list (role picker + remove
-  // on each main-character row). This fallback catches the rare account
-  // that's signed in but has claimed nothing yet — otherwise unmanageable.
   // discordVerified filters out shell accounts left by a denied sign-in
   // (someone not in the guild Discord, or with no/denied roles): the
-  // membership gate already blocks them from every page, so they're not
-  // "members" — no reason to surface them here as if they need a character
-  // assigned. They reappear the moment a real login stamps them verified.
+  // membership gate already blocks them from every page. They reappear the
+  // moment a real login stamps them verified.
+  const verified = members.filter((m) => m.discordVerified);
   const ownerIds = new Set(roster.map((c) => c.ownerId).filter((id): id is string => id !== null));
-  const membersNoCharacter = members.filter((m) => !ownerIds.has(m.id) && m.discordVerified);
+  // The people who need an officer's attention first: signed in, in the
+  // Discord, but no character on their account yet.
+  const needsSetup = verified.filter((m) => !ownerIds.has(m.id));
+  const established = verified.filter((m) => ownerIds.has(m.id));
 
   // Unclaimed roster characters an officer can attach to an account here.
   const unclaimedCharacters = roster
     .filter((c) => c.ownerId === null && c.status !== "removed")
-    .map((c) => ({ id: c.id, name: c.name, charType: c.charType }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  // PLAN.md §11 Phase 10 task 10.3 — leader-only main swap. Used to be its
-  // own hundreds-of-rows section; now folded inline onto each player's
-  // main-character row in the list below. Only players with 2+ non-mule
-  // characters have anything to swap.
-  const playerRows = canEditRoles
-    ? await db.select({ id: players.id, mainCharacterId: players.mainCharacterId }).from(players)
-    : [];
-  const charactersByPlayer = new Map<number, { id: number; name: string }[]>();
-  if (canEditRoles) {
-    for (const c of roster) {
-      if (c.playerId === null || c.charType === "mule" || c.status === "removed") continue;
-      if (!charactersByPlayer.has(c.playerId)) charactersByPlayer.set(c.playerId, []);
-      charactersByPlayer.get(c.playerId)!.push({ id: c.id, name: c.name });
-    }
-  }
-  const playerMains: PlayerMainInfo = {};
-  if (canEditRoles) {
-    for (const p of playerRows) {
-      const options = (charactersByPlayer.get(p.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
-      if (options.length >= 2) playerMains[String(p.id)] = { currentMainCharacterId: p.mainCharacterId, options };
-    }
-
-    // post-live-test-1 LT-30: attach each player's most recent un-reversed
-    // main swap so the list can offer a one-click reverse (restores the
-    // grouping + refunds the GP fee).
-    const swapRows = await db
-      .select({
-        id: mainSwapEvents.id,
-        playerId: mainSwapEvents.playerId,
-        prevMainCharacterId: mainSwapEvents.prevMainCharacterId,
-        newMainCharacterId: mainSwapEvents.newMainCharacterId,
-        feeGp: mainSwapEvents.feeGp,
-      })
-      .from(mainSwapEvents)
-      .where(isNull(mainSwapEvents.reversedAt))
-      .orderBy(desc(mainSwapEvents.id));
-    const latestSwapByPlayer = new Map<number, (typeof swapRows)[number]>();
-    for (const r of swapRows) if (!latestSwapByPlayer.has(r.playerId)) latestSwapByPlayer.set(r.playerId, r);
-    const swapNameIds = [...latestSwapByPlayer.values()]
-      .flatMap((r) => [r.prevMainCharacterId, r.newMainCharacterId])
-      .filter((x): x is number => x != null);
-    const swapNames = new Map<number, string>();
-    if (swapNameIds.length > 0) {
-      for (const n of await db
-        .select({ id: characters.id, name: characters.name })
-        .from(characters)
-        .where(inArray(characters.id, swapNameIds))) {
-        swapNames.set(n.id, n.name);
-      }
-    }
-    for (const [pid, r] of latestSwapByPlayer) {
-      const info = playerMains[String(pid)];
-      if (!info) continue;
-      info.lastSwap = {
-        eventId: r.id,
-        prevMainName: r.prevMainCharacterId != null ? swapNames.get(r.prevMainCharacterId) ?? null : null,
-        newMainName: swapNames.get(r.newMainCharacterId) ?? "the new main",
-        feeGp: r.feeGp,
-      };
-    }
-  }
+    .map((c) => ({ id: c.id, name: c.name, charType: c.charType }));
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -254,43 +125,40 @@ export default async function AdminPage() {
         </div>
       )}
 
+      {needsSetup.length > 0 && (
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold">
+            New members — no character yet <span className="ml-1 text-base font-normal text-neutral-500">{needsSetup.length}</span>
+          </h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            Signed in through Discord but nothing on their account. Assign their main here (type the character name), or they can
+            claim it themselves from Your Characters.
+          </p>
+          <MembersRolesList members={needsSetup} selfUserId={session.user.id} canEditRoles={canEditRoles} unclaimedCharacters={unclaimedCharacters} />
+        </section>
+      )}
+
       <section className="mt-10">
-        <h2 className="text-lg font-semibold">Members &amp; Characters</h2>
+        <h2 className="text-lg font-semibold">
+          Members <span className="ml-1 text-base font-normal text-neutral-500">{established.length}</span>
+        </h2>
         <p className="mt-1 text-sm text-neutral-400">
-          Search for a character to view or edit it — main/alt status, alt→main link, class.
-          {canEditRoles &&
-            " A main-character row also carries its owner's role picker, remove-from-guild, and (for players with more than one character) which one is the main."}
+          Everyone with a site login and at least one character.
+          {canEditRoles ? " Roles, remove-from-guild and reinstate live here." : ""} Characters themselves — main/alt/mule, linking,
+          the main swap — are managed from the{" "}
+          <Link href="/roster" className="text-emerald-400 hover:text-emerald-300">
+            Roster
+          </Link>
+          : open any character, then its Edit or Account tab.
         </p>
         {unresolvedClassCount > 0 && (
           <p className="mt-2 text-sm text-amber-400">
-            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} have an unresolved class — search to find and
-            edit them per-character.
+            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the Roster by
+            class &quot;Unknown&quot; to find and edit them.
           </p>
         )}
-        {roster.length === 0 ? (
-          <p className="mt-4 text-neutral-400">No characters have been added yet.</p>
-        ) : (
-          <div className="mt-4">
-            <AdminCharacterList rows={rows} canEditRoles={canEditRoles} selfUserId={session.user.id} playerMains={playerMains} />
-          </div>
-        )}
+        <MembersRolesList members={established} selfUserId={session.user.id} canEditRoles={canEditRoles} unclaimedCharacters={unclaimedCharacters} />
       </section>
-
-      {membersNoCharacter.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-lg font-semibold">Members without a claimed character</h2>
-          <p className="mt-1 text-sm text-neutral-400">
-            Signed in, but haven&apos;t claimed a character yet — so they don&apos;t appear in the list above. Assign one to
-            them directly{canEditRoles ? ", or use the role / remove controls" : ""}.
-          </p>
-          <MembersRolesList
-            members={membersNoCharacter}
-            selfUserId={session.user.id}
-            canEditRoles={canEditRoles}
-            unclaimedCharacters={unclaimedCharacters}
-          />
-        </section>
-      )}
     </div>
   );
 }

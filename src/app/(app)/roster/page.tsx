@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characters, users } from "@/db";
+import { characters, players, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getStandings } from "@/lib/epgp/standings";
@@ -45,9 +45,11 @@ export default async function RosterPage() {
         lastActivityAt: characters.lastActivityAt,
         ownerUsername: users.username,
         ownerRole: users.role,
+        playerStatus: players.status,
       })
       .from(characters)
       .leftJoin(users, eq(characters.ownerId, users.id))
+      .leftJoin(players, eq(players.id, characters.playerId))
       .orderBy(characters.name),
     // Materialized standings — one ~255-row scan, always current.
     getStandings(db),
@@ -72,6 +74,7 @@ export default async function RosterPage() {
       level: r.level,
       charType: r.charType,
       status: r.status,
+      departed: r.playerStatus === "departed",
       mainCharacterId: r.mainCharacterId,
       ep: total?.ep ?? null,
       gp: total?.gp ?? null,

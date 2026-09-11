@@ -20,10 +20,10 @@ export type RosterEntry = {
 };
 
 // post-live-test-1 (LT-28): the "Roster by Class" bar chart always renders
-// classes A–Z with Unknown pinned last, and is deliberately NOT wired to
-// the Loot priority / A–Z toggle — that toggle governs only the "Roster by
-// Class — Members" section below. A chart that reshuffled its bars every
-// time the members list re-sorted read as a different chart each toggle.
+// classes A–Z with Unknown pinned last. Since 2026-09-10 the "Members"
+// cards below use the SAME order (leader: the two should match), with
+// members inside each card ranked by Loot Priority; the old Loot priority /
+// A–Z toggle is gone.
 const CHART_CLASSES = [...CHAR_CLASSES].sort((a, b) => {
   if (a.id === UNKNOWN_CLASS_ID) return 1;
   if (b.id === UNKNOWN_CLASS_ID) return -1;
@@ -55,19 +55,8 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
   // the guild's actual recent-activity picture behind every character
   // who's ever existed, including long-departed/inactive ones.
   const [win, setWin] = useState<string>("7d");
-  // post-live-test-1 (LT-13): "A–Z" reorders the class columns *and* the
-  // members inside them alphabetically; "Loot priority" is the original —
-  // canonical EQ class order, members ranked by priority. A toggle, not a
-  // replacement. Scope is the "Roster by Class — Members" section only —
-  // the bar chart above keeps a fixed A–Z order (LT-28, CHART_CLASSES).
-  const [sortMode, setSortMode] = useState<"priority" | "az">("priority");
   const windowDef = WINDOWS.find((w) => w.value === win) ?? WINDOWS[WINDOWS.length - 1];
   const cutoff = nowMs - windowDef.ms;
-
-  const orderedClasses = useMemo(
-    () => (sortMode === "az" ? [...CHAR_CLASSES].sort((a, b) => a.name.localeCompare(b.name)) : CHAR_CLASSES),
-    [sortMode],
-  );
 
   const filtered = useMemo(
     () =>
@@ -107,15 +96,11 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
   }, [filtered]);
 
   const columns = useMemo(() => {
-    return orderedClasses
-      .map((cls) => ({
-        cls,
-        members: filtered
-          .filter((e) => e.classId === cls.id)
-          .sort((a, b) => (sortMode === "az" ? a.name.localeCompare(b.name) : b.priority - a.priority)),
-      }))
-      .filter((col) => col.members.length > 0);
-  }, [filtered, orderedClasses, sortMode]);
+    return CHART_CLASSES.map((cls) => ({
+      cls,
+      members: filtered.filter((e) => e.classId === cls.id).sort((a, b) => b.priority - a.priority),
+    })).filter((col) => col.members.length > 0);
+  }, [filtered]);
 
   return (
     <div className="mt-4">
@@ -133,14 +118,6 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
             options={[
               { value: "mains", label: "Mains only" },
               { value: "all", label: "Include alts" },
-            ]}
-          />
-          <SegmentedToggle
-            value={sortMode}
-            onChange={(v) => setSortMode(v === "az" ? "az" : "priority")}
-            options={[
-              { value: "priority", label: "Loot priority" },
-              { value: "az", label: "A–Z" },
             ]}
           />
         </div>
@@ -185,7 +162,7 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
       <section className="mt-4">
         <h2 className="text-lg font-semibold">Roster by Class — Members</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          {sortMode === "az" ? "Alphabetical" : "Ranked by Loot Priority"} within the filter above.
+          Classes in the same order as the chart above; members ranked by Loot Priority within the filter.
         </p>
         {columns.length === 0 ? (
           <p className="mt-4 text-sm text-neutral-500">No one matches this filter.</p>

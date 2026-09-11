@@ -30,6 +30,9 @@ export type RosterRow = {
   level: number;
   charType: "main" | "alt" | "mule";
   status: CharacterStatus;
+  // The account was removed from the guild (players.status 'departed') —
+  // hidden under "Active only", shown under "Removed from guild" / "All".
+  departed: boolean;
   mainCharacterId: number | null;
   // Alts share their main's EP/GP/Priority/decay — see roster/page.tsx.
   ep: number | null;
@@ -127,7 +130,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
         if (raceFilter !== "all" && String(r.raceId) !== raceFilter) return false;
         if (typeFilter !== "all" && r.charType !== typeFilter) return false;
-        if (statusFilter !== "all" && r.status !== statusFilter) return false;
+        if (statusFilter === "departed") {
+          if (!r.departed) return false;
+        } else if (statusFilter === "active") {
+          if (r.status !== "active" || r.departed) return false;
+        } else if (statusFilter !== "all" && r.status !== statusFilter) return false;
         if (min !== null && r.level < min) return false;
         if (max !== null && r.level > max) return false;
         return true;
@@ -261,6 +268,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
               {r.name}
             </Link>
             <CharacterStatusBadge status={r.status} />
+            {r.departed && (
+              <span className="rounded border border-red-800 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-red-400">
+                Removed from guild
+              </span>
+            )}
           </span>
         </td>
         <td className="px-3 py-2">
@@ -358,6 +370,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             <option value="all">All statuses</option>
             <option value="inactive">{characterStatusLabel("inactive")}</option>
             <option value="removed">{characterStatusLabel("removed")}</option>
+            <option value="departed">Removed from guild</option>
           </select>
         </label>
 

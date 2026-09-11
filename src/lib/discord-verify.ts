@@ -107,12 +107,35 @@ export function isDeniedRole(roleIds: string[]): boolean {
 // the Discord server but removed from the guild here is denied all the
 // same. A NULL playerStatus (no players row yet — a user who hasn't logged
 // in since Phase 10) is not a denial: fall through to the Discord check.
+//
+// Rejoining (leader, 2026-09-10): someone removed from the guild who
+// later rejoins Discord and is given a member role again should get site
+// access back on their own — the leader only has to reinstate the
+// account's EP/characters, not unlock the login. Removal still blocks
+// access immediately (`departedAt` is stamped at the click), and it keeps
+// blocking until a login AFTER that moment re-verifies Discord membership
+// with an allowed role (`lastLoginAt` is stamped by
+// checkAndStampGuildMembership on every login). So: departed + no login
+// since removal → denied; departed + a later verified login → allowed,
+// with the account still flagged "Removed" on the roster until reinstated.
 export function isMemberAllowed(
-  me: { discordVerified: boolean; discordRoleIds: string | null; playerStatus?: string | null } | undefined,
+  me:
+    | {
+        discordVerified: boolean;
+        discordRoleIds: string | null;
+        playerStatus?: string | null;
+        departedAt?: Date | null;
+        lastLoginAt?: Date | null;
+      }
+    | undefined,
 ): boolean {
   if (!me) return false;
-  if (me.playerStatus === "departed") return false;
-  return !!me.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
+  const discordOk = !!me.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
+  if (me.playerStatus === "departed") {
+    const rejoined = !!me.lastLoginAt && (!me.departedAt || me.lastLoginAt.getTime() > me.departedAt.getTime());
+    return rejoined && discordOk;
+  }
+  return discordOk;
 }
 
 // DB-fetching wrapper for a caller with no row of its own — custom-
@@ -124,7 +147,9 @@ export async function fetchIsMemberAllowed(db: ReturnType<typeof drizzle>, userI
     .select({
       discordVerified: users.discordVerified,
       discordRoleIds: users.discordRoleIds,
+      lastLoginAt: users.lastLoginAt,
       playerStatus: players.status,
+      departedAt: players.departedAt,
     })
     .from(users)
     .leftJoin(players, eq(players.userId, users.id))

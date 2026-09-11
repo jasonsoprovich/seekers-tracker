@@ -8,7 +8,7 @@ import { setPlayerMainCharacter } from "@/app/(app)/admin/actions";
 import { detachCharacterFromAccount, setCharacterType } from "@/app/(app)/characters/[id]/account/actions";
 import { Button } from "@/components/ui/Button";
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
-import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useConfirm, useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import type { CharacterStatus } from "@/lib/character-status";
 
@@ -50,10 +50,9 @@ export function AccountCharacterRow({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const confirmWith = useConfirmWith();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [promoting, setPromoting] = useState(false);
-  const [waive, setWaive] = useState(false);
 
   async function run(fn: () => Promise<{ error?: string }>) {
     setPending(true);
@@ -73,12 +72,18 @@ export function AccountCharacterRow({
     await run(() => setCharacterType(character.id, type));
   }
 
+  // Modal with a Cancel button (leader, 2026-09-10 — the old inline
+  // confirm strip was easy to miss) and the fee waiver as a checkbox in
+  // the same dialog.
   async function onPromote() {
-    const ok = await run(() => setPlayerMainCharacter(playerId, character.id, waive));
-    if (ok) {
-      setPromoting(false);
-      setWaive(false);
-    }
+    const { ok, checked: waive } = await confirmWith({
+      title: `Make ${character.name} the main?`,
+      message: `The current main becomes an alt; EP and GP stay with the account. Unless waived below, ${MAIN_SWAP_FEE_GP} GP is charged to ${character.name}. A leader can reverse this later from the swap history.`,
+      confirmLabel: "Swap main",
+      checkbox: { label: `Waive the ${MAIN_SWAP_FEE_GP} GP fee` },
+    });
+    if (!ok) return;
+    await run(() => setPlayerMainCharacter(playerId, character.id, waive));
   }
 
   async function onUnlink() {
@@ -133,8 +138,8 @@ export function AccountCharacterRow({
               <option value="mule">Mule</option>
             </select>
           )}
-          {!character.isMain && canPromote && character.charType !== "mule" && !promoting && (
-            <Button type="button" size="sm" variant="outline" onClick={() => setPromoting(true)} disabled={pending}>
+          {!character.isMain && canPromote && character.charType !== "mule" && (
+            <Button type="button" size="sm" variant="outline" onClick={onPromote} disabled={pending}>
               Make main…
             </Button>
           )}
@@ -151,35 +156,6 @@ export function AccountCharacterRow({
         </div>
       </div>
 
-      {promoting && (
-        <div className="mt-2 flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-neutral-300">
-          <span>
-            Make <span className="font-medium text-neutral-100">{character.name}</span> this account&apos;s main? The current main
-            becomes an alt; EP and GP stay with the account.
-            {waive ? " No GP fee will be charged." : ` Charges ${MAIN_SWAP_FEE_GP} GP to ${character.name}.`}
-          </span>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={waive} onChange={(e) => setWaive(e.target.checked)} disabled={pending} />
-            Waive the {MAIN_SWAP_FEE_GP} GP fee
-          </label>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setPromoting(false);
-                setWaive(false);
-              }}
-              disabled={pending}
-              className="rounded border border-field px-2 py-0.5 font-medium text-neutral-400 hover:bg-neutral-900/60 disabled:opacity-60"
-            >
-              Cancel
-            </button>
-            <Button type="button" onClick={onPromote} disabled={pending} size="sm">
-              {pending ? "Swapping…" : waive ? "Swap (no fee)" : `Swap & charge ${MAIN_SWAP_FEE_GP} GP`}
-            </Button>
-          </div>
-        </div>
-      )}
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </li>
   );

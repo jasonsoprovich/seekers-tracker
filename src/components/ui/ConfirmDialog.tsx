@@ -11,11 +11,17 @@ export type ConfirmOptions = {
   // the default (emerald, matching the app's accent) is for a confirm that
   // isn't itself destructive (e.g. "apply this decay to N characters").
   danger?: boolean;
+  // Optional checkbox inside the dialog (e.g. "Waive the 500 GP fee").
+  // Its final state comes back through useConfirmWith(); plain
+  // useConfirm() callers ignore it.
+  checkbox?: { label: string; defaultChecked?: boolean };
 };
 
-type ConfirmState = ConfirmOptions & { resolve: (value: boolean) => void };
+export type ConfirmResult = { ok: boolean; checked: boolean };
 
-const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<boolean>) | null>(null);
+type ConfirmState = ConfirmOptions & { resolve: (value: ConfirmResult) => void; checked: boolean };
+
+const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<ConfirmResult>) | null>(null);
 
 // Drop-in async replacement for `window.confirm()` — every destructive
 // action in this app used the browser's native confirm() (LedgerTable,
@@ -30,6 +36,14 @@ const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<boolean>
 export function useConfirm() {
   const ctx = useContext(ConfirmContext);
   if (!ctx) throw new Error("useConfirm() must be used within ConfirmDialogProvider");
+  return useCallback(async (opts: ConfirmOptions) => (await ctx(opts)).ok, [ctx]);
+}
+
+// Same dialog, but resolves with the checkbox state too — for a confirm
+// that carries one decision alongside yes/no (the main-swap fee waiver).
+export function useConfirmWith() {
+  const ctx = useContext(ConfirmContext);
+  if (!ctx) throw new Error("useConfirmWith() must be used within ConfirmDialogProvider");
   return ctx;
 }
 
@@ -38,8 +52,8 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const confirm = useCallback((opts: ConfirmOptions) => {
-    return new Promise<boolean>((resolve) => {
-      setState({ ...opts, resolve });
+    return new Promise<ConfirmResult>((resolve) => {
+      setState({ ...opts, resolve, checked: opts.checkbox?.defaultChecked ?? false });
     });
   }, []);
 
@@ -53,9 +67,9 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
     else if (!state && dialog.open) dialog.close();
   }, [state]);
 
-  function settle(result: boolean) {
+  function settle(ok: boolean) {
     setState((current) => {
-      current?.resolve(result);
+      current?.resolve({ ok, checked: current.checked });
       return null;
     });
   }
@@ -83,6 +97,19 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
           <div className="w-[min(90vw,26rem)] p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-base font-semibold">{state.title ?? "Are you sure?"}</h2>
             <div className="mt-2 text-sm text-neutral-400">{state.message}</div>
+            {state.checkbox && (
+              <label className="mt-3 flex items-center gap-2 text-sm text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={state.checked}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setState((current) => (current ? { ...current, checked } : current));
+                  }}
+                />
+                {state.checkbox.label}
+              </label>
+            )}
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
