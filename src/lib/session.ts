@@ -23,7 +23,7 @@ import { perfNote, timed } from "@/lib/perf";
 // so retry a couple times before giving up. No auth cookie → genuinely not
 // logged in, no retry. Costs nothing on the normal path (first try wins).
 export const getSession = cache(async function getSession() {
-  const { env, cf } = await getCloudflareContext({ async: true });
+  const { env, cf } = await timed("cfContext", () => getCloudflareContext({ async: true }));
   const auth = createAuth(env, cf);
   const hdrs = await headers();
   const hasAuthCookie = (hdrs.get("cookie") ?? "").includes("better-auth.session");

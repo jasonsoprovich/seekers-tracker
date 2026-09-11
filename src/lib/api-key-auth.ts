@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import { createAuth } from "@/auth";
+import { timed } from "@/lib/perf";
 import * as schema from "@/db";
 import { apikeys, users } from "@/db";
 import { canManageEpgp, type Role } from "@/lib/authz";
@@ -50,7 +51,7 @@ export async function verifyOfficerApiKey(
   // officer must never be able to crash the site.
   let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
   try {
-    result = await auth.api.verifyApiKey({ body: { key, permissions: EPGP_WRITE_PERMISSION } });
+    result = await timed("verifyApiKey", () => auth.api.verifyApiKey({ body: { key, permissions: EPGP_WRITE_PERMISSION } }));
   } catch (err) {
     const message = err instanceof Error ? err.message : undefined;
     return { error: message ?? "Could not validate API key.", status: 401 };

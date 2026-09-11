@@ -389,6 +389,15 @@ function liveAuctionStub(env: CloudflareEnv) {
 // this set (the canonical host itself, *.workers.dev preview builds,
 // localhost dev) passes straight through.
 const SLOW_REQUEST_MS = 5000;
+const REQUEST_DEADLINE_MS = 25_000;
+
+function hangResponse(): Response {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="3"><title>Seekers of Souls</title></head><body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#e5e5e5;font-family:ui-sans-serif,system-ui,sans-serif"><div style="max-width:420px;padding:2rem;text-align:center"><h1 style="font-size:1.25rem;font-weight:700">The site took too long to respond</h1><p style="margin-top:.75rem;color:#a3a3a3;font-size:.9rem">Retrying automatically in a few seconds. If this keeps happening, let a leader know.</p><p style="margin-top:1.5rem"><a href="javascript:location.reload()" style="border-radius:9999px;background:#10b981;color:#000;padding:.5rem 1.25rem;font-weight:600;text-decoration:none">Reload now</a></p></div></body></html>`;
+  return new Response(html, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-cache, no-store, max-age=0, must-revalidate", "retry-after": "3" },
+  });
+}
 
 const CANONICAL_HOST = "seekersofsouls.com";
 const REDIRECT_HOSTS = new Set(["www.seekersofsouls.com", "seekers.fetchinglogic.com", "www.fetchinglogic.com"]);
@@ -471,14 +480,39 @@ export default {
     // dashboard's Workers Logs without flipping PERF_DEBUG.
     const t0 = Date.now();
     let status = 0;
+    // Request deadline (2026-09-11). Workers Logs showed page renders and
+    // officer API reads from three different members' networks held open
+    // for 40s to 100 minutes and then "canceled" — a member whose
+    // navigation fetch never returns sees a frozen tab, and Next's router
+    // has no timeout of its own. There are no Suspense/loading boundaries
+    // in this app, so handler.fetch doesn't resolve until the whole render
+    // has, which makes a deadline on it meaningful. GET/HEAD only: a
+    // timed-out write must not be retried blindly. The 503 is HTML for
+    // both document and RSC requests — Next's router hard-navigates on a
+    // non-RSC response, so a stuck client-side navigation becomes a fresh
+    // full page load; a document request gets the same page, which
+    // reloads itself. The [hang] stage/D1 lines logged in the meantime say
+    // where it was stuck.
+    const deadlineMs = request.method === "GET" || request.method === "HEAD" ? REQUEST_DEADLINE_MS : 0;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = deadlineMs
+      ? new Promise<Response>((resolve) => {
+          deadlineTimer = setTimeout(() => {
+            const rsc = request.headers.has("RSC") ? " rsc" : "";
+            console.warn(`[hang] ${request.method} ${url.pathname} no response after ${deadlineMs}ms; returning 503${rsc}`);
+            resolve(hangResponse());
+          }, deadlineMs);
+        })
+      : null;
     try {
-      const resp = await handler.fetch(request, env, ctx);
+      const resp = deadline ? await Promise.race([handler.fetch(request, env, ctx), deadline]) : await handler.fetch(request, env, ctx);
       status = resp.status;
       return resp;
     } catch (e) {
       status = -1;
       throw e;
     } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       const ms = Date.now() - t0;
       if (perfEnabled()) console.log(`[perf] request ${request.method} ${url.pathname} ${ms}ms`);
       if (ms >= SLOW_REQUEST_MS) {

@@ -32,9 +32,17 @@ export function markRequest(pathname: string): void {
   console.log(`[perf] cold-start ${Date.now() - MODULE_LOADED_AT}ms from isolate load; first path ${pathname}`);
 }
 
+// Always-on hang detector (2026-09-11), independent of PERF_DEBUG: a stage
+// still pending after STAGE_HANG_MS logs `[hang] stage <label>` WHILE it
+// is stuck — the request may never finish (Workers Logs showed renders
+// held 40s–100min then "canceled" with no log lines), so logging only on
+// completion would show nothing. See src/lib/d1-watchdog.ts for the
+// statement-level equivalent.
+const STAGE_HANG_MS = 10_000;
+
 export async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  if (!perfEnabled()) return fn();
   const t0 = Date.now();
+  const timer = setTimeout(() => console.warn(`[hang] stage ${label} still running after ${STAGE_HANG_MS}ms`), STAGE_HANG_MS);
   let threw = false;
   try {
     return await fn();
@@ -42,7 +50,10 @@ export async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> 
     threw = true;
     throw e;
   } finally {
-    console.log(`[perf] ${label} ${Date.now() - t0}ms${threw ? " (threw)" : ""}`);
+    clearTimeout(timer);
+    const ms = Date.now() - t0;
+    if (perfEnabled()) console.log(`[perf] ${label} ${ms}ms${threw ? " (threw)" : ""}`);
+    else if (ms >= STAGE_HANG_MS) console.warn(`[hang] stage ${label} finished after ${ms}ms${threw ? " (threw)" : ""}`);
   }
 }
 

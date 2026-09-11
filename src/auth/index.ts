@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "@/db";
+import { watchD1 } from "@/lib/d1-watchdog";
 import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 import { resolvePlayerForUser } from "@/lib/players";
 
@@ -50,7 +51,7 @@ async function resolvePlayerOnLogin(db: ReturnType<typeof drizzle>, userId: stri
 }
 
 function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: string) {
-  const db = env ? drizzle(env.DATABASE, { schema }) : undefined;
+  const db = env ? drizzle(watchD1(env.DATABASE), { schema }) : undefined;
 
   return betterAuth({
     baseURL,
@@ -193,7 +194,15 @@ function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: 
               // same as before this hook existed at all.
               after: async (session) => {
                 if (!db) return;
-                await verifyGuildMembershipOnLogin(db, session.userId);
+                // Never let a Discord-side failure (timeout, 5xx, rate
+                // limit) turn into a failed or hung login — this hook is
+                // awaited inside the OAuth callback. The stamp stays at
+                // last-known-good and is re-checked next login.
+                try {
+                  await verifyGuildMembershipOnLogin(db, session.userId);
+                } catch (e) {
+                  console.warn(`[auth] guild-membership check failed on login (non-fatal): ${e}`);
+                }
                 await resolvePlayerOnLogin(db, session.userId);
               },
             },

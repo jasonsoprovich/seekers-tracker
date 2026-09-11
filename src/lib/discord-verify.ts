@@ -10,6 +10,8 @@ import { players, users } from "@/db";
 // src/app/bootstrap-leader/actions.ts (for accounts created before
 // SEEKERS_DISCORD_GUILD_ID was configured, or a first-login Discord API
 // hiccup, which the once-only hook can never retry on its own).
+const DISCORD_TIMEOUT_MS = 8_000;
+
 export async function checkAndStampGuildMembership(
   db: ReturnType<typeof drizzle>,
   userId: string,
@@ -18,8 +20,12 @@ export async function checkAndStampGuildMembership(
   const guildId = process.env.SEEKERS_DISCORD_GUILD_ID;
   if (!guildId || !accessToken) return false;
 
+  // 8s cap on each Discord call (2026-09-11): this runs inside the OAuth
+  // callback, and Workers Logs showed one callback hanging 166s — a fetch
+  // with no timeout can wait on Discord indefinitely.
   const res = await fetch("https://discord.com/api/users/@me/guilds", {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
   });
   if (!res.ok) return false;
 
@@ -32,12 +38,17 @@ export async function checkAndStampGuildMembership(
   // block the membership stamp, so it just leaves discordRoleIds as-is.
   let roleIds: string[] | undefined;
   if (isMember) {
-    const memberRes = await fetch(`https://discord.com/api/users/@me/guilds/${guildId}/member`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (memberRes.ok) {
-      const member = (await memberRes.json()) as { roles: string[] };
-      roleIds = member.roles;
+    try {
+      const memberRes = await fetch(`https://discord.com/api/users/@me/guilds/${guildId}/member`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
+      });
+      if (memberRes.ok) {
+        const member = (await memberRes.json()) as { roles: string[] };
+        roleIds = member.roles;
+      }
+    } catch {
+      // timeout / network error — leave discordRoleIds as-is
     }
   }
 
