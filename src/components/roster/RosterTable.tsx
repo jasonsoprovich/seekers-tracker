@@ -264,7 +264,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                 )
               )}
             </span>
-            <Link href={`/characters/${r.id}`} className="hover:text-emerald-400">
+            <Link href={`/characters/${r.id}/account`} className="hover:text-emerald-400">
               {r.name}
             </Link>
             <CharacterStatusBadge status={r.status} />

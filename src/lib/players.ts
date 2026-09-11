@@ -2,6 +2,7 @@ import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger, mainSwapEvents, playerEpgpTotals, players, users } from "@/db";
+import { roleRank, type Role } from "@/lib/authz";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { refreshStandings } from "@/lib/epgp/standings";
 
@@ -47,7 +48,10 @@ export async function resolvePlayerForUser(
   if (!user.discordId) return null; // Non-Discord accounts don't exist in this app; defensive only.
 
   const [linked] = await db.select({ id: players.id }).from(players).where(eq(players.userId, user.id));
-  if (linked) return linked.id;
+  if (linked) {
+    await syncAccountRole(db, linked.id);
+    return linked.id;
+  }
 
   const [seeded] = await db
     .select({ id: players.id })
@@ -55,6 +59,7 @@ export async function resolvePlayerForUser(
     .where(and(eq(players.discordId, user.discordId), isNull(players.userId)));
   if (seeded) {
     await db.update(players).set({ userId: user.id, updatedAt: new Date() }).where(eq(players.id, seeded.id));
+    await syncAccountRole(db, seeded.id);
     return seeded.id;
   }
 
@@ -69,6 +74,26 @@ export async function resolvePlayerForUser(
     })
     .returning({ id: players.id });
   return created.id;
+}
+
+// Keep players.role (the account's guild role, what the roster shows) and
+// users.role (site permissions) equal for an account that has a login. On
+// first meeting — a member signing in to an account a leader already
+// marked officer, or a leader promoting a login whose account row still
+// says member — the HIGHER of the two wins, so a pre-claim assignment is
+// honoured and a live promotion is never undone. Idempotent; called on
+// every login and after every role change.
+export async function syncAccountRole(db: Db, playerId: number): Promise<void> {
+  const [row] = await db
+    .select({ playerRole: players.role, userId: players.userId, userRole: users.role })
+    .from(players)
+    .leftJoin(users, eq(users.id, players.userId))
+    .where(eq(players.id, playerId));
+  if (!row || row.userId === null || row.userRole === null) return;
+  const target: Role = roleRank(row.playerRole as Role) >= roleRank(row.userRole as Role) ? (row.playerRole as Role) : (row.userRole as Role);
+  const now = new Date();
+  if (row.playerRole !== target) await db.update(players).set({ role: target, updatedAt: now }).where(eq(players.id, playerId));
+  if (row.userRole !== target) await db.update(users).set({ role: target, updatedAt: now }).where(eq(users.id, row.userId));
 }
 
 // A character being attached to a player can already sit on a *different*

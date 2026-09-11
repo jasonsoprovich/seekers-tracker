@@ -72,6 +72,17 @@ export const players = sqliteTable("players", {
   // enough to answer "who approved this" without a full history table.
   mainCharacterChangedBy: text("main_character_changed_by").references(() => users.id),
   mainCharacterChangedAt: integer("main_character_changed_at", { mode: "timestamp" }),
+  // The ACCOUNT's guild role (2026-09-11, leader request: Koramak is an
+  // officer but has never logged in, so users.role had nowhere to live).
+  // This is what the roster/dashboard display. users.role (site
+  // permissions) mirrors it whenever the account has a login:
+  // syncAccountRole (src/lib/players.ts) keeps the two equal on login and
+  // on every role change, taking the higher of the two when they first
+  // meet — a leader's pre-claim "officer" on the account is honoured the
+  // moment that member signs in and claims.
+  role: text("role", { enum: ["member", "officer", "leader", "admin"] })
+    .notNull()
+    .default("member"),
   // Departed clears EP but never GP (PLAN.md §1e) — that asymmetry lives in
   // decay_events (kind 'departure'), not here. This status just drives
   // default-view filtering (roster/priority/bid views hide non-active by

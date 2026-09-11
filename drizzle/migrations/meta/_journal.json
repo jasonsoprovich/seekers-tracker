@@ -246,6 +246,13 @@
       "when": 1789163632591,
       "tag": "0034_character_officer_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1789166094854,
+      "tag": "0035_players_role",
+      "breakpoints": true
     }
   ]
 }

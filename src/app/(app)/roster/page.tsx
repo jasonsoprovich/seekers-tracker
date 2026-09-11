@@ -48,7 +48,7 @@ export default async function RosterPage() {
         officerTagged: characters.officerTagged,
         playerMainId: players.mainCharacterId,
         accountUsername: accountUsers.username,
-        accountRole: accountUsers.role,
+        accountRole: players.role,
         // Per-CHARACTER last activity, materialized (schema.ts) — not the
         // player-level total's lastActivityAt, which every alt inherits
         // from its main (see character-activity.ts).
@@ -78,7 +78,10 @@ export default async function RosterPage() {
     // character's own claim is the fallback for characters with no account.
     // The account's main always carries the account's role; an alt/mule
     // only when its in-game officer tag is on (characters.officer_tagged).
-    const accountRole = r.accountRole ?? r.ownerRole;
+    // players.role is the account's guild role (set by a leader even for an
+    // unclaimed account); a character with no account falls back to its own
+    // claim's login role.
+    const accountRole = r.playerId !== null ? r.accountRole : r.ownerRole;
     const isAccountMain = r.playerMainId !== null && r.playerMainId === r.id;
     const shownRole = accountRole && (isAccountMain || r.officerTagged) ? accountRole : "member";
     return {

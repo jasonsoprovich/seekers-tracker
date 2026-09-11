@@ -67,6 +67,12 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
     .update(users)
     .set({ role: role as Role, updatedAt: new Date() })
     .where(eq(users.id, userId));
+  // The account row carries the same role (players.role is what the roster
+  // and dashboard display) — keep it in step with the login's.
+  await db
+    .update(players)
+    .set({ role: role as Role, updatedAt: new Date() })
+    .where(eq(players.userId, userId));
 
   // Losing officer-tier access (dropping to "member" — leader/admin/officer
   // all still pass canManageEpgp) means any app key they hold should stop

@@ -135,7 +135,7 @@ export default async function CharactersPage() {
               <li key={c.id} className="flex items-center justify-between px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">
-                    <Link href={`/characters/${c.id}`} className="hover:text-emerald-400">
+                    <Link href={`/characters/${c.id}/account`} className="hover:text-emerald-400">
                       {c.name}
                     </Link>{" "}
                     <span className="text-sm font-normal text-neutral-500">

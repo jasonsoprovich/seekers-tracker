@@ -17,6 +17,9 @@ export type MemberRow = {
   discordVerified: boolean;
   createdAt: Date;
   playerStatus: string | null;
+  // The account's main character (players.main_character_id) — shown as
+  // the row's name, since nobody knows each other by Discord username.
+  mainCharacterName: string | null;
 };
 
 export type UnclaimedCharacter = { id: number; name: string; charType: "main" | "alt" | "mule" };
@@ -109,7 +112,7 @@ export function MembersRolesList({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return members;
-    return members.filter((m) => (m.username ?? "").toLowerCase().includes(q));
+    return members.filter((m) => (m.username ?? "").toLowerCase().includes(q) || (m.mainCharacterName ?? "").toLowerCase().includes(q));
   }, [members, search]);
 
   return (
@@ -118,7 +121,7 @@ export function MembersRolesList({
         <span className="text-neutral-400">Search</span>
         <input
           type="text"
-          placeholder="Username…"
+          placeholder="Character or Discord name…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className={fieldClasses({ size: "sm" })}
@@ -132,10 +135,16 @@ export function MembersRolesList({
           {filtered.map((m) => (
             <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
-                <p className="font-medium">{m.username ?? "(no username)"}</p>
+                <p className="font-medium">
+                  {m.mainCharacterName ?? m.username ?? "(no username)"}
+                  {m.mainCharacterName === null && (
+                    <span className="ml-2 rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-amber-400">
+                      No character account claimed
+                    </span>
+                  )}
+                </p>
                 <p className="text-sm text-neutral-500">
-                  {m.discordVerified ? "Discord verified" : "Not Discord-verified"} · joined{" "}
-                  {guildDate(m.createdAt)}
+                  Discord: {m.username ?? "(no username)"} · {m.discordVerified ? "verified" : "not verified"} · joined {guildDate(m.createdAt)}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">

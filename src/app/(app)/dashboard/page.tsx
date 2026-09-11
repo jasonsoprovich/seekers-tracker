@@ -93,12 +93,14 @@ export default async function DashboardPage() {
   // Keyed by the ACCOUNT's main (players.user_id -> players.main_character_id),
   // not by a character's own claim link — same fix as the roster's role
   // column (2026-09-11).
+  // players.role, not users.role: an officer who has never logged in
+  // (Koramak, 2026-09-11) still holds the role on the account.
   const roleHolders = await db
-    .select({ username: users.username, role: users.role, mainCharacterName: characters.name })
-    .from(users)
-    .innerJoin(players, eq(players.userId, users.id))
+    .select({ username: users.username, role: players.role, mainCharacterName: characters.name })
+    .from(players)
+    .leftJoin(users, eq(users.id, players.userId))
     .innerJoin(characters, eq(characters.id, players.mainCharacterId))
-    .where(inArray(users.role, [...LEADERSHIP_ROLES, "officer"]));
+    .where(inArray(players.role, [...LEADERSHIP_ROLES, "officer"]));
   const leadership = roleHolders.filter((r) => r.role === "leader");
   const officers = roleHolders.filter((r) => r.role === "officer" || r.role === "admin");
 

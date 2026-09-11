@@ -7,6 +7,7 @@ import { users } from "@/db";
 import { getDb } from "./db";
 
 export type Role = "member" | "officer" | "leader" | "admin";
+export const ROLES: Role[] = ["member", "officer", "leader", "admin"];
 
 // Admin "view as" preview (see admin/view-as-actions.ts). An admin can
 // preview the site as a lower role to verify nav/UI/permissions without a
@@ -110,4 +111,11 @@ export async function hasAnyLeader(): Promise<boolean> {
   const db = await getDb();
   const [row] = await db.select({ id: users.id }).from(users).where(inArray(users.role, LEADERSHIP_ROLES));
   return row !== undefined;
+}
+
+// Ordering for "which of two roles is higher" (syncAccountRole,
+// RosterTable's Role sort). Mirrors RoleBadge's roleRank.
+const ROLE_RANK: Record<Role, number> = { member: 0, officer: 1, leader: 2, admin: 3 };
+export function roleRank(role: Role | null | undefined): number {
+  return role ? (ROLE_RANK[role] ?? 0) : 0;
 }

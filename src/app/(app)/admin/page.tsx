@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -65,6 +66,9 @@ export default async function AdminPage() {
   const unresolvedClassCount = roster.filter((c) => c.class === UNKNOWN_CLASS_ID).length;
 
   const canEditRoles = canManageRoles(role);
+  // The account's main character — the name members actually know. Discord
+  // usernames only matter when verifying a claim (leader, 2026-09-11).
+  const mainCharacters = alias(characters, "main_characters");
   const members = await db
     .select({
       id: users.id,
@@ -75,9 +79,11 @@ export default async function AdminPage() {
       // 'departed' == removed from the guild by a leader — see
       // RemoveMemberButton / removeMemberFromGuild.
       playerStatus: players.status,
+      mainCharacterName: mainCharacters.name,
     })
     .from(users)
     .leftJoin(players, eq(players.userId, users.id))
+    .leftJoin(mainCharacters, eq(mainCharacters.id, players.mainCharacterId))
     .orderBy(users.username);
 
   // discordVerified filters out shell accounts left by a denied sign-in
@@ -88,8 +94,9 @@ export default async function AdminPage() {
   const ownerIds = new Set(roster.map((c) => c.ownerId).filter((id): id is string => id !== null));
   // The people who need an officer's attention first: signed in, in the
   // Discord, but no character on their account yet.
-  const needsSetup = verified.filter((m) => !ownerIds.has(m.id));
-  const established = verified.filter((m) => ownerIds.has(m.id));
+  const hasCharacters = (m: (typeof verified)[number]) => ownerIds.has(m.id) || m.mainCharacterName !== null;
+  const needsSetup = verified.filter((m) => !hasCharacters(m));
+  const established = verified.filter(hasCharacters);
 
   // Unclaimed roster characters an officer can attach to an account here.
   const unclaimedCharacters = roster

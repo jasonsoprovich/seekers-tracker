@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { AccountCharacterRow, type AccountCharacter } from "@/components/account/AccountCharacterRow";
 import { LinkToAccountPanel, type LinkCandidate } from "@/components/account/LinkToAccountPanel";
 import { PlayerGuildStatusButtons } from "@/components/account/PlayerGuildStatusButtons";
+import { PlayerRoleSelect } from "@/components/account/PlayerRoleSelect";
 import { ReconcileMainNotice } from "@/components/account/ReconcileMainNotice";
 import { ReverseMainSwapButton } from "@/components/admin/ReverseMainSwapButton";
 import { CharacterHeader } from "@/components/character/CharacterHeader";
@@ -86,7 +87,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
       status: players.status,
       departedAt: players.departedAt,
       accountUsername: users.username,
-      accountRole: users.role,
+      accountRole: players.role,
     })
     .from(players)
     .leftJoin(users, eq(players.userId, users.id))
@@ -188,13 +189,11 @@ export default async function CharacterAccountPage({ params }: { params: Promise
             <p className="text-xs tracking-wider text-neutral-500 uppercase">Account</p>
             <p className="mt-1 text-lg font-semibold text-neutral-100">{accountName}</p>
             <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-neutral-400">
-              {player.accountUsername ? (
-                <>
-                  Managed by {player.accountUsername}
-                  {player.accountRole && <RoleBadge role={player.accountRole as Role} />}
-                </>
+              {player.accountUsername ? <>Managed by {player.accountUsername}</> : <>Unclaimed — managed by officers until a member claims it</>}
+              {isLeader ? (
+                <PlayerRoleSelect playerId={player.id} role={player.accountRole as Role} isSelf={isAccountOwner} />
               ) : (
-                <>Unclaimed — managed by officers until a member claims it</>
+                <RoleBadge role={player.accountRole as Role} />
               )}
               {player.status !== "active" && (
                 <span

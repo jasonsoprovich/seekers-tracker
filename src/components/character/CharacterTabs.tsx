@@ -8,9 +8,9 @@ import Link from "next/link";
 // same account (main, alts, mules) with link/unlink, alt/mule typing, the
 // leader-only main swap, and guild removal in one place.
 const TABS = [
-  { key: "edit", label: "Edit", path: "/edit" },
   { key: "account", label: "Account", path: "/account" },
-  { key: "pop", label: "PoP Checklist", path: "" },
+  { key: "edit", label: "Edit", path: "/edit" },
+  { key: "pop", label: "PoP Checklist", path: "/pop" },
 ] as const;
 
 export type CharacterTabKey = (typeof TABS)[number]["key"] | "gear" | "stats";

@@ -3,9 +3,10 @@
 import { and, eq, ne } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
+import { setUserRole } from "@/app/(app)/admin/actions";
 import { claimAlt } from "@/app/(app)/characters/actions";
 import { characters, players } from "@/db";
-import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole } from "@/lib/authz";
+import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole, ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { refreshStandings } from "@/lib/epgp/standings";
 import { attachCharacterToPlayer, createStandalonePlayer } from "@/lib/players";
@@ -202,5 +203,29 @@ export async function setCharacterOfficerTag(characterId: number, tagged: boolea
   const [character] = await db.select({ id: characters.id }).from(characters).where(eq(characters.id, characterId));
   if (!character) return { error: "Character not found." };
   await db.update(characters).set({ officerTagged: tagged, updatedAt: new Date() }).where(eq(characters.id, characterId));
+  return {};
+}
+
+// The account's guild role — settable even when nobody has claimed the
+// account yet (2026-09-11: Koramak is an officer who has never logged in).
+// With a login attached this is exactly setUserRole (its last-leader guard
+// and API-key revocation included; it mirrors to players.role). Without
+// one it's just the account row; syncAccountRole applies it to the login
+// the day the member signs in and claims.
+export async function setPlayerRole(playerId: number, role: string): Promise<AccountActionResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const acting = await getUserRole(session.user.id);
+  if (!canManageRoles(acting)) return { error: "Only leaders and admins can change an account's role." };
+  if (!ROLES.includes(role as Role)) return { error: "Invalid role." };
+
+  const db = await getDb();
+  const [player] = await db.select({ id: players.id, userId: players.userId }).from(players).where(eq(players.id, playerId));
+  if (!player) return { error: "Account not found." };
+  if (player.userId !== null) {
+    const result = await setUserRole(player.userId, role);
+    return result.error ? { error: result.error } : {};
+  }
+  await db.update(players).set({ role: role as Role, updatedAt: new Date() }).where(eq(players.id, playerId));
   return {};
 }
