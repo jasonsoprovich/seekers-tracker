@@ -165,61 +165,81 @@ export async function assignCharacterToMember(userId: string, characterId: numbe
 export async function removeMemberFromGuild(userId: string): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
+  const db = await getDb();
+  const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
+  // A user who has never logged in since Phase 10 may have no players row
+  // yet — every active member has (Phase 10 shipped 2026-08-24), so treat
+  // it as "nothing to remove" rather than inventing a row.
+  if (!player) return { error: "This member has no player account yet — nothing to remove." };
+  return removePlayerCore(db, session.user.id, player.id);
+}
 
-  const actingRole = await getUserRole(session.user.id);
+// Same removal, keyed by players.id (2026-09-10) — so a player who exists
+// only from the roster import and never claimed a site account can be
+// removed from /characters/[id]/account too. The role drop + key
+// revocation only apply when the player has a linked site user.
+export async function removePlayerFromGuild(playerId: number): Promise<MemberGuildStatusResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const db = await getDb();
+  return removePlayerCore(db, session.user.id, playerId);
+}
+
+async function removePlayerCore(
+  db: Awaited<ReturnType<typeof getDb>>,
+  actingUserId: string,
+  playerId: number,
+): Promise<MemberGuildStatusResult> {
+  const actingRole = await getUserRole(actingUserId);
   if (!canManageRoles(actingRole)) {
     return { error: "Only leaders can remove a member from the guild." };
   }
-  if (userId === session.user.id) {
+  const [player] = await db
+    .select({ id: players.id, userId: players.userId, status: players.status })
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!player) return { error: "Player not found." };
+  if (player.status === "departed") return { error: "This player has already been removed." };
+  if (player.userId === actingUserId) {
     return { error: "You can't remove yourself — sign out instead." };
   }
 
-  const db = await getDb();
-  const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-  if (!target) return { error: "Member not found." };
-
-  // Same last-leader guard as setUserRole: removing a leader strips their
-  // role, so the guild must not be left with zero leaders.
-  if (target.role === "leader") {
-    const leaders = await db.select({ id: users.id }).from(users).where(eq(users.role, "leader"));
-    if (leaders.length <= 1) {
-      return { error: "Can't remove the only leader — promote someone else first." };
-    }
-  }
-
   const now = new Date();
-  await db.update(users).set({ role: "member", updatedAt: now }).where(eq(users.id, userId));
-
-  // Same as setUserRole's demotion path — removal always drops role to
-  // "member", so any app key they held must stop existing too (leader,
-  // 2026-09-05). A no-op if they never had a key.
-  await revokeApiKeysForUser(db, userId);
+  if (player.userId !== null) {
+    const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, player.userId));
+    // Same last-leader guard as setUserRole: removing a leader strips their
+    // role, so the guild must not be left with zero leaders/admins.
+    if (target && LEADERSHIP_ROLES.includes(target.role as Role)) {
+      const leaders = await db.select({ id: users.id }).from(users).where(inArray(users.role, LEADERSHIP_ROLES));
+      if (leaders.length <= 1) {
+        return { error: "Can't remove the only leader/admin — promote someone else first." };
+      }
+    }
+    await db.update(users).set({ role: "member", updatedAt: now }).where(eq(users.id, player.userId));
+    // Same as setUserRole's demotion path — removal always drops role to
+    // "member", so any app key they held must stop existing too (leader,
+    // 2026-09-05). A no-op if they never had a key.
+    await revokeApiKeysForUser(db, player.userId);
+  }
 
   // Zero their EP. `commitDepartureWipe` skips characters already at 0 EP
   // and returns an error only when nothing matched — that's not a failure
   // here, just "no EP to wipe", so removalDecayEventId stays null.
-  const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
   let removalDecayEventId: number | null = null;
-  if (player) {
-    const chars = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, player.id));
-    if (chars.length > 0) {
-      const outcome = await commitDepartureWipe(db, {
-        characterIds: chars.map((c) => c.id),
-        label: "Removed from guild",
-        appliedBy: session.user.id,
-      });
-      if (!("error" in outcome)) removalDecayEventId = outcome.decayEventId;
-    }
+  const chars = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, player.id));
+  if (chars.length > 0) {
+    const outcome = await commitDepartureWipe(db, {
+      characterIds: chars.map((c) => c.id),
+      label: "Removed from guild",
+      appliedBy: actingUserId,
+    });
+    if (!("error" in outcome)) removalDecayEventId = outcome.decayEventId;
   }
 
-  // A user who has never logged in since Phase 10 may have no players row
-  // yet; this updates 0 rows in that case and their next login creates the
-  // row as `active`. Acceptable — every active member has logged in since
-  // Phase 10 shipped (2026-08-24).
   await db
     .update(players)
-    .set({ status: "departed", departedAt: now, removalDecayEventId, statusChangedBy: session.user.id, statusChangedAt: now, updatedAt: now })
-    .where(eq(players.userId, userId));
+    .set({ status: "departed", departedAt: now, removalDecayEventId, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
+    .where(eq(players.id, player.id));
 
   return {};
 }
@@ -230,22 +250,38 @@ export async function removeMemberFromGuild(userId: string): Promise<MemberGuild
 export async function reinstateMember(userId: string): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
+  const db = await getDb();
+  const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
+  if (!player) return { error: "This member has no player account." };
+  return reinstatePlayerCore(db, session.user.id, player.id);
+}
 
-  const actingRole = await getUserRole(session.user.id);
+export async function reinstatePlayer(playerId: number): Promise<MemberGuildStatusResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const db = await getDb();
+  return reinstatePlayerCore(db, session.user.id, playerId);
+}
+
+async function reinstatePlayerCore(
+  db: Awaited<ReturnType<typeof getDb>>,
+  actingUserId: string,
+  playerId: number,
+): Promise<MemberGuildStatusResult> {
+  const actingRole = await getUserRole(actingUserId);
   if (!canManageRoles(actingRole)) {
     return { error: "Only leaders can reinstate a member." };
   }
 
-  const db = await getDb();
   const now = new Date();
-
   const [player] = await db
     .select({ id: players.id, removalDecayEventId: players.removalDecayEventId })
     .from(players)
-    .where(eq(players.userId, userId));
+    .where(eq(players.id, playerId));
+  if (!player) return { error: "Player not found." };
 
-  if (player?.removalDecayEventId != null) {
-    const outcome = await reverseDecayEvent(db, player.removalDecayEventId, session.user.id);
+  if (player.removalDecayEventId != null) {
+    const outcome = await reverseDecayEvent(db, player.removalDecayEventId, actingUserId);
     if ("error" in outcome && !/already reversed|not found/i.test(outcome.error)) {
       return { error: `Couldn't restore EP: ${outcome.error}` };
     }
@@ -253,8 +289,8 @@ export async function reinstateMember(userId: string): Promise<MemberGuildStatus
 
   await db
     .update(players)
-    .set({ status: "active", departedAt: null, removalDecayEventId: null, statusChangedBy: session.user.id, statusChangedAt: now, updatedAt: now })
-    .where(eq(players.userId, userId));
+    .set({ status: "active", departedAt: null, removalDecayEventId: null, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
+    .where(eq(players.id, player.id));
 
   return {};
 }

@@ -348,15 +348,32 @@ root causes found by measurement, all fixed:
   `bids` snapshot, and the parser sends snapshots (see parser CLAUDE.md).
 - Also: ledger "Recorded by" = officer's main character; live board
   "Clear N resolved" (`/api/live-bids/dismiss {all:true}`).
+- **Character account page — `/characters/[id]/account`** (same day, the
+  "Account" tab on every character): the whole player group (main first,
+  then alts, then mules), live EP/GP/priority off `getStandings`, who
+  manages it (owner + role, or "Unclaimed — managed by officers"), and
+  the actions in one place — alt<->mule re-type (owner or officer+,
+  `setCharacterType`), link an unclaimed/standalone character (officer+,
+  or the owner via `claimAlt`; `linkCharacterToAccount`), unlink to a
+  fresh standalone (officer+, `detachCharacterFromAccount` — EP/GP stays
+  with the account), "Make main" with the 500 GP fee / waive (leader/
+  admin, reuses `setPlayerMainCharacter`), main-swap history with reverse,
+  and a Guild membership danger zone. Removal/reinstate are now keyed by
+  `players.id` (`removePlayerFromGuild` / `reinstatePlayer` in
+  admin/actions.ts; the user-keyed pair delegates to the same core) so an
+  account that never claimed a site login can be removed too.
+  `tsc` + OpenNext build clean; **not browser-verified**.
 - **Still open (planned, not built):** cold isolate starts of 1-1.7s on
   the 13.6 MB bundle (the "freeze" on the first click after idle — the
-  3-min cron warms one colo only); a player-level "character account"
-  page (main/alt/mule management in one place — the swap/fee/waive/
-  reverse logic already exists in `players.ts`, it's just spread across
-  /admin and /characters); Discord-departure detection (needs a bot-token
-  guild member sweep — nothing re-checks membership between logins);
-  `removeMemberFromGuild` is keyed by site user, so an unclaimed player
-  can't be removed. See the "Seekers Stability Review" artifact.
+  3-min cron warms one colo only); Discord-departure detection (needs a
+  bot-token guild member sweep — nothing re-checks membership between
+  logins). See the "Seekers Stability Review" artifact.
+- **Plan headroom (Cloudflare analytics, 7 days to 2026-09-10):** 44.6k
+  Worker requests, 1.3M CPU-ms, 2.4k DO requests; D1 ~2.4M rows read /
+  4.5k written per day. Against the $5 plan's monthly allowances that's
+  ~2% of requests, ~19% of CPU, ~1% of DO requests, <1% of D1 reads and
+  writes. The DO storage writes added by round persistence are a few
+  hundred per raid against 50M/month.
 
 
 **LT-33 sim follow-ups, 2026-09-09 (tracker Worker `83f9e5f2`, deployed;

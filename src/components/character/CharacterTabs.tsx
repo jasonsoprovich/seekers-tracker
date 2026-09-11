@@ -4,8 +4,12 @@ import Link from "next/link";
 // still reachable by URL but are off the tab bar for now — the guild isn't
 // using the Quarmy gear/stat sheets. Edit was a top-right link; it's a tab
 // now, first, so the detail page reads Edit -> PoP Checklist.
+// Account (2026-09-10): the player-level view — every character on the
+// same account (main, alts, mules) with link/unlink, alt/mule typing, the
+// leader-only main swap, and guild removal in one place.
 const TABS = [
   { key: "edit", label: "Edit", path: "/edit" },
+  { key: "account", label: "Account", path: "/account" },
   { key: "pop", label: "PoP Checklist", path: "" },
 ] as const;
 
