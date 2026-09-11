@@ -387,6 +387,8 @@ function liveAuctionStub(env: CloudflareEnv) {
 // its cookies, and the Discord OAuth callback ever run on. Anything not in
 // this set (the canonical host itself, *.workers.dev preview builds,
 // localhost dev) passes straight through.
+const SLOW_REQUEST_MS = 5000;
+
 const CANONICAL_HOST = "seekersofsouls.com";
 const REDIRECT_HOSTS = new Set(["www.seekersofsouls.com", "seekers.fetchinglogic.com", "www.fetchinglogic.com"]);
 
@@ -460,11 +462,29 @@ export default {
     const officer = url.pathname.match(/^\/api\/officer\/live-bids\/(push|heartbeat|clear|resolve)$/);
     if (officer && request.method === "POST") return handleOfficerLiveBids(request, env, officer[1]);
 
-    const t0 = perfEnabled() ? Date.now() : 0;
+    // Always-on slow-request log (2026-09-10): a leader reported the site
+    // "freezing" for 60s+ on a page load. Analytics can't tell a hung page
+    // render from a long-lived WebSocket, so any non-WS request over
+    // SLOW_REQUEST_MS is logged with its path, status and whether the
+    // request carried a session cookie — visible in `wrangler tail` and the
+    // dashboard's Workers Logs without flipping PERF_DEBUG.
+    const t0 = Date.now();
+    let status = 0;
     try {
-      return await handler.fetch(request, env, ctx);
+      const resp = await handler.fetch(request, env, ctx);
+      status = resp.status;
+      return resp;
+    } catch (e) {
+      status = -1;
+      throw e;
     } finally {
-      if (perfEnabled()) console.log(`[perf] request ${request.method} ${url.pathname} ${Date.now() - t0}ms`);
+      const ms = Date.now() - t0;
+      if (perfEnabled()) console.log(`[perf] request ${request.method} ${url.pathname} ${ms}ms`);
+      if (ms >= SLOW_REQUEST_MS) {
+        const hasCookie = (request.headers.get("cookie") ?? "").includes("better-auth.session");
+        const rsc = request.headers.has("RSC") ? " rsc" : "";
+        console.warn(`[slow] ${request.method} ${url.pathname} ${ms}ms status=${status} session=${hasCookie ? "yes" : "no"}${rsc}`);
+      }
     }
   },
 

@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { AccountCharacterRow, type AccountCharacter } from "@/components/account/AccountCharacterRow";
 import { LinkToAccountPanel, type LinkCandidate } from "@/components/account/LinkToAccountPanel";
 import { PlayerGuildStatusButtons } from "@/components/account/PlayerGuildStatusButtons";
+import { ReconcileMainNotice } from "@/components/account/ReconcileMainNotice";
 import { ReverseMainSwapButton } from "@/components/admin/ReverseMainSwapButton";
 import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { Card } from "@/components/ui/Card";
@@ -154,8 +155,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
         and(
           isNull(characters.ownerId),
           ne(characters.status, "removed"),
-          or(isNull(characters.playerId), and(isNull(players.userId), isNull(players.discordId))),
-          ne(characters.playerId, player.id),
+          or(isNull(characters.playerId), and(isNull(players.userId), isNull(players.discordId), ne(characters.playerId, player.id))),
         ),
       )
       .orderBy(characters.name);
@@ -165,6 +165,13 @@ export default async function CharacterAccountPage({ params }: { params: Promise
   }
 
   const latestSwap = swaps.find((e) => !e.reversedAt) ?? null;
+
+  // The character rows' idea of the main vs the player pointer's. When they
+  // disagree the Roster (character rows) and this page (player pointer)
+  // show different mains — surface it instead of silently picking one.
+  const typedMains = members.filter((m) => m.charType === "main");
+  const pointerIsTypedMain = player.mainCharacterId !== null && typedMains.some((m) => m.id === player.mainCharacterId);
+  const mainMismatch = typedMains.length > 0 && (!pointerIsTypedMain || typedMains.length > 1);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -209,6 +216,15 @@ export default async function CharacterAccountPage({ params }: { params: Promise
           swap never moves history.
         </p>
       </Card>
+
+      {mainMismatch && (
+        <ReconcileMainNotice
+          playerId={player.id}
+          pointerMainName={mainName}
+          typedMains={typedMains.map((m) => ({ id: m.id, name: m.name }))}
+          canFix={isLeader}
+        />
+      )}
 
       <section className="mt-6">
         <h2 className="text-sm font-medium tracking-wider text-neutral-500 uppercase">

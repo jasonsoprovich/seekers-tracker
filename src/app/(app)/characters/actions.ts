@@ -170,24 +170,43 @@ export async function updateCharacter(
         return { error: "You can only link an alt to a main character you own." };
       }
     }
+  }
 
-    // post-live-test-1 LT-30: a member cannot change WHICH of their
-    // characters is the main. Linking alts is fine (above); demoting the
-    // current main, or promoting anything to main when one already exists,
-    // is a leader/admin-only main swap (with its GP fee) — not an edit-form
-    // field. `existing` is the full pre-edit row.
-    const [player] =
-      existing.playerId !== null
-        ? await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, existing.playerId))
-        : [undefined];
-    const playerMainId = player?.mainCharacterId ?? null;
+  // Which character is an account's MAIN lives in players.main_character_id
+  // (the roster, the parser and priority all group by it); characters.
+  // char_type is the display copy. This form used to let an officer flip
+  // char_type freely, which is how an account ended up with a "main"-typed
+  // character that wasn't the player's main (Tunedup/Nixzard, 2026-09-10):
+  // the Roster said one thing, the Account tab another. Now the Type field
+  // can't create that split — for anyone:
+  //  - demoting the account's current main → refused (it's a swap)
+  //  - promoting to main while the account already has a different main →
+  //    refused (it's a swap, with its fee — the Account tab's "Make main")
+  //  - promoting to main on an account with NO main yet → allowed, and the
+  //    player pointer is set to match
+  const [player] =
+    existing.playerId !== null
+      ? await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, existing.playerId))
+      : [undefined];
+  const playerMainId = player?.mainCharacterId ?? null;
+  let setPlayerMain = false;
 
-    if (existing.id === playerMainId && parsed.data.charType !== "main") {
-      return { error: "Only an officer or leader can change which character is your main — ask a leader to swap it." };
+  if (existing.id === playerMainId && parsed.data.charType !== "main") {
+    return {
+      error: canManageAnyCharacter(role)
+        ? "This is the account's main — use “Make main” on the Account tab to swap it to another character first."
+        : "Only an officer or leader can change which character is your main — ask a leader to swap it.",
+    };
+  }
+  if (parsed.data.charType === "main" && existing.id !== playerMainId) {
+    if (playerMainId !== null) {
+      return {
+        error: canManageAnyCharacter(role)
+          ? "This account already has a main — use “Make main” on the Account tab to swap (500 GP, waivable)."
+          : "Only an officer or leader can promote a character to main.",
+      };
     }
-    if (parsed.data.charType === "main" && existing.charType !== "main" && playerMainId !== null) {
-      return { error: "Only an officer or leader can promote a character to main." };
-    }
+    if (existing.playerId !== null) setPlayerMain = true;
   }
 
   const status = String(formData.get("status") ?? "");
@@ -198,6 +217,12 @@ export async function updateCharacter(
       .update(characters)
       .set({ ...parsed.data, status, updatedAt: new Date() })
       .where(eq(characters.id, characterId));
+    if (setPlayerMain && existing.playerId !== null) {
+      await db
+        .update(players)
+        .set({ mainCharacterId: existing.id, mainCharacterChangedBy: session.user.id, mainCharacterChangedAt: new Date(), updatedAt: new Date() })
+        .where(eq(players.id, existing.playerId));
+    }
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       return { error: "A character with that name already exists. If it's yours, claim it from /characters/claim instead." };

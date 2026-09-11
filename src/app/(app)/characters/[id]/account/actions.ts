@@ -1,11 +1,11 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { claimAlt } from "@/app/(app)/characters/actions";
 import { characters, players } from "@/db";
-import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
+import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { refreshStandings } from "@/lib/epgp/standings";
 import { attachCharacterToPlayer, createStandalonePlayer } from "@/lib/players";
@@ -152,5 +152,38 @@ export async function detachCharacterFromAccount(characterId: number): Promise<A
     .update(characters)
     .set({ charType: "main", mainCharacterId: null, ownerId: null, updatedAt: new Date() })
     .where(eq(characters.id, characterId));
+  return {};
+}
+
+// Records disagree (2026-09-10, Tunedup/Nixzard): players.main_character_id
+// points at one character while a different one is typed "main". The
+// Roster groups by the character rows, the Account tab by the player
+// pointer, so the two pages showed different mains. Leader/admin resolves it
+// by picking which is right; this sets the pointer and re-types the rest
+// as alts of it. No fee, no swap event — it's a data repair, not a swap.
+export async function reconcilePlayerMain(playerId: number, characterId: number): Promise<AccountActionResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const role = await getUserRole(session.user.id);
+  if (!canManageRoles(role)) return { error: "Only leaders and admins can repair an account's main." };
+
+  const db = await getDb();
+  const [target] = await db
+    .select({ id: characters.id, playerId: characters.playerId, charType: characters.charType })
+    .from(characters)
+    .where(eq(characters.id, characterId));
+  if (!target || target.playerId !== playerId) return { error: "That character isn't on this account." };
+  if (target.charType === "mule") return { error: "A mule can't be an account's main." };
+
+  const now = new Date();
+  await db
+    .update(characters)
+    .set({ charType: "alt", mainCharacterId: characterId, updatedAt: now })
+    .where(and(eq(characters.playerId, playerId), ne(characters.id, characterId), ne(characters.charType, "mule")));
+  await db.update(characters).set({ charType: "main", mainCharacterId: null, updatedAt: now }).where(eq(characters.id, characterId));
+  await db
+    .update(players)
+    .set({ mainCharacterId: characterId, mainCharacterChangedBy: session.user.id, mainCharacterChangedAt: now, updatedAt: now })
+    .where(eq(players.id, playerId));
   return {};
 }
