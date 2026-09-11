@@ -162,6 +162,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
         tier: bids.tier,
         note: bids.note,
         winnerCharacterId: bids.characterId,
+        winnerPlayerId: characters.playerId,
       })
       .from(lootEvents)
       .leftJoin(bids, eq(bids.id, lootEvents.winningBidId))
@@ -181,7 +182,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       .leftJoin(characters, eq(characters.id, bids.characterId))
       .where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
     db
-      .select({ itemName: gpLedger.itemName, characterId: gpLedger.characterId, points: gpLedger.points })
+      .select({ itemName: gpLedger.itemName, characterId: gpLedger.characterId, playerId: gpLedger.playerId, points: gpLedger.points })
       .from(gpLedger)
       .where(and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end))),
     db.select().from(raids).where(eq(raids.raidDate, raidDate)),
@@ -208,12 +209,31 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
   for (const c of captures) c.members.sort((a, b) => a.name.localeCompare(b.name));
 
   // GP charge per (item, winner) — first match wins if an item dropped twice.
-  const gpByKey = new Map<string, number>();
+  // Keyed by the winner's ACCOUNT (player_id), not character: insertLedgerEntry
+  // charges an alt's win to the account's main character, so matching on
+  // bids.character_id left every alt winner's GP showing "—" (leader,
+  // 2026-09-11: Korrek's and Blesko's wins on the 09-09 raid). Character id
+  // is the fallback for rows written before player_id existed.
+  const gpByPlayer = new Map<string, number>();
+  const gpByCharacter = new Map<string, number>();
   for (const g of gpRows) {
-    if (!g.itemName || g.characterId == null) continue;
-    const k = `${g.itemName.toLowerCase()}@${g.characterId}`;
-    if (!gpByKey.has(k)) gpByKey.set(k, g.points);
+    if (!g.itemName) continue;
+    const item = g.itemName.toLowerCase();
+    if (g.playerId != null && !gpByPlayer.has(`${item}@${g.playerId}`)) gpByPlayer.set(`${item}@${g.playerId}`, g.points);
+    if (g.characterId != null && !gpByCharacter.has(`${item}@${g.characterId}`)) gpByCharacter.set(`${item}@${g.characterId}`, g.points);
   }
+  const gpFor = (itemName: string, playerId: number | null, characterId: number | null): number | null => {
+    const item = itemName.toLowerCase();
+    if (playerId != null) {
+      const byPlayer = gpByPlayer.get(`${item}@${playerId}`);
+      if (byPlayer !== undefined) return byPlayer;
+    }
+    if (characterId != null) {
+      const byCharacter = gpByCharacter.get(`${item}@${characterId}`);
+      if (byCharacter !== undefined) return byCharacter;
+    }
+    return null;
+  };
   const bidsByLootEvent = new Map<number, RaidLootBid[]>();
   for (const b of allBidRows) {
     const list = bidsByLootEvent.get(b.lootEventId) ?? [];
@@ -234,7 +254,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       winnerName: r.winnerName,
       tier: r.tier,
       note: r.note,
-      gp: r.winnerCharacterId != null ? (gpByKey.get(`${r.itemName.toLowerCase()}@${r.winnerCharacterId}`) ?? null) : null,
+      gp: gpFor(r.itemName, r.winnerPlayerId ?? null, r.winnerCharacterId ?? null),
       bids: bidsByLootEvent.get(r.id) ?? [],
     }))
     .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
