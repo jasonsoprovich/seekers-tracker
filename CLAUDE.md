@@ -327,8 +327,9 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Stability review, 2026-09-10 (commits `21892b4`, `24cd1aa`; parser
-`eb70376` — NOT yet deployed/released; deploy the tracker first, then cut
-the parser release, the two are backward compatible either way).** Three
+`eb70376`). Deployed same day: tracker Worker version `1d15c90f` (build
+`2a5c977`, D1 bookmark "pre-stability-review 2026-09-10" taken first);
+parser `v0.1.13` released via the tag workflow, officers auto-update.** Three
 root causes found by measurement, all fixed:
 - **20-45s attendance/bids submits** — ~7 *sequential* D1 round trips per
   name (each ~15-20ms measured in prod) plus one standings upsert per
