@@ -30,8 +30,24 @@ if [[ -z "${SEEKERS_LEADER_API_KEY:-}" ]]; then
   exit 1
 fi
 
-echo "==> Applying $FILE to remote D1 ($DB)"
-npx wrangler d1 execute "$DB" --remote --file "$FILE"
+# `wrangler d1 execute --file` goes through D1's upload+import path, which
+# takes the database offline for the whole import (~15s even for a 5-row
+# file) — every site request that touches D1 (getSession included) stalls
+# and the [hang] watchdog fires (seen 2026-09-12 00:20Z and 00:42Z, both
+# exactly while a correction file was importing). For a small file, send
+# the SQL through the ordinary query API with --command instead: same
+# statements, no import lock. Big weekly syncs (hundreds of KB) still need
+# --file (the query API caps statement size) — run those when nobody is
+# raiding.
+FILE_BYTES=$(wc -c < "$FILE" | tr -d ' ')
+if [[ "$FILE_BYTES" -le 60000 ]]; then
+  echo "==> Applying $FILE ($FILE_BYTES bytes) to remote D1 ($DB) via --command (no import lock)"
+  npx wrangler d1 execute "$DB" --remote --command "$(cat "$FILE")"
+else
+  echo "==> Applying $FILE ($FILE_BYTES bytes) to remote D1 ($DB) via --file"
+  echo "    NOTE: a file import takes D1 offline for its duration — the site hangs until it finishes. Don't run this mid-raid."
+  npx wrangler d1 execute "$DB" --remote --file "$FILE"
+fi
 
 echo "==> Rebuilding standings on production"
 curl -fsS -X POST "$REBUILD_URL" -H "x-api-key: $SEEKERS_LEADER_API_KEY"
