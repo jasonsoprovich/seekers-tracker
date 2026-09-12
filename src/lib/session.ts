@@ -28,6 +28,13 @@ export const getSession = cache(async function getSession() {
   const hdrs = await headers();
   const hasAuthCookie = (hdrs.get("cookie") ?? "").includes("better-auth.session");
 
+  // Split out as its own stage (2026-09-12): every `auth.api.*` call first
+  // awaits the instance's shared init promise (better-auth `$context`).
+  // Workers Logs on 09-11/09-12 showed getSession hanging for minutes with
+  // NO D1 statement pending — so the stuck await is upstream of the DB,
+  // and this names whether it's the init promise or the endpoint itself.
+  await timed("authContext", () => auth.$context.then(() => undefined));
+
   return timed("getSession", async () => {
     const maxAttempts = hasAuthCookie ? 3 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {

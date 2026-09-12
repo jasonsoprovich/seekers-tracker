@@ -399,6 +399,47 @@ function hangResponse(): Response {
   });
 }
 
+// Streamed bodies (2026-09-12). The Promise.race deadline above only
+// covers the time until handler.fetch RESOLVES — and for every page and
+// RSC navigation Next resolves as soon as it starts streaming, then the
+// render (getSession included) runs inside the body stream. That is why a
+// navigation stuck in getSession never produced a "no response after
+// 25000ms" line: the response object came back in milliseconds, the
+// deadline timer was cleared, and the body simply never finished (Workers
+// Logs: "canceled" after 40s–100min). This wraps the body so that if no
+// chunk arrives for REQUEST_DEADLINE_MS the stream is errored: the
+// browser's fetch fails, Next's router falls back to a full navigation,
+// and a stuck tab gets a fresh request instead of a spinner forever.
+function withBodyDeadline(resp: Response, label: string): Response {
+  if (!resp.body || resp.status === 101 || (resp as { webSocket?: unknown }).webSocket) return resp;
+  const type = resp.headers.get("content-type") ?? "";
+  if (!type.startsWith("text/html") && !type.startsWith("text/x-component")) return resp;
+  const t0 = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let controller: TransformStreamDefaultController<Uint8Array> | undefined;
+  const arm = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      console.warn(`[hang] ${label} body stalled: no chunk for ${REQUEST_DEADLINE_MS}ms (${Date.now() - t0}ms since start); aborting stream`);
+      controller?.error(new Error("response body stalled"));
+    }, REQUEST_DEADLINE_MS);
+  };
+  const ts = new TransformStream<Uint8Array, Uint8Array>({
+    start(c) {
+      controller = c;
+      arm();
+    },
+    transform(chunk, c) {
+      c.enqueue(chunk);
+      arm();
+    },
+    flush() {
+      if (timer) clearTimeout(timer);
+    },
+  });
+  return new Response(resp.body.pipeThrough(ts), resp);
+}
+
 const CANONICAL_HOST = "seekersofsouls.com";
 const REDIRECT_HOSTS = new Set(["www.seekersofsouls.com", "seekers.fetchinglogic.com", "www.fetchinglogic.com"]);
 
@@ -507,7 +548,7 @@ export default {
     try {
       const resp = deadline ? await Promise.race([handler.fetch(request, env, ctx), deadline]) : await handler.fetch(request, env, ctx);
       status = resp.status;
-      return resp;
+      return deadline ? withBodyDeadline(resp, `${request.method} ${url.pathname}${request.headers.has("RSC") ? " rsc" : ""}`) : resp;
     } catch (e) {
       status = -1;
       throw e;

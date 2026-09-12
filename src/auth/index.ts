@@ -254,6 +254,17 @@ function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: 
 // isolate; `cf` feeds geolocation / IP detection, both used only at session
 // *creation* (login), which goes through the API route with an explicit
 // baseURL and so never reads this cache.
+//
+// 2026-09-12: only an instance whose init has SETTLED is published to the
+// cache. betterAuth() kicks off `init()` at construction and hands every
+// later `auth.api.*` call the same promise (`$context`). Caching the
+// instance while that promise is still pending means a request that was
+// canceled mid-init (a prefetch the router abandoned, a tab closed) can
+// leave every subsequent request in this isolate awaiting a promise that
+// belongs to a torn-down request context — the "getSession hangs for
+// minutes, no D1 statement pending, clears when the isolate recycles"
+// pattern in Workers Logs. Until the first build's init resolves, each
+// request builds its own (10-20ms); after that the cache works as before.
 let cachedAuth: ReturnType<typeof buildAuth> | undefined;
 let cachedAuthEnv: CloudflareEnv | undefined;
 
@@ -261,8 +272,15 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
   if (!baseURL && env && cachedAuth && cachedAuthEnv === env) return cachedAuth;
   const built = buildAuth(env, cf, baseURL);
   if (!baseURL && env) {
-    cachedAuth = built;
-    cachedAuthEnv = env;
+    built.$context.then(
+      () => {
+        if (cachedAuthEnv !== env) {
+          cachedAuth = built;
+          cachedAuthEnv = env;
+        }
+      },
+      () => {},
+    );
   }
   return built;
 }
