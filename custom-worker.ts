@@ -34,7 +34,7 @@ import * as schema from "./src/db";
 import { bids as bidsTable, characters, lootEvents, users } from "./src/db";
 import { verifyOfficerApiKey } from "./src/lib/api-key-auth";
 import { fetchIsMemberAllowed } from "./src/lib/discord-verify";
-import { getStandings, rebuildAllStandings } from "./src/lib/epgp/standings";
+import { getStandings, rebuildAllStandings, repairDirtyStandings } from "./src/lib/epgp/standings";
 import { checkAsyncContextImplementation, markRequest, perfEnabled, setPerfEnabled } from "./src/lib/perf";
 import { reconcileMainPointers } from "./src/lib/players";
 
@@ -601,9 +601,10 @@ export default {
     // and an app page so a render-path isolate stays hot too. Best-effort;
     // a failure just means the next real request pays a cold start.
     if (event.cron === "*/2 * * * *") {
+      const db = drizzle(env.DATABASE, { schema });
       const warm = (async () => {
         try {
-          await drizzle(env.DATABASE, { schema }).run(sql`SELECT 1`);
+          await db.run(sql`SELECT 1`);
           // Two self-fetches: the API path, and a real app page. Next loads
           // each route's module chunk lazily, so a warm /api/health alone
           // still left the first /roster click paying that route's own
@@ -620,7 +621,26 @@ export default {
           console.log(`[cron] warm ping failed: ${e}`);
         }
       })();
-      ctx.waitUntil(warm);
+
+      // Remediation plan Phase 4 task 4.5's "frequent lightweight repair
+      // pass": every 2 minutes, catch up any player_epgp_totals row a
+      // settleStandings call left dirty after its own recompute failed.
+      // Cheap in the overwhelmingly common case (an empty standings_dirty
+      // table — one SELECT, nothing else). Independent of the warm ping
+      // above; a failure here doesn't affect it or vice versa. The nightly
+      // 09:17 UTC rebuild (below) stays as the full-table safety net this
+      // was already covering — this just closes most of the ~24h gap
+      // between "a refresh failed" and "the nightly job notices."
+      const repair = (async () => {
+        try {
+          const { scopes } = await repairDirtyStandings(db);
+          if (scopes > 0) console.log(`[cron] standings repair: cleared ${scopes} dirty marker(s)`);
+        } catch (e) {
+          console.log(`[cron] standings repair failed (non-fatal): ${e}`);
+        }
+      })();
+
+      ctx.waitUntil(Promise.all([warm, repair]));
       return;
     }
 

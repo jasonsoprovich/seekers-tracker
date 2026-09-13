@@ -34,5 +34,5 @@ export async function POST(request: Request) {
     return Response.json({ error: result.error }, { status: 422 });
   }
 
-  return Response.json({ ok: true }, { status: 201 });
+  return Response.json({ ok: true, standing: result.standing }, { status: 201 });
 }

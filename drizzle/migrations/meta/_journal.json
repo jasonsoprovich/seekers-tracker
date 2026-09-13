@@ -260,6 +260,13 @@
       "when": 1789278344325,
       "tag": "0036_loot_events_submission_id",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1789280770069,
+      "tag": "0037_lonely_wild_pack",
+      "breakpoints": true
     }
   ]
 }

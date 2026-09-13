@@ -55,6 +55,11 @@ export async function POST(request: Request) {
       unmatched: result.unmatched,
       invalidTiers: result.invalidTiers,
       ...(result.replay ? { replay: true } : {}),
+      // Remediation plan Phase 4 task 4.3 — the winner(s)' current
+      // standings, fetched fresh right after the GP charge. Additive; no
+      // current caller reads it yet (the parser app / this route's other
+      // consumers can ignore an unknown field).
+      standings: result.standings,
     },
     { status: result.status },
   );

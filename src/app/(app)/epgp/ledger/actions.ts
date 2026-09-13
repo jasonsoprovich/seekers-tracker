@@ -9,11 +9,15 @@ import { getDb } from "@/lib/db";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { getSession } from "@/lib/session";
 import { boundedString } from "@/lib/validate";
 
-export type LedgerActionResult = { error?: string };
+// `standing` (task 4.3) is the affected player's just-refreshed row, fetched
+// fresh (getStandingsForPlayers, never the roster-wide 10s cache) — present
+// on a successful mutation that touched a player with a totals row; null/
+// absent otherwise (no error implied either way).
+export type LedgerActionResult = { error?: string; standing?: StandingsRow | null };
 
 export type AddLedgerEntryInput = InsertLedgerEntryInput;
 
@@ -41,7 +45,7 @@ export async function addLedgerEntry(input: AddLedgerEntryInput): Promise<Ledger
 
   const db = await getDb();
   const result = await insertLedgerEntry(db, input, session.user.id);
-  return result.ok ? {} : { error: result.error };
+  return result.ok ? { standing: result.standing } : { error: result.error };
 }
 
 // Edits the activity/tier/item/points/date/note of an existing row —
@@ -73,6 +77,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
     affectedCharacterId = before.characterId;
+    if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
     const [after] = await db
       .update(epLedger)
       .set({
@@ -92,6 +97,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
     affectedCharacterId = before.characterId;
+    if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
     const [after] = await db
       .update(gpLedger)
       .set({
@@ -112,12 +118,18 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   // write path does this too (insertLedgerEntry, every decay commit). This
   // one and delete's below were the two that used to forget (then only
   // invalidating a cache; found auditing this file, 2026-08-25).
-  if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
+  // Best-effort (task 4.6) — the dirty marker written above the update
+  // guarantees the repair pass finishes this even if settleStandings fails.
+  let standing: StandingsRow | null = null;
+  if (affectedPlayerId != null) {
+    await settleStandings(db, { playerIds: [affectedPlayerId] });
+    standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
+  }
   // The edit may have moved this character's most recent ledger row (a
   // date change), which "bump if newer" can't walk back — recompute it.
   if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);
 
-  return {};
+  return { standing };
 }
 
 export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<LedgerActionResult> {
@@ -137,6 +149,7 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
     affectedCharacterId = before.characterId;
+    if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
     await db.delete(epLedger).where(eq(epLedger.id, id));
     await recordLedgerChange(db, "ep", id, "delete", before, null, session.user.id);
   } else {
@@ -144,15 +157,20 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
     if (!before) return { error: "Ledger row not found." };
     affectedPlayerId = before.playerId;
     affectedCharacterId = before.characterId;
+    if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
     await db.delete(gpLedger).where(eq(gpLedger.id, id));
     await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
   }
 
-  if (affectedPlayerId != null) await refreshStandings(db, { playerIds: [affectedPlayerId] });
+  let standing: StandingsRow | null = null;
+  if (affectedPlayerId != null) {
+    await settleStandings(db, { playerIds: [affectedPlayerId] });
+    standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
+  }
   // Deleting a row can drop this character's most recent activity — recompute.
   if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);
 
-  return {};
+  return { standing };
 }
 
 // The audit trail's one editable field. `action`/`before`/`after` on a

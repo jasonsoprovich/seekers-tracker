@@ -7,7 +7,7 @@ import { players, users } from "@/db";
 import { revokeApiKeysForUser } from "@/lib/api-key-auth";
 import { canManageAnyCharacter, canManageEpgp, canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { settleStandings } from "@/lib/epgp/standings";
 import {
   assignCharacterToUser,
   MAIN_SWAP_FEE_GP,
@@ -152,7 +152,7 @@ export async function assignCharacterToMember(userId: string, characterId: numbe
   const db = await getDb();
   const assigned = await assignCharacterToUser(db, characterId, userId);
   if (!assigned.ok) return { error: assigned.error };
-  if (assigned.playerId != null) await refreshStandings(db, { playerIds: [assigned.playerId] });
+  if (assigned.playerId != null) await settleStandings(db, { playerIds: [assigned.playerId] });
   return {};
 }
 

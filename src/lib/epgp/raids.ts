@@ -3,7 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, raids } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 
 import { guildDayBounds, toGuildDateString } from "../guild-timezone";
 
@@ -306,6 +306,12 @@ export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: stri
     return { error: "No parsed attendance, GP, or loot rows on that date — nothing to reverse." };
   }
 
+  // Task 4.4 — mark every affected player dirty before deleting a single
+  // row, same reasoning as decay.ts's commit/reverse paths (this function
+  // is already documented above as not one transaction).
+  const affectedPlayerIds = [...new Set([...epRows, ...gpRows].map((r) => r.playerId).filter((id): id is number => id !== null))];
+  if (affectedPlayerIds.length > 0) await markStandingsDirty(db, { playerIds: affectedPlayerIds });
+
   // loot_events.winning_bid_id -> bids.id, so null it out before the bids go
   // (in case FK enforcement is on). Chunked well under SQLite's variable
   // limit, same discipline as refreshStandings' prune.
@@ -328,7 +334,7 @@ export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: stri
     await recordLedgerChange(db, "ep", row.id, "delete", row, null, reversedBy);
   }
 
-  await refreshStandings(db, { all: true });
+  await settleStandings(db, { all: true });
 
   return { ok: true, epRows: epRows.length, gpRows: gpRows.length, lootEvents: lootIds.length, bids: bidCount };
 }

@@ -1,10 +1,11 @@
 import { and, eq, inArray, lt, or, isNull } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { dirtyMarkerStatements, getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/lib/validate";
 
 // Shared by the website's manual-entry Server Action
@@ -30,9 +31,14 @@ export type InsertLedgerEntryInput =
 // `playerId` is the account this row landed on (an alt's row is redirected
 // to its main's character but keeps the shared player_id) — returned so a
 // bulk caller that passed `deferStandingsRefresh` can collect every
-// affected player and do one `refreshStandings({ playerIds })` at the end
+// affected player and do one `settleStandings({ playerIds })` at the end
 // instead of one per row. NULL only for a character with no player_id yet.
-export type InsertLedgerEntryResult = { ok: true; playerId: number | null } | { ok: false; error: string };
+// `standing` (task 4.3) is that player's just-refreshed row, fetched fresh
+// (never the roster-wide cache) — null for a deferred caller (nothing to
+// report yet, it hasn't refreshed) or a NULL playerId.
+export type InsertLedgerEntryResult =
+  | { ok: true; playerId: number | null; standing: StandingsRow | null }
+  | { ok: false; error: string };
 
 export async function insertLedgerEntry(
   db: ReturnType<typeof drizzle>,
@@ -123,6 +129,7 @@ export async function insertLedgerEntry(
         source,
       })
       .returning();
+    if (playerId != null) await markStandingsDirty(db, { playerIds: [playerId] });
     if (source === "manual") await recordLedgerChange(db, "ep", row.id, "create", null, row, enteredBy);
   } else {
     const [row] = await db
@@ -143,6 +150,7 @@ export async function insertLedgerEntry(
         source,
       })
       .returning();
+    if (playerId != null) await markStandingsDirty(db, { playerIds: [playerId] });
     if (source === "manual") await recordLedgerChange(db, "gp", row.id, "create", null, row, enteredBy);
   }
 
@@ -167,13 +175,19 @@ export async function insertLedgerEntry(
   // officer manual-entry/attendance/bids routes), so refreshing the
   // player's materialized standings row here covers every single-row
   // caller. Bulk callers (attendance, a bid round's GP charges) pass
-  // `deferStandingsRefresh` and do one `refreshStandings({ playerIds })`
-  // for the whole batch instead — see those routes.
+  // `deferStandingsRefresh` and do one `settleStandings({ playerIds })`
+  // for the whole batch instead — see those routes. The dirty marker above
+  // is written either way (task 4.4) — a deferred caller that crashes
+  // before its own batched refresh still leaves a durable trail for the
+  // repair pass, not silent drift. Best-effort here too (task 4.6): a
+  // failure doesn't undo the ledger write that already committed.
+  let standing: StandingsRow | null = null;
   if (!opts.deferStandingsRefresh && playerId != null) {
-    await refreshStandings(db, { playerIds: [playerId] });
+    await settleStandings(db, { playerIds: [playerId] });
+    standing = (await getStandingsForPlayers(db, [playerId])).get(playerId) ?? null;
   }
 
-  return { ok: true, playerId };
+  return { ok: true, playerId, standing };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,12 +316,19 @@ export async function insertEpLedgerBatch(
   }
   if (values.length === 0) return { inserted: 0, playerIds: [], failed };
 
-  // Inserts, chunked: one round trip + one transaction per chunk.
+  // Inserts, chunked: one round trip + one transaction per chunk. Task 4.4:
+  // each chunk's own players' dirty markers ride in that SAME batch, so a
+  // chunk that commits always durably records which players it touched —
+  // even if the settleStandings recompute the caller does afterward for
+  // the whole capture never runs.
   let inserted = 0;
   for (let i = 0; i < values.length; i += BATCH_CHUNK) {
-    const chunk = values.slice(i, i + BATCH_CHUNK).map((v) => db.insert(epLedger).values(v));
+    const rowsInChunk = values.slice(i, i + BATCH_CHUNK);
+    const chunk: BatchItem<"sqlite">[] = rowsInChunk.map((v) => db.insert(epLedger).values(v));
+    const chunkPlayerIds = [...new Set(rowsInChunk.map((v) => v.playerId).filter((id): id is number => id != null))];
+    chunk.push(...dirtyMarkerStatements(db, { playerIds: chunkPlayerIds }));
     await db.batch(chunk as unknown as [(typeof chunk)[number], ...(typeof chunk)[number][]]);
-    inserted += chunk.length;
+    inserted += rowsInChunk.length;
   }
 
   // Last-activity bump: group the target characters by their newest

@@ -6,7 +6,7 @@ import { checkMinAttendance } from "@/lib/epgp/attendance";
 import { getDb } from "@/lib/db";
 import { insertEpLedgerBatch } from "@/lib/epgp/ledger-entry";
 import { nameRaidFromCapture } from "@/lib/epgp/raids";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { getStandingsForPlayers, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { toGuildDateString } from "@/lib/guild-timezone";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
@@ -229,6 +229,7 @@ export async function POST(request: Request) {
   }
 
   let inserted = 0;
+  let standings: StandingsRow[] = [];
   if (toInsert.length > 0) {
     const result = await insertEpLedgerBatch(db, toInsert, auth.userId, "parse");
     inserted = result.inserted;
@@ -240,7 +241,14 @@ export async function POST(request: Request) {
     }
     // One recompute for every player this capture touched (instead of one
     // per name) — and the standings upserts inside are batched too.
-    if (result.playerIds.length > 0) await refreshStandings(db, { playerIds: result.playerIds });
+    // Best-effort (task 4.6): insertEpLedgerBatch already left a durable
+    // dirty marker per player in the same chunk batch as their ledger
+    // rows, so a failure here doesn't lose the refresh, just delays it to
+    // the repair pass.
+    if (result.playerIds.length > 0) {
+      await settleStandings(db, { playerIds: result.playerIds });
+      standings = [...(await getStandingsForPlayers(db, result.playerIds)).values()];
+    }
   }
 
   // Best-effort: a name that couldn't be stored (bad date, race) must not
@@ -254,5 +262,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return Response.json({ inserted, unmatched, duplicates }, { status: 201 });
+  return Response.json({ inserted, unmatched, duplicates, standings }, { status: 201 });
 }

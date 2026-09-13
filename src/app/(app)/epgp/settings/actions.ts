@@ -6,7 +6,7 @@ import { setSetting, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { rebuildAllStandings, refreshStandings } from "@/lib/epgp/standings";
+import { markStandingsDirty, rebuildAllStandings, settleStandings } from "@/lib/epgp/standings";
 
 export type UpdateSettingResult = { error?: string };
 export type RebuildStandingsResult = { players?: number; error?: string };
@@ -42,12 +42,19 @@ export async function updateSetting(key: string, value: string, note: string): P
   }
 
   const db = await getDb();
+  // Task 4.4 — mark everyone dirty before the setting itself changes: a
+  // setting change is the one authoritative mutation here (there's no
+  // ledger row to fail after), so the marker just needs to land before the
+  // settleStandings recompute below, which is the part that can fail.
+  await markStandingsDirty(db, { all: true });
   await setSetting(db, key, trimmed, session.user.id, { note: note.trim() || undefined });
 
   // base_ep/base_gp/ep_decay/gp_decay/decay_model all feed
   // computeEpgpTotals, so a change here moves every player's priority (and,
   // under legacy, their decay). Rebuild the whole materialized table.
-  await refreshStandings(db, { all: true });
+  // Best-effort (task 4.6) — the dirty marker guarantees this still
+  // finishes via the repair pass even if this attempt fails.
+  await settleStandings(db, { all: true });
 
   return {};
 }

@@ -1,7 +1,8 @@
 import { and, inArray, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { epLedger, gpLedger, playerEpgpTotals } from "@/db";
+import { epLedger, gpLedger, playerEpgpTotals, standingsDirty } from "@/db";
 import { timed } from "@/lib/perf";
 
 import { recomputeAllCharacterLastActivity } from "./character-activity";
@@ -126,6 +127,144 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
   // A write just landed — drop the read cache so this isolate serves fresh
   // numbers immediately (LT-26 #4). Other isolates fall back to the 10s TTL.
   standingsCache = undefined;
+
+  // Task 4.5: only clear a dirty marker once its refresh has actually
+  // landed. A full refresh clears every marker (a global rebuild subsumes
+  // any single-player one); a scoped refresh clears exactly the players it
+  // was asked to cover, whether or not each still has a total row (a
+  // player pruned above still got its recompute attempted).
+  if (scoped) {
+    await deleteDirtyMarkers(db, (playerFilter as number[]).map(playerScope));
+  } else {
+    await db.delete(standingsDirty);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Durable dirty markers (remediation plan Phase 4 tasks 4.4/4.5).
+//
+// player_epgp_totals is a materialized cache of computeEpgpTotals — every
+// write path calls refreshStandings right after its ledger mutation to keep
+// it current. But that's two separate operations: if the ledger write
+// commits and the recompute+upsert that follows then fails (a D1 hiccup, a
+// request that got evicted), the mismatch was previously silent and
+// invisible until the nightly 09:17 UTC rebuild caught it — up to ~24h of a
+// wrong roster/priority number with no record anything had gone wrong.
+//
+// `standingsDirty` is a durable "this needs a refresh" marker, written
+// alongside the authoritative ledger mutation (in the SAME db.batch() call
+// wherever the mutation already batches its rows — bid-finalization.ts,
+// insertEpLedgerBatch; a single dedicated statement immediately adjacent to
+// the write where it doesn't, matching this codebase's existing
+// not-one-transaction-but-structured-to-stay-recoverable pattern for those
+// paths — see decay.ts's own comment on the same tradeoff). refreshStandings
+// clears exactly the markers it covers once it actually succeeds; a marker
+// that survives means the repair pass (the 2-minute cron, see
+// custom-worker.ts) or the nightly full rebuild still owes that refresh.
+function playerScope(playerId: number): string {
+  return `player:${playerId}`;
+}
+const GLOBAL_SCOPE = "all";
+
+async function deleteDirtyMarkers(db: ReturnType<typeof drizzle>, scopes: string[]): Promise<void> {
+  for (let i = 0; i < scopes.length; i += 90) {
+    await db.delete(standingsDirty).where(inArray(standingsDirty.scope, scopes.slice(i, i + 90)));
+  }
+}
+
+export type StandingsTarget = { playerIds: number[] } | { all: true };
+
+// Statement builders (not yet executed) for inclusion in a caller's own
+// db.batch() array, so the dirty marker commits atomically with the ledger
+// rows that made it necessary — task 4.4's literal "same transaction."
+// `onConflictDoUpdate` rather than `onConflictDoNothing` so a marker that's
+// already there gets its markedAt bumped instead of being silently skipped
+// — harmless either way, but keeps "how long has this been dirty" honest
+// for anyone inspecting the table by hand.
+export function dirtyMarkerStatements(db: ReturnType<typeof drizzle>, target: StandingsTarget): BatchItem<"sqlite">[] {
+  if ("all" in target) {
+    return [
+      db
+        .insert(standingsDirty)
+        .values({ scope: GLOBAL_SCOPE })
+        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } }) as unknown as BatchItem<"sqlite">,
+    ];
+  }
+  const ids = [...new Set(target.playerIds.filter((id): id is number => Number.isFinite(id)))];
+  return ids.map(
+    (id) =>
+      db
+        .insert(standingsDirty)
+        .values({ scope: playerScope(id) })
+        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } }) as unknown as BatchItem<"sqlite">,
+  );
+}
+
+// One dirty-marker write, executed immediately (not part of a larger
+// batch) — for call sites whose own ledger write isn't already inside a
+// db.batch(). Safe to call before or after that write; either way it lands
+// well before the much more expensive/failure-prone refreshStandings call
+// that follows.
+export async function markStandingsDirty(db: ReturnType<typeof drizzle>, target: StandingsTarget): Promise<void> {
+  if ("all" in target) {
+    await db.insert(standingsDirty).values({ scope: GLOBAL_SCOPE }).onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } });
+    return;
+  }
+  const ids = [...new Set(target.playerIds.filter((id): id is number => Number.isFinite(id)))];
+  if (ids.length === 0) return;
+  for (let i = 0; i < ids.length; i += 40) {
+    const chunk = ids.slice(i, i + 40).map((id) =>
+      db
+        .insert(standingsDirty)
+        .values({ scope: playerScope(id) })
+        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } }),
+    );
+    await db.batch(chunk as unknown as [(typeof chunk)[number], ...(typeof chunk)[number][]]);
+  }
+}
+
+// Attempts the actual recompute; on failure, logs and swallows rather than
+// throwing back into the caller's mutation — the mutation's own ledger write
+// already succeeded, and the durable dirty marker (already written, by the
+// time any call site reaches this) guarantees the repair pass or the
+// nightly rebuild will finish the job. Every refreshStandings call site in
+// this codebase that follows a ledger mutation should go through this
+// instead of calling refreshStandings directly (task 4.6) — a straight
+// `await refreshStandings(...)` is still correct for a caller with nothing
+// durable to fall back on (there are none left after this phase; kept as a
+// separate export because scripts/recompute-standings-style callers with no
+// preceding ledger write have no marker to leave behind either way).
+export async function settleStandings(db: ReturnType<typeof drizzle>, target: StandingsTarget): Promise<void> {
+  try {
+    await refreshStandings(db, target);
+  } catch (err) {
+    console.error(`[standings] refresh failed, leaving dirty marker(s) for the repair pass: ${err}`);
+  }
+}
+
+// The 2-minute cron's lightweight repair pass (task 4.5) — cheap to run
+// often since the common case is an empty table (a no-op `SELECT` and
+// nothing else). A lingering "all" marker means some full-table refresh
+// (a decay commit/reverse, a settings change) didn't finish; that
+// subsumes every player-scoped marker, so it's handled alone. Otherwise,
+// one scoped refresh covers every dirty player at once. Best-effort and
+// silent on failure, same as this cron's other steps — a marker that
+// survives this too just waits for the next 2-minute tick or the nightly
+// full rebuild.
+export async function repairDirtyStandings(db: ReturnType<typeof drizzle>): Promise<{ scopes: number }> {
+  const rows = await db.select({ scope: standingsDirty.scope }).from(standingsDirty);
+  if (rows.length === 0) return { scopes: 0 };
+
+  if (rows.some((r) => r.scope === GLOBAL_SCOPE)) {
+    await settleStandings(db, { all: true });
+    return { scopes: rows.length };
+  }
+
+  const playerIds = rows
+    .map((r) => (r.scope.startsWith("player:") ? Number(r.scope.slice("player:".length)) : NaN))
+    .filter((id) => Number.isFinite(id));
+  if (playerIds.length > 0) await settleStandings(db, { playerIds });
+  return { scopes: rows.length };
 }
 
 // One-call "recompute everyone" for the /epgp/settings "Rebuild standings"
@@ -163,6 +302,22 @@ export function bustStandingsCache(): void {
   standingsCache = undefined;
 }
 
+function rowToStandingsRow(r: typeof playerEpgpTotals.$inferSelect): StandingsRow {
+  return {
+    playerId: r.playerId,
+    ep: r.ep,
+    gp: r.gp,
+    epDecay: r.epDecay,
+    gpDecay: r.gpDecay,
+    priorityRating: r.priorityRating,
+    rawEp: r.rawEp,
+    rawGp: r.rawGp,
+    preCycleEp: r.preCycleEp,
+    preCycleGp: r.preCycleGp,
+    lastActivityAt: r.lastActivityAt ?? null,
+  };
+}
+
 // The read path that replaces getCachedEpgpTotals — one scan of a
 // ~one-row-per-player table. Shape-compatible with what computeEpgpTotals
 // returned (a Map keyed by playerId) so callers only change the import,
@@ -171,21 +326,27 @@ export async function getStandings(db: ReturnType<typeof drizzle>): Promise<Map<
   if (standingsCache && Date.now() - standingsCache.at < STANDINGS_TTL_MS) return standingsCache.data;
   const rows = await timed("getStandings", () => db.select().from(playerEpgpTotals));
   const out = new Map<number, StandingsRow>();
-  for (const r of rows) {
-    out.set(r.playerId, {
-      playerId: r.playerId,
-      ep: r.ep,
-      gp: r.gp,
-      epDecay: r.epDecay,
-      gpDecay: r.gpDecay,
-      priorityRating: r.priorityRating,
-      rawEp: r.rawEp,
-      rawGp: r.rawGp,
-      preCycleEp: r.preCycleEp,
-      preCycleGp: r.preCycleGp,
-      lastActivityAt: r.lastActivityAt ?? null,
-    });
-  }
+  for (const r of rows) out.set(r.playerId, rowToStandingsRow(r));
   standingsCache = { at: Date.now(), data: out };
+  return out;
+}
+
+// Tasks 4.1/4.2 — a targeted read for one or a few players that never
+// touches the whole-table 10s cache above: a direct, index-seeked
+// `WHERE player_id IN (...)` scan against player_epgp_totals every time.
+// For the small counts this is meant for (a mutation's own affected
+// player(s), an account page's one player) that's cheap enough to always
+// be strictly fresh rather than risk the up-to-10s-old snapshot a
+// different, still-warm isolate's cache could otherwise hand back right
+// after a write on this one. A player with no row (no ledger history) is
+// simply absent from the returned map, same as getStandings.
+export async function getStandingsForPlayers(db: ReturnType<typeof drizzle>, playerIds: number[]): Promise<Map<number, StandingsRow>> {
+  const ids = [...new Set(playerIds.filter((id): id is number => Number.isFinite(id)))];
+  const out = new Map<number, StandingsRow>();
+  if (ids.length === 0) return out;
+  for (let i = 0; i < ids.length; i += 90) {
+    const rows = await db.select().from(playerEpgpTotals).where(inArray(playerEpgpTotals.playerId, ids.slice(i, i + 90)));
+    for (const r of rows) out.set(r.playerId, rowToStandingsRow(r));
+  }
   return out;
 }

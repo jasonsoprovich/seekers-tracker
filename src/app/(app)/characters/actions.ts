@@ -7,7 +7,7 @@ import { characters, players, users } from "@/db";
 import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
 import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { settleStandings } from "@/lib/epgp/standings";
 import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 import { assignCharacterToUser, attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
@@ -319,6 +319,6 @@ export async function claimAlt(characterId: number): Promise<ClaimAltState> {
     .set({ charType: "alt", mainCharacterId: mainId, updatedAt: new Date() })
     .where(eq(characters.id, characterId));
 
-  await refreshStandings(db, { playerIds: [callerPlayerId] });
+  await settleStandings(db, { playerIds: [callerPlayerId] });
   return {};
 }

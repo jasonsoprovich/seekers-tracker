@@ -549,6 +549,26 @@ export const playerEpgpTotals = sqliteTable("player_epgp_totals", {
     .default(sql`(unixepoch())`),
 });
 
+// Remediation plan Phase 4 task 4.4 — a durable record of "this player's
+// (or everyone's) player_epgp_totals row is known stale," written in the
+// SAME batch/transaction as the authoritative ledger mutation that made it
+// stale, before the (separate, more failure-prone) refreshStandings
+// recompute is even attempted. Without this, a refreshStandings failure
+// after a successful ledger write left silent drift with no record it had
+// happened, undetectable until the nightly full rebuild (up to ~24h later,
+// PLAN.md §11 Phase 4's own framing). `scope` is either the literal string
+// "all" (a decay/settings-wide write) or `player:<id>` (one player) — see
+// src/lib/epgp/standings.ts's markStandingsDirty/repairDirtyStandings.
+// refreshStandings deletes the rows it covers once it actually succeeds
+// (task 4.5) — a row surviving past that point means the repair pass (the
+// 2-minute cron) or the nightly rebuild still owes that player a refresh.
+export const standingsDirty = sqliteTable("standings_dirty", {
+  scope: text("scope").primaryKey(),
+  markedAt: integer("marked_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 // One row per leader/admin main<->alt swap (post-live-test-1 LT-30). The
 // lightweight players.mainCharacterChangedBy/At pair records the *last*
 // swap's who/when; this table exists because a swap now (a) charges a GP

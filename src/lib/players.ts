@@ -7,7 +7,7 @@ import { revokeApiKeysForUser } from "@/lib/api-key-auth";
 import { LEADERSHIP_ROLES, roleRank, type Role } from "@/lib/authz";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 
 // PLAN.md §11 Phase 10 — character claiming rework, built on the `players`
 // table Phase 3 introduced. Four entry points:
@@ -129,6 +129,12 @@ async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: 
   await db.update(characters).set({ playerId: toPlayerId, updatedAt: now }).where(eq(characters.playerId, fromPlayerId));
   await db.update(epLedger).set({ playerId: toPlayerId }).where(eq(epLedger.playerId, fromPlayerId));
   await db.update(gpLedger).set({ playerId: toPlayerId }).where(eq(gpLedger.playerId, fromPlayerId));
+  // Task 4.4/4.6 — this moved ledger rows onto toPlayerId, which needs a
+  // standings refresh; mark it dirty here, at the actual mutation, rather
+  // than trusting every caller of attachCharacterToPlayer to remember (they
+  // do today, but this is the one place the fact "these rows moved" is
+  // known for certain).
+  await markStandingsDirty(db, { playerIds: [toPlayerId] });
   await db.delete(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, fromPlayerId));
   await db.delete(players).where(eq(players.id, fromPlayerId));
   return true;
@@ -300,6 +306,7 @@ export async function swapMainCharacter(
       })
       .returning();
     feeGpLedgerId = feeRow.id;
+    await markStandingsDirty(db, { playerIds: [playerId] });
     await recordLedgerChange(db, "gp", feeRow.id, "create", null, feeRow, approvedBy);
   }
 
@@ -315,7 +322,7 @@ export async function swapMainCharacter(
   });
 
   // Only the fee moved a number; refresh that one player's standings.
-  await refreshStandings(db, { playerIds: [playerId] });
+  await settleStandings(db, { playerIds: [playerId] });
 
   return {};
 }
@@ -368,12 +375,13 @@ export async function reverseMainSwap(db: Db, eventId: number, reversedBy: strin
   if (event.feeGpLedgerId != null) {
     const [feeRow] = await db.select().from(gpLedger).where(eq(gpLedger.id, event.feeGpLedgerId));
     if (feeRow) {
+      await markStandingsDirty(db, { playerIds: [event.playerId] });
       await db.delete(gpLedger).where(eq(gpLedger.id, feeRow.id));
       await recordLedgerChange(db, "gp", feeRow.id, "delete", feeRow, null, reversedBy);
     }
   }
 
-  await refreshStandings(db, { playerIds: [event.playerId] });
+  await settleStandings(db, { playerIds: [event.playerId] });
 
   return {};
 }

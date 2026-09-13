@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { characterClaims, characters } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { settleStandings } from "@/lib/epgp/standings";
 import { assignCharacterToUser } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
@@ -80,7 +80,7 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
 
   // assignCharacterToUser may have absorbed a defunct standalone player
   // (its ledger history moved onto this player), so recompute standings.
-  if (assigned.playerId != null) await refreshStandings(db, { playerIds: [assigned.playerId] });
+  if (assigned.playerId != null) await settleStandings(db, { playerIds: [assigned.playerId] });
 
   await autoDenyOtherPendingClaims(db, claim.characterId, claimId, session.user.id, now);
 

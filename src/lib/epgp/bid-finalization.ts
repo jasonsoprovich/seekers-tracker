@@ -4,7 +4,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { bids as bidsTable, characters, epgpPointValues, gpLedger, lootEvents } from "@/db";
 import { guildDateTime } from "@/lib/guild-timezone";
-import { getStandings, refreshStandings } from "@/lib/epgp/standings";
+import { dirtyMarkerStatements, getStandings, getStandingsForPlayers, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
 
 // PLAN.md §11 Phase 3 (atomic and idempotent bid finalization). Pulled out
@@ -58,7 +58,21 @@ export type FinalizeBidRoundInput = {
 };
 
 export type FinalizeBidRoundResult =
-  | { ok: true; status: 200 | 201; lootEventId: number; inserted: number; unmatched: string[]; invalidTiers: string[]; replay: boolean }
+  | {
+      ok: true;
+      status: 200 | 201;
+      lootEventId: number;
+      inserted: number;
+      unmatched: string[];
+      invalidTiers: string[];
+      replay: boolean;
+      // Task 4.3 — the winner(s)' current standings right after this round's
+      // GP charge landed, so a caller (the officer app, a future UI) can
+      // show the post-charge number immediately instead of waiting on its
+      // own separate fetch. Always read fresh (getStandingsForPlayers,
+      // never the 10s roster-wide cache) — see standings.ts.
+      standings: StandingsRow[];
+    }
   | {
       ok: false;
       status: number;
@@ -145,11 +159,26 @@ export async function finalizeBidRound(
       .where(eq(lootEvents.submissionId, submissionId))
       .limit(1);
     if (existing) {
-      const [countRow] = await db
-        .select({ n: sql<number>`count(*)` })
-        .from(bidsTable)
-        .where(eq(bidsTable.lootEventId, existing.id));
-      return { ok: true, status: 200, lootEventId: existing.id, inserted: Number(countRow?.n ?? 0), unmatched: [], invalidTiers: [], replay: true };
+      const [[countRow], winnerRows] = await Promise.all([
+        db.select({ n: sql<number>`count(*)` }).from(bidsTable).where(eq(bidsTable.lootEventId, existing.id)),
+        db
+          .select({ playerId: characters.playerId })
+          .from(bidsTable)
+          .innerJoin(characters, eq(characters.id, bidsTable.characterId))
+          .where(and(eq(bidsTable.lootEventId, existing.id), eq(bidsTable.status, "won"))),
+      ]);
+      const winnerPlayerIds = [...new Set(winnerRows.map((r) => r.playerId).filter((id): id is number => id !== null))];
+      const replayStandings = await getStandingsForPlayers(db, winnerPlayerIds);
+      return {
+        ok: true,
+        status: 200,
+        lootEventId: existing.id,
+        inserted: Number(countRow?.n ?? 0),
+        unmatched: [],
+        invalidTiers: [],
+        replay: true,
+        standings: [...replayStandings.values()],
+      };
     }
   }
 
@@ -325,18 +354,25 @@ export async function finalizeBidRound(
     if (!prevBump || prevBump < at) bumpTargets.set(targetCharacterId, at);
   }
 
-  // Task 3.4: the loot event, every bid row, the winner pointer, and every
-  // winner's GP charge all commit as ONE D1 batch — a transaction, so a
-  // mid-write failure rolls every one of these statements back together
-  // instead of leaving, say, bids recorded with no GP charged.
+  // Task 4.4: a durable dirty marker for every winner charged rides in the
+  // SAME batch as the loot event/bids/GP charge — so even if the
+  // settleStandings recompute below never runs (a crash, an evicted
+  // request), there's a durable record that these players' totals need a
+  // refresh, picked up by the 2-minute repair pass or the nightly rebuild.
+  statements.push(...dirtyMarkerStatements(db, { playerIds: [...chargedPlayerIds] }));
+
+  // Task 3.4: the loot event, every bid row, the winner pointer, every
+  // winner's GP charge, and now their dirty marker(s) all commit as ONE D1
+  // batch — a transaction, so a mid-write failure rolls every one of these
+  // statements back together instead of leaving, say, bids recorded with
+  // no GP charged.
   await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
-  // last_activity_at bumps and the standings refresh are deliberately
-  // OUTSIDE the atomic batch above — they're derived/display state (Phase
-  // 4's domain), not the authoritative ledger rows task 3.4 is about. A
-  // failure here after a successful commit means a stale "last active" or
-  // roster number until the next write touches the same player, never
-  // lost or double-counted GP.
+  // last_activity_at bumps are deliberately OUTSIDE the atomic batch above
+  // — derived/display state, not the authoritative ledger rows task 3.4 is
+  // about. A failure here after a successful commit means a stale "last
+  // active" until the next write touches the same character, never lost or
+  // double-counted GP.
   for (const [targetCharacterId, at] of bumpTargets) {
     await db
       .update(characters)
@@ -344,10 +380,16 @@ export async function finalizeBidRound(
       .where(and(eq(characters.id, targetCharacterId), or(isNull(characters.lastActivityAt), lt(characters.lastActivityAt, at))));
   }
   // One standings refresh for every winner charged (a duplicate drop can
-  // have several) rather than one per winner.
-  if (chargedPlayerIds.size > 0) await refreshStandings(db, { playerIds: [...chargedPlayerIds] });
+  // have several) rather than one per winner. Best-effort (task 4.6) — the
+  // dirty marker above already guarantees this gets finished even if this
+  // particular attempt fails.
+  let standings: StandingsRow[] = [];
+  if (chargedPlayerIds.size > 0) {
+    await settleStandings(db, { playerIds: [...chargedPlayerIds] });
+    standings = [...(await getStandingsForPlayers(db, [...chargedPlayerIds])).values()];
+  }
 
   const [lootEventRow] = await db.select({ id: lootEvents.id }).from(lootEvents).where(eq(lootEvents.submissionId, submissionKey)).limit(1);
 
-  return { ok: true, status: 201, lootEventId: lootEventRow.id, inserted: bidValues.length, unmatched, invalidTiers, replay: false };
+  return { ok: true, status: 201, lootEventId: lootEventRow.id, inserted: bidValues.length, unmatched, invalidTiers, replay: false, standings };
 }

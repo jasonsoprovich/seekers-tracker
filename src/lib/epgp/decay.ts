@@ -3,7 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, decayEvents, epLedger, gpLedger } from "@/db";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
 
 // PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
@@ -179,6 +179,16 @@ export async function commitRateDecay(
     .values({ kind, epRate: rate, gpRate: rate, effectiveDate, label, appliedBy })
     .returning();
 
+  // Task 4.4: mark everyone dirty before writing a single decay row. This
+  // write isn't itself one D1 transaction (see the file comment above —
+  // a decay commit is a sequence of per-character inserts by design, so a
+  // partial run still leaves something reversible), so the marker has to
+  // land before that loop starts, not after: a crash on row 50 of 300
+  // still leaves a global marker guaranteeing the repair pass or nightly
+  // rebuild eventually recomputes everyone, not just the players this
+  // particular run happened to reach.
+  await markStandingsDirty(db, { all: true });
+
   const activityLabel = RATE_DECAY_LABEL[kind];
   let epRows = 0;
   let gpRows = 0;
@@ -213,7 +223,7 @@ export async function commitRateDecay(
     }
   }
 
-  await refreshStandings(db, { all: true });
+  await settleStandings(db, { all: true });
   return { decayEventId: event.id, epRows, gpRows };
 }
 
@@ -302,6 +312,13 @@ export async function commitDepartureWipe(
     .values({ kind: "departure", epRate: 1, gpRate: null, effectiveDate, label, appliedBy: opts.appliedBy })
     .returning();
 
+  // Task 4.4 — see commitRateDecay's comment on why this goes before the
+  // per-row loop rather than after. Scoped to exactly the players this
+  // wipe touches (known up front from the preview), not a global marker —
+  // more precise for the repair pass than recomputing everyone.
+  const affectedPlayerIds = [...new Set(preview.map((r) => r.playerId).filter((id): id is number => id !== null))];
+  if (affectedPlayerIds.length > 0) await markStandingsDirty(db, { playerIds: affectedPlayerIds });
+
   for (const row of preview) {
     await db.insert(epLedger).values({
       characterId: row.characterId,
@@ -316,7 +333,7 @@ export async function commitDepartureWipe(
     });
   }
 
-  await refreshStandings(db, { all: true });
+  await settleStandings(db, { all: true });
   return { decayEventId: event.id, epRows: preview.length };
 }
 
@@ -338,6 +355,11 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
     db.select().from(gpLedger).where(eq(gpLedger.decayEventId, decayEventId)),
   ]);
 
+  // Task 4.4 — mark every affected player dirty before deleting a single
+  // row, same reasoning as the two commit paths above.
+  const reversedPlayerIds = [...new Set([...epRowsBefore, ...gpRowsBefore].map((r) => r.playerId).filter((id): id is number => id !== null))];
+  if (reversedPlayerIds.length > 0) await markStandingsDirty(db, { playerIds: reversedPlayerIds });
+
   for (const row of epRowsBefore) {
     await db.delete(epLedger).where(eq(epLedger.id, row.id));
     await recordLedgerChange(db, "ep", row.id, "delete", row, null, reversedBy);
@@ -348,7 +370,7 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
   }
 
   await db.update(decayEvents).set({ reversedAt: new Date(), reversedBy }).where(eq(decayEvents.id, decayEventId));
-  await refreshStandings(db, { all: true });
+  await settleStandings(db, { all: true });
 
   return { ok: true, epRows: epRowsBefore.length, gpRows: gpRowsBefore.length };
 }

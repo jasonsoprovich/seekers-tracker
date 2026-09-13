@@ -8,7 +8,7 @@ import { claimAlt } from "@/app/(app)/characters/actions";
 import { characters, players } from "@/db";
 import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole, ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { refreshStandings } from "@/lib/epgp/standings";
+import { settleStandings } from "@/lib/epgp/standings";
 import { attachCharacterToPlayer, createStandalonePlayer } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
@@ -118,7 +118,7 @@ export async function linkCharacterToAccount(playerId: number, characterId: numb
     await db.update(characters).set({ ownerId: player.userId, updatedAt: now }).where(eq(characters.id, characterId));
   }
 
-  await refreshStandings(db, { playerIds: [playerId] });
+  await settleStandings(db, { playerIds: [playerId] });
   return {};
 }
 
