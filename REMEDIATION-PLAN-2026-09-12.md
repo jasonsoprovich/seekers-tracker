@@ -92,14 +92,27 @@ On login, `syncAccountRole()` lets the higher role win. A login after
 `departedAt` is also treated as a rejoin without proving a Discord leave/rejoin
 transition.
 
-- [ ] 1.1 Update player and user roles consistently during removal.
-- [ ] 1.2 Keep `departed` accounts denied until an explicit leader
+- [x] 1.1 Update player and user roles consistently during removal.
+  (`a0e0a4b` — removal now drops `players.role` to "member" unconditionally,
+  not just `users.role` when a login exists; previously syncAccountRole's
+  "higher wins" login hook silently restored the pre-removal role.)
+- [x] 1.2 Keep `departed` accounts denied until an explicit leader
   reinstatement. Do not use a later login timestamp as proof of rejoining.
-- [ ] 1.3 Preserve API-key revocation and verify a removed account cannot mint
-  or use an officer key.
-- [ ] 1.4 Cover member/officer removal, login after removal, explicit
+  (`a0e0a4b` — `isMemberAllowed` no longer treats a login after
+  `departedAt` as a rejoin; departed is now an unconditional denial.)
+- [x] 1.3 Preserve API-key revocation and verify a removed account cannot mint
+  or use an officer key. (Already correct — `revokeApiKeysForUser` +
+  `verifyOfficerApiKey`'s live `canManageEpgp` re-check — but it depended
+  on 1.1's role-sync fix to actually hold on the removed account's next
+  login; verified end-to-end by the new script.)
+- [x] 1.4 Cover member/officer removal, login after removal, explicit
   reinstatement, WebSocket access, self-removal, and last-leader protection.
+  (`scripts/verify-guild-removal.ts`, `npm run verify:guild-removal`,
+  21/21 checks pass against local D1.)
 - [ ] 1.5 Deploy independently and verify browser and officer API denial.
+  No migration needed (no schema change) — `npm run deploy` only, then
+  confirm `/access-denied` for a removed account and a stale officer key's
+  403 in production. Deploys are blocked in this session — hand to the user.
 
 ## Phase 2: Incremental Desktop Log Capture
 
