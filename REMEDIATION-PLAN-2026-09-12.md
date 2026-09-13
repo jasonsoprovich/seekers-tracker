@@ -388,7 +388,10 @@ failure that can leave drift until the nightly rebuild.
   invented here without a caller that needs it yet.)
 - [x] 4.4 Add durable dirty-player/global markers in the same transaction as
   authoritative ledger mutations. (`2e9327c` — migration 0037,
-  `standings_dirty` [scope `"all"` or `"player:<id>"`]. `dirtyMarkerStatements`
+  `standings_dirty` [scope `"all"` or `"player:<id>"`] — **applied to remote
+  D1 2026-09-13** via `wrangler d1 migrations apply seekers-of-souls
+  --remote`, table confirmed live; code not yet deployed, see task 4.7's
+  deploy note below. `dirtyMarkerStatements`
   rides in the SAME `db.batch()` as the ledger rows wherever one already
   exists [bid-finalization's one atomic batch; each `insertEpLedgerBatch`
   chunk]; `markStandingsDirty` writes a fast adjacent statement immediately
@@ -429,6 +432,13 @@ failure that can leave drift until the nightly rebuild.
   verify` stayed at its pre-existing 9/13 baseline, confirmed identical
   against the pre-Phase-4 code via `git stash` — the 4 failures are known
   local seed drift from earlier sim sessions, not a regression.)
+
+**Deploy status (2026-09-13): migration 0037 applied to remote D1 —
+`standings_dirty` exists on production. Code (`2e9327c`, `10e1f71`) not
+yet deployed.** Per the plan's own migration-order rule, deploy this phase
+by itself and watch `wrangler tail` before starting Phase 4B or Phase 5 —
+`! npm run deploy`, then re-check `wrangler deploy --dry-run`'s bundle size
+and `/api/health`'s `buildId` against this phase's commit.
 
 ### Optional Phase 4B: Live Standings Fan-Out
 
