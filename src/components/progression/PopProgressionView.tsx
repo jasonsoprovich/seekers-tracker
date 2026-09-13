@@ -165,7 +165,10 @@ function MilestoneGraph({ rows, zoneCatalog }: { rows: ProgressionRow[]; zoneCat
             {rows.map((r) => (
               <tr key={r.id} className="hover:bg-neutral-900/40">
                 <td className="sticky left-0 z-10 min-w-[10rem] bg-neutral-950 px-3 py-1.5">
-                  <Link href={`/characters/${r.id}/account`} className="font-medium hover:text-emerald-400">
+                  {/* Remediation plan Phase 0.2 — see RosterTable.tsx's own
+                      comment on this same pattern; Progression lists every
+                      character too. */}
+                  <Link href={`/characters/${r.id}/account`} prefetch={false} className="font-medium hover:text-emerald-400">
                     {r.name}
                   </Link>
                   <span className="ml-1.5 text-xs text-neutral-500">{r.charType === "main" ? "Main" : "Alt"}</span>
@@ -344,7 +347,8 @@ export function PopProgressionView({
             {visible.map((r) => (
               <tr key={r.id} className="hover:bg-neutral-900/40">
                 <td className="px-3 py-2 font-medium">
-                  <Link href={`/characters/${r.id}/account`} className="hover:text-emerald-400">
+                  {/* Remediation plan Phase 0.2 — see RosterTable.tsx's comment. */}
+                  <Link href={`/characters/${r.id}/account`} prefetch={false} className="hover:text-emerald-400">
                     {r.name}
                   </Link>{" "}
                   <CharacterStatusBadge status={r.status} />

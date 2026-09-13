@@ -264,7 +264,16 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                 )
               )}
             </span>
-            <Link href={`/characters/${r.id}/account`} className="hover:text-emerald-400">
+            {/* Remediation plan Phase 0.2 (2026-09-12): no automatic prefetch —
+                Roster can render 700+ rows, and every visible row's link
+                becoming eligible for Next's viewport-triggered prefetch turns
+                a normal scroll into a burst of concurrent authenticated RSC
+                requests to /characters/[id]/account, each running the full
+                (app) layout + getSession() chain. Suspected contributor to
+                the freeze investigation's "prefetch-like account-page burst"
+                pattern in Workers Logs. A click still navigates normally —
+                this only stops the speculative background fetch. */}
+            <Link href={`/characters/${r.id}/account`} prefetch={false} className="hover:text-emerald-400">
               {r.name}
             </Link>
             <CharacterStatusBadge status={r.status} />
