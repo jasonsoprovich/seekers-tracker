@@ -27,6 +27,7 @@
     "verify:player-reconciliation": "tsx scripts/verify-player-reconciliation.ts",
     "verify:quest-flags": "tsx scripts/verify-quest-flags.ts",
     "verify:guild-removal": "tsx scripts/verify-guild-removal.ts",
+    "verify:bid-finalization": "tsx scripts/verify-bid-finalization.ts",
     "recompute:standings": "tsx scripts/recompute-standings.ts",
     "bake-legacy-decay": "tsx scripts/bake-legacy-decay.ts"
   },

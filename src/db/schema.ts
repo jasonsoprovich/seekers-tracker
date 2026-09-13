@@ -682,19 +682,35 @@ export const ledgerAuditLog = sqliteTable(
 // drop, not just the eventual winner, so retractions/last-second changes/
 // tell-to-the-wrong-person mistakes stay in the record instead of being
 // overwritten.
-export const lootEvents = sqliteTable("loot_events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
-  itemName: text("item_name").notNull(),
-  status: text("status", { enum: ["open", "awarded", "rot", "cancelled"] })
-    .notNull()
-    .default("open"),
-  openedBy: text("opened_by").references(() => users.id),
-  winningBidId: integer("winning_bid_id").references((): AnySQLiteColumn => bids.id),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
+export const lootEvents = sqliteTable(
+  "loot_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+    itemName: text("item_name").notNull(),
+    status: text("status", { enum: ["open", "awarded", "rot", "cancelled"] })
+      .notNull()
+      .default("open"),
+    openedBy: text("opened_by").references(() => users.id),
+    winningBidId: integer("winning_bid_id").references((): AnySQLiteColumn => bids.id),
+    // Client-generated (the parser app, at CaptureBids/SwitchBidRound —
+    // PLAN.md §11 Phase 3 task 3.1), carried through every live-push
+    // snapshot and the final POST /api/officer/bids submission. Lets a
+    // finalize retry (a dropped response after the write actually
+    // succeeded) recognize its own prior submission instead of relying on
+    // an item/time heuristic — see POST /api/officer/bids's submissionId
+    // handling. NULL on any submission from a parser build that predates
+    // this (rollout is tracker-first: this column exists and is optional
+    // before any released parser build ever sends it), and on every
+    // pre-Phase-3 row. SQLite's UNIQUE index permits any number of NULLs,
+    // so historical/old-client rows never collide.
+    submissionId: text("submission_id"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [uniqueIndex("loot_events_submission_id_unique").on(table.submissionId)],
+);
 
 export const bids = sqliteTable(
   "bids",

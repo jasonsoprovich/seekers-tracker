@@ -23,6 +23,9 @@ export const LIMITS = {
   zone: 80,
   characterName: 24,
   raidName: 80,
+  // The parser app's client-generated bid-round submission id (PLAN.md §11
+  // Phase 3 task 3.1) — a UUID is 36 chars; this leaves slack.
+  submissionId: 64,
 } as const;
 
 // EQ / Project Quarm character names are letters only, and short. Allow a
