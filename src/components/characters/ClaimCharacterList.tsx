@@ -14,7 +14,13 @@ export type ClaimRow = {
   level: number;
   charType: "main" | "alt" | "mule";
   alreadyPending: boolean;
+  // Remediation plan Phase 5 task 5.3 — the rest of this character's
+  // main/alt/mule group (empty for a standalone character). Approving a
+  // claim on this character attaches the whole group, these included.
+  groupMembers: { name: string; charType: "main" | "alt" | "mule" }[];
 };
+
+const CHAR_TYPE_LABEL: Record<"main" | "alt" | "mule", string> = { main: "Main", alt: "Alt", mule: "Mule" };
 
 function ClaimRowItem({ row }: { row: ClaimRow }) {
   const [note, setNote] = useState("");
@@ -44,6 +50,11 @@ function ClaimRowItem({ row }: { row: ClaimRow }) {
           <p className="text-sm text-neutral-400">
             Level {row.level} {row.className} — {row.raceName}
           </p>
+          {row.groupMembers.length > 0 && (
+            <p className="mt-1 text-xs text-neutral-500">
+              Claiming this also claims {row.groupMembers.map((m) => `${m.name} (${CHAR_TYPE_LABEL[m.charType]})`).join(", ")}
+            </p>
+          )}
         </div>
         {submitted ? (
           <span className="shrink-0 text-sm text-neutral-500">Pending officer review</span>

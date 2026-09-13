@@ -91,31 +91,25 @@ export async function linkCharacterToAccount(playerId: number, characterId: numb
   if (target.ownerId !== null && target.ownerId !== player.userId) {
     return { error: "That character is claimed by another member — resolve the ownership first." };
   }
-  if (target.playerId !== null) {
-    const [tp] = await db
-      .select({ userId: players.userId, discordId: players.discordId })
-      .from(players)
-      .where(eq(players.id, target.playerId));
-    if (tp && (tp.userId !== null || tp.discordId !== null)) {
-      return { error: "That character is on another member's account — unlink it there first." };
-    }
-  }
 
+  // A character on a DIFFERENT real identity's account (has a user_id or a
+  // discord_id) is refused by attachCharacterToPlayer's own centralized
+  // check (Remediation plan Phase 5 task 5.6) — no need to duplicate that
+  // lookup here.
   const attach = await attachCharacterToPlayer(db, characterId, playerId);
   if (attach.error) return { error: attach.error };
 
   // Display grouping: under an existing main it's an alt (unless it's a
   // mule); with no main yet, attachCharacterToPlayer already bootstrapped
-  // it as the main when its own type is "main".
+  // it as the main when its own type is "main". owner_id needs no separate
+  // write here — attachCharacterToPlayer's syncCharacterOwnership already
+  // set it for the whole group, this character included (task 5.1/5.4).
   const [after] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, playerId));
-  const now = new Date();
   if (after?.mainCharacterId && after.mainCharacterId !== characterId && target.charType !== "mule") {
     await db
       .update(characters)
-      .set({ charType: "alt", mainCharacterId: after.mainCharacterId, ownerId: target.ownerId ?? player.userId, updatedAt: now })
+      .set({ charType: "alt", mainCharacterId: after.mainCharacterId, updatedAt: new Date() })
       .where(eq(characters.id, characterId));
-  } else if (target.ownerId === null && player.userId !== null) {
-    await db.update(characters).set({ ownerId: player.userId, updatedAt: now }).where(eq(characters.id, characterId));
   }
 
   await settleStandings(db, { playerIds: [playerId] });

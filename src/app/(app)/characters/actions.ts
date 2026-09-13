@@ -288,28 +288,17 @@ export async function claimAlt(characterId: number): Promise<ClaimAltState> {
     return { error: "That character belongs to another member — use “Claim a Character” to request it." };
   }
 
-  // A character sitting on a real account's players row (has a user_id or a
-  // discord_id) that isn't the caller's is a genuine identity — an officer
-  // moves that, not a one-click self-serve. (assignCharacterToUser's
-  // absorbStandalonePlayer would refuse it anyway; catch it here with a
-  // clearer message.)
-  if (target.playerId !== null && target.playerId !== callerPlayerId) {
-    const [tp] = await db
-      .select({ userId: players.userId, discordId: players.discordId })
-      .from(players)
-      .where(eq(players.id, target.playerId));
-    if (tp && (tp.userId !== null || tp.discordId !== null)) {
-      return { error: "That character is linked to another member's account — an officer needs to move it." };
-    }
-  }
-
   // Set owner + player (absorbing any sheet-only standalone player and its
-  // ledger history) unless the caller already owns it.
+  // ledger history) unless the caller already owns it. A character sitting
+  // on a DIFFERENT real identity's player (has a user_id or a discord_id)
+  // is refused here by attachCharacterToPlayer's own centralized check
+  // (Remediation plan Phase 5 task 5.6) — no need to duplicate that lookup.
   if (target.ownerId === null) {
     const assigned = await assignCharacterToUser(db, characterId, session.user.id);
     if (!assigned.ok) return { error: assigned.error };
   } else {
-    await attachCharacterToPlayer(db, characterId, callerPlayerId);
+    const attached = await attachCharacterToPlayer(db, characterId, callerPlayerId);
+    if (attached.error) return { error: attached.error };
   }
 
   // Type it as an alt of the caller's main. (assignCharacterToUser only

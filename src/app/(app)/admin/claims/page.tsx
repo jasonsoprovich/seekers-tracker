@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -10,6 +10,8 @@ import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getSession } from "@/lib/session";
 import { guildDateTime } from "@/lib/guild-timezone";
+
+const CHAR_TYPE_LABEL: Record<string, string> = { main: "Main", alt: "Alt", mule: "Mule" };
 
 const STATUS_LABELS: Record<string, string> = {
   approved: "Approved",
@@ -37,6 +39,7 @@ export default async function ClaimReviewPage() {
       characterClass: characters.class,
       characterLevel: characters.level,
       characterOwnerId: characters.ownerId,
+      characterPlayerId: characters.playerId,
       requesterId: characterClaims.requesterId,
       requesterUsername: users.username,
     })
@@ -48,6 +51,24 @@ export default async function ClaimReviewPage() {
 
   const pending = rows.filter((r) => r.status === "pending");
   const decided = rows.filter((r) => r.status !== "pending");
+
+  // Remediation plan Phase 5 task 5.3 — "show the complete main/alt/mule
+  // group" to the officer before they approve, since approving attaches
+  // all of it, not just the one character requested.
+  const groupPlayerIds = [...new Set(pending.map((r) => r.characterPlayerId).filter((id): id is number => id != null))];
+  const groupMembers =
+    groupPlayerIds.length === 0
+      ? []
+      : await db
+          .select({ id: characters.id, name: characters.name, charType: characters.charType, playerId: characters.playerId })
+          .from(characters)
+          .where(inArray(characters.playerId, groupPlayerIds));
+  const groupsByPlayerId = new Map<number, typeof groupMembers>();
+  for (const m of groupMembers) {
+    if (m.playerId == null) continue;
+    if (!groupsByPlayerId.has(m.playerId)) groupsByPlayerId.set(m.playerId, []);
+    groupsByPlayerId.get(m.playerId)!.push(m);
+  }
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -80,6 +101,16 @@ export default async function ClaimReviewPage() {
                       Already assigned to this member — approving just clears the request.
                     </p>
                   )}
+                  {(() => {
+                    const siblings = (r.characterPlayerId != null ? groupsByPlayerId.get(r.characterPlayerId) ?? [] : []).filter(
+                      (m) => m.id !== r.characterId,
+                    );
+                    return siblings.length > 0 ? (
+                      <p className="mt-0.5 text-xs text-neutral-500">
+                        Approving also attaches {siblings.map((m) => `${m.name} (${CHAR_TYPE_LABEL[m.charType] ?? m.charType})`).join(", ")}
+                      </p>
+                    ) : null;
+                  })()}
                   <p className="mt-0.5 text-xs text-neutral-500 tabular-nums">
                     {guildDateTime(r.createdAt)}
                   </p>

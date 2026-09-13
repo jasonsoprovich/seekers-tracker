@@ -29,6 +29,7 @@
     "verify:guild-removal": "tsx scripts/verify-guild-removal.ts",
     "verify:bid-finalization": "tsx scripts/verify-bid-finalization.ts",
     "verify:standings-resilience": "tsx scripts/verify-standings-resilience.ts",
+    "verify:character-claims": "tsx scripts/verify-character-claims.ts",
     "recompute:standings": "tsx scripts/recompute-standings.ts",
     "bake-legacy-decay": "tsx scripts/bake-legacy-decay.ts"
   },

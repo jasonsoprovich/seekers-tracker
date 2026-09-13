@@ -20,6 +20,13 @@ import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 //   createStandalonePlayer — same job as attachCharacterToPlayer, for a
 //     character that has no player at all yet (discord_id-less, same
 //     "sheet-only" shape PLAN.md §11 Phase 3 task 3.5 already established)
+//
+// Remediation plan Phase 5 (2026-09-13) — account-level character claims:
+// one officer approval on any one character now claims the complete
+// main/alt/mule group (syncCharacterOwnership, called from
+// attachCharacterToPlayer and from resolvePlayerForUser's first-login
+// link), and listPlayerGroupCharacters backs the claim/review UI showing
+// that whole group before it's approved.
 
 // Schema-typed (not the bare `ReturnType<typeof drizzle>` most of this
 // codebase's lib functions use) — removePlayerFromGuildCore below passes
@@ -58,6 +65,11 @@ export async function resolvePlayerForUser(
   const [linked] = await db.select({ id: players.id }).from(players).where(eq(players.userId, user.id));
   if (linked) {
     await syncAccountRole(db, linked.id);
+    // Same self-heal reasoning as the seeded-row branch below: cheap (one
+    // UPDATE over a handful of rows) and guards against any out-of-band
+    // write that ever changes characters.player_id without going through
+    // attachCharacterToPlayer (e.g. an offline import/derive script).
+    await syncCharacterOwnership(db, linked.id);
     return linked.id;
   }
 
@@ -68,6 +80,15 @@ export async function resolvePlayerForUser(
   if (seeded) {
     await db.update(players).set({ userId: user.id, updatedAt: new Date() }).where(eq(players.id, seeded.id));
     await syncAccountRole(db, seeded.id);
+    // Remediation plan Phase 5 task 5.1 — this player row may already own
+    // a whole main/alt/mule group (pre-seeded from the sheet import /
+    // derive:players, PLAN.md §11 Phase 3), linked by player_id alone with
+    // no user ever attached. Until now, syncing had nothing to sync *to* —
+    // this is the first moment the group has a real account behind it, so
+    // every character in it needs characters.owner_id set to match, or
+    // "Your Characters" (keyed on owner_id) shows nothing for a returning
+    // member on their very first login.
+    await syncCharacterOwnership(db, seeded.id);
     return seeded.id;
   }
 
@@ -142,38 +163,80 @@ async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: 
 
 export type AttachResult = { error?: string };
 
+// Remediation plan Phase 5 task 5.1 — characters.owner_id is kept as a
+// synchronized COPY of players.user_id for every character on the account,
+// not a second source of truth: players.user_id (via player_id) is
+// authoritative for "who owns this account," and this is the one place
+// that copy gets written, so every owner_id check elsewhere in the app
+// (canManageCharacter, "Your Characters," the claim list's unclaimed
+// filter) keeps working unchanged. One UPDATE, so "every linked character"
+// updates atomically as a single SQLite statement.
+export async function syncCharacterOwnership(db: Db, playerId: number): Promise<void> {
+  const [player] = await db.select({ userId: players.userId }).from(players).where(eq(players.id, playerId));
+  if (!player) return;
+  await db.update(characters).set({ ownerId: player.userId, updatedAt: new Date() }).where(eq(characters.playerId, playerId));
+}
+
 // Links a character to a player (PLAN.md §10 "claiming an unassigned
 // character attaches it to their player, with type main/alt/mule" — the
 // type itself is whatever the character's own char_type already carries
 // from import/creation, not re-asked here). If the player doesn't have a
-// main yet and this character already is one, bootstrap
-// players.main_character_id — the common case of a member's very first
-// claimed/created character. A player who already has a main is left
-// alone here even if the newly attached character is also charType
-// "main" (a genuine conflict, e.g. Toryn's dump had a couple of these,
-// PLAN.md §11 Phase 3 task 3.4) — that needs a human decision
-// (swapMainCharacter), not a guess.
+// main yet, bootstraps players.main_character_id from whichever character
+// in the RESULTING group (this one, or one just absorbed with it — task
+// 5.4) is typed "main" — the common case of a member's very first claimed/
+// created character, or their first claim landing on an alt/mule of an
+// already-standalone group. A player who already has a main, or whose
+// group has more than one "main"-typed character (a genuine conflict, e.g.
+// Toryn's dump had a couple of these, PLAN.md §11 Phase 3 task 3.4), is
+// left alone — that needs a human decision (swapMainCharacter), not a
+// guess.
+//
+// Remediation plan Phase 5 task 5.6 — refuses a silent transfer: if the
+// character currently sits on a DIFFERENT player that's a real identity
+// (has a user_id or a discord_id — the same "real account" test
+// absorbStandalonePlayer already used, centralized here instead of
+// duplicated per caller), nothing moves. The caller's claim/link flow
+// surfaces this as a rejection; an officer has to resolve it by hand,
+// there's no override.
 export async function attachCharacterToPlayer(db: Db, characterId: number, playerId: number): Promise<AttachResult> {
-  const [character] = await db
-    .select({ id: characters.id, charType: characters.charType, playerId: characters.playerId })
-    .from(characters)
-    .where(eq(characters.id, characterId));
+  const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.id, characterId));
   if (!character) return { error: "Character not found." };
 
-  // Character already belongs to a defunct standalone player — pull that
-  // player's characters + ledger history across before repointing.
   if (character.playerId !== null && character.playerId !== playerId) {
+    const [oldPlayer] = await db.select({ userId: players.userId, discordId: players.discordId }).from(players).where(eq(players.id, character.playerId));
+    if (oldPlayer && (oldPlayer.userId !== null || oldPlayer.discordId !== null)) {
+      return { error: "That character is linked to another member's account — an officer needs to move it directly." };
+    }
+    // A defunct standalone player (no user, no discord_id) — pull its
+    // whole group's characters + ledger history across before repointing.
     await absorbStandalonePlayer(db, character.playerId, playerId);
   }
 
   await db.update(characters).set({ playerId, updatedAt: new Date() }).where(eq(characters.id, characterId));
 
-  if (character.charType === "main") {
-    const [player] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, playerId));
-    if (player && player.mainCharacterId === null) {
-      await db.update(players).set({ mainCharacterId: characterId, updatedAt: new Date() }).where(eq(players.id, playerId));
+  // Bootstrap the player's main pointer from whichever character in the
+  // RESULTING group is typed "main" — not just the one character this call
+  // named. Task 5.4: claiming an alt or mule of an absorbed standalone group
+  // must leave the new account's main pointer set too, not stuck null until
+  // the nightly reconcileMainPointers cron catches up a day later. Only
+  // bootstraps on a clean single match, same "exactly one" rule
+  // reconcileMainPointers itself uses — a genuine multi-main conflict (rare,
+  // pre-existing dump data) is left for a human, not guessed at.
+  const [player] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, playerId));
+  if (player && player.mainCharacterId === null) {
+    const mains = await db
+      .select({ id: characters.id })
+      .from(characters)
+      .where(and(eq(characters.playerId, playerId), eq(characters.charType, "main"), ne(characters.status, "removed")));
+    if (mains.length === 1) {
+      await db.update(players).set({ mainCharacterId: mains[0].id, updatedAt: new Date() }).where(eq(players.id, playerId));
     }
   }
+
+  // Task 5.4 — this may have just absorbed a whole main/alt/mule group
+  // (above); sync ownership for the complete resulting group, not just the
+  // one character this call named.
+  await syncCharacterOwnership(db, playerId);
 
   return {};
 }
@@ -184,28 +247,39 @@ export type AssignResult = { ok: true; playerId: number | null } | { ok: false; 
 // claim approval (admin/claims/actions.ts) and the officer/leader "assign a
 // character to a member" action (admin/actions.ts). Re-checks the character
 // is still unclaimed (a benign check-then-write race if two assignments
-// land together, same as acknowledged elsewhere), sets owner_id, resolves
-// the user's players row and attaches the character to it — which also
-// pulls any stranded ledger history under the one identity (see
-// attachCharacterToPlayer / absorbStandalonePlayer). The caller does the
-// follow-up refreshStandings({ playerIds: [result.playerId] }); kept out of
-// here so this module doesn't take a dependency on the standings layer.
+// land together, same as acknowledged elsewhere), resolves the user's
+// players row, and attaches the character to it — which also pulls in the
+// rest of its main/alt/mule group and sets owner_id for all of it (task
+// 5.4), or refuses outright if that group turns out to belong to a
+// different real identity (task 5.6) — see attachCharacterToPlayer /
+// absorbStandalonePlayer. owner_id is only ever written directly here for
+// the defensive non-Discord-account fallback, where there's no players row
+// to attach through at all. The caller does the follow-up
+// refreshStandings({ playerIds: [result.playerId] }); kept out of here so
+// this module doesn't take a dependency on the standings layer.
 export async function assignCharacterToUser(db: Db, characterId: number, userId: string): Promise<AssignResult> {
   const [character] = await db.select({ ownerId: characters.ownerId }).from(characters).where(eq(characters.id, characterId));
   if (!character) return { ok: false, error: "That character no longer exists." };
   if (character.ownerId !== null) return { ok: false, error: "That character has already been claimed by someone else." };
 
-  await db.update(characters).set({ ownerId: userId, updatedAt: new Date() }).where(eq(characters.id, characterId));
-
   const [user] = await db
     .select({ id: users.id, discordId: users.discordId, username: users.username })
     .from(users)
     .where(eq(users.id, userId));
-  if (!user) return { ok: true, playerId: null };
+  if (!user) {
+    await db.update(characters).set({ ownerId: userId, updatedAt: new Date() }).where(eq(characters.id, characterId));
+    return { ok: true, playerId: null };
+  }
 
   const playerId = await resolvePlayerForUser(db, user);
-  if (playerId) await attachCharacterToPlayer(db, characterId, playerId);
-  return { ok: true, playerId: playerId ?? null };
+  if (!playerId) {
+    await db.update(characters).set({ ownerId: userId, updatedAt: new Date() }).where(eq(characters.id, characterId));
+    return { ok: true, playerId: null };
+  }
+
+  const attached = await attachCharacterToPlayer(db, characterId, playerId);
+  if (attached.error) return { ok: false, error: attached.error };
+  return { ok: true, playerId };
 }
 
 export type SwapMainResult = { error?: string };
@@ -401,6 +475,22 @@ export async function createStandalonePlayer(db: Db, characterId: number, displa
   await db.update(players).set({ mainCharacterId: characterId }).where(eq(players.id, player.id));
   await db.update(characters).set({ playerId: player.id, updatedAt: new Date() }).where(eq(characters.id, characterId));
   return player.id;
+}
+
+export type PlayerGroupCharacter = { id: number; name: string; charType: "main" | "alt" | "mule" };
+
+const CHAR_TYPE_RANK: Record<PlayerGroupCharacter["charType"], number> = { main: 0, alt: 1, mule: 2 };
+
+// Remediation plan Phase 5 task 5.3 — "show the complete main/alt/mule
+// group," used by both the member-side claim list (what picking this
+// character actually claims) and the officer claim-review page (what
+// approving actually attaches). Main first, then alts/mules by name.
+export async function listPlayerGroupCharacters(db: Db, playerId: number): Promise<PlayerGroupCharacter[]> {
+  const rows = await db
+    .select({ id: characters.id, name: characters.name, charType: characters.charType })
+    .from(characters)
+    .where(eq(characters.playerId, playerId));
+  return rows.sort((a, b) => CHAR_TYPE_RANK[a.charType] - CHAR_TYPE_RANK[b.charType] || a.name.localeCompare(b.name));
 }
 
 // Nightly self-heal (2026-09-11, after Tunedup/Nixzard). players.

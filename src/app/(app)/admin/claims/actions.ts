@@ -1,10 +1,11 @@
 "use server";
 
-import { and, eq, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characterClaims, characters } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
+import { resolveOtherPendingClaimsForGroup } from "@/lib/claims";
 import { getDb } from "@/lib/db";
 import { settleStandings } from "@/lib/epgp/standings";
 import { assignCharacterToUser } from "@/lib/players";
@@ -38,7 +39,7 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
   //   - owned by a DIFFERENT account     -> actionable error; Deny still works
   //   - unowned                          -> normal assignment path
   const [character] = await db
-    .select({ ownerId: characters.ownerId })
+    .select({ ownerId: characters.ownerId, playerId: characters.playerId })
     .from(characters)
     .where(eq(characters.id, claim.characterId));
   if (!character) return { error: "That character no longer exists." };
@@ -53,7 +54,10 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
         reviewedAt: now,
       })
       .where(eq(characterClaims.id, claimId));
-    await autoDenyOtherPendingClaims(db, claim.characterId, claimId, session.user.id, now);
+    // Remediation plan Phase 5 task 5.5 — resolve against the character's
+    // whole main/alt/mule group, not just the claimed character, since any
+    // sibling's own pending claim is moot the same way this one is.
+    await resolveOtherPendingClaimsForGroup(db, character.playerId, claim.characterId, claim.requesterId, claimId, session.user.id, now);
     return {};
   }
 
@@ -64,12 +68,11 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
     };
   }
 
-  // Sets owner_id (re-checking the character is still unclaimed — a benign
-  // check-then-write race if two approvals land together), resolves the
-  // requester's player and attaches the character to it (PLAN.md §11 Phase
-  // 10 task 10.2 — also pulls any stranded ledger history under one
-  // identity). Shared with the "assign a character to a member" admin
-  // action so the two can't drift.
+  // Resolves the requester's player and attaches the character to it —
+  // which pulls in the character's complete main/alt/mule group and syncs
+  // owner_id across all of it (task 5.4), or refuses outright if that group
+  // belongs to a different real identity (task 5.6). Shared with the
+  // "assign a character to a member" admin action so the two can't drift.
   const assigned = await assignCharacterToUser(db, claim.characterId, claim.requesterId);
   if (!assigned.ok) return { error: assigned.error };
 
@@ -82,36 +85,12 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
   // (its ledger history moved onto this player), so recompute standings.
   if (assigned.playerId != null) await settleStandings(db, { playerIds: [assigned.playerId] });
 
-  await autoDenyOtherPendingClaims(db, claim.characterId, claimId, session.user.id, now);
+  // Task 5.5/5.7 — resolve against the RESULTING group (assigned.playerId),
+  // since absorption may have just pulled in siblings the claimed character
+  // didn't originally share a player row with.
+  await resolveOtherPendingClaimsForGroup(db, assigned.playerId, claim.characterId, claim.requesterId, claimId, session.user.id, now);
 
   return {};
-}
-
-// Any other still-pending claim on the same character is now moot once one
-// is approved (or the character turns out to already be assigned) — deny
-// them rather than leaving them stuck pending forever.
-async function autoDenyOtherPendingClaims(
-  db: Awaited<ReturnType<typeof getDb>>,
-  characterId: number,
-  approvedClaimId: number,
-  reviewedBy: string,
-  reviewedAt: Date,
-): Promise<void> {
-  await db
-    .update(characterClaims)
-    .set({
-      status: "denied",
-      decisionNote: "Character was claimed by another member.",
-      reviewedBy,
-      reviewedAt,
-    })
-    .where(
-      and(
-        eq(characterClaims.characterId, characterId),
-        eq(characterClaims.status, "pending"),
-        ne(characterClaims.id, approvedClaimId),
-      ),
-    );
 }
 
 export async function denyClaim(claimId: number, decisionNote: string): Promise<ClaimReviewResult> {
