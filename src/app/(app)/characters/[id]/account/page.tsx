@@ -11,7 +11,7 @@ import { ReverseMainSwapButton } from "@/components/admin/ReverseMainSwapButton"
 import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { Card } from "@/components/ui/Card";
 import { RoleBadge } from "@/components/ui/RoleBadge";
-import { characters, mainSwapEvents, players, users } from "@/db";
+import { characterClaims, characters, mainSwapEvents, players, users } from "@/db";
 import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getStandings } from "@/lib/epgp/standings";
@@ -96,7 +96,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
 
   const isAccountOwner = player.userId !== null && player.userId === session.user.id;
 
-  const [members, standings, swaps] = await Promise.all([
+  const [members, standings, swaps, pendingClaims] = await Promise.all([
     db
       .select({
         id: characters.id,
@@ -114,7 +114,13 @@ export default async function CharacterAccountPage({ params }: { params: Promise
       .where(eq(characters.playerId, player.id)),
     getStandings(db),
     db.select().from(mainSwapEvents).where(eq(mainSwapEvents.playerId, player.id)).orderBy(desc(mainSwapEvents.id)).limit(5),
+    db
+      .select({ characterId: characterClaims.characterId })
+      .from(characterClaims)
+      .innerJoin(characters, eq(characterClaims.characterId, characters.id))
+      .where(and(eq(characters.playerId, player.id), eq(characterClaims.status, "pending"))),
   ]);
+  const pendingClaimCharacterIds = new Set(pendingClaims.map((claim) => claim.characterId));
 
   const typeRank = (c: { id: number; charType: string }) => (c.id === player.mainCharacterId ? 0 : c.charType === "mule" ? 2 : 1);
   const list: AccountCharacter[] = members
@@ -131,6 +137,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
       isMain: c.id === player.mainCharacterId,
       lastActivity: c.lastActivityAt ? guildDate(c.lastActivityAt) : null,
       officerTagged: c.officerTagged,
+      hasPendingClaim: pendingClaimCharacterIds.has(c.id),
     }));
   // Officer tag toggles only mean something on an account whose site role
   // is officer or above — on anyone else's the badge would be MEMBER anyway.
@@ -205,6 +212,16 @@ export default async function CharacterAccountPage({ params }: { params: Promise
                 </span>
               )}
             </p>
+            {pendingClaims.length > 0 && (
+              <p className="mt-2 text-xs text-amber-400">
+                {pendingClaims.length === 1 ? "1 claim is awaiting officer review." : `${pendingClaims.length} claims are awaiting officer review.`}{" "}
+                {isOfficer && (
+                  <Link href="/admin/claims" className="text-emerald-400 hover:text-emerald-300">
+                    Review claims
+                  </Link>
+                )}
+              </p>
+            )}
           </div>
           <dl className="grid grid-cols-3 gap-x-6 gap-y-1 text-right tabular-nums">
             <dt className="text-xs tracking-wider text-neutral-500 uppercase">EP</dt>

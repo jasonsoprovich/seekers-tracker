@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characters, players, users } from "@/db";
+import { characterClaims, characters, players, users } from "@/db";
 import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
@@ -34,7 +34,7 @@ export default async function RosterPage() {
   // officer's account by a leader has no owner_id of its own, and used to
   // show MEMBER / Unclaimed (Babou on Sandrian's account, 2026-09-11).
   const accountUsers = alias(users, "account_users");
-  const [rows, totals] = await Promise.all([
+  const [rows, totals, pendingClaims] = await Promise.all([
     db
       .select({
         id: characters.id,
@@ -66,7 +66,12 @@ export default async function RosterPage() {
       .orderBy(characters.name),
     // Materialized standings — one ~255-row scan, always current.
     getStandings(db),
+    db
+      .select({ characterId: characterClaims.characterId })
+      .from(characterClaims)
+      .where(eq(characterClaims.status, "pending")),
   ]);
+  const pendingClaimCharacterIds = new Set(pendingClaims.map((claim) => claim.characterId));
 
   // Every character sharing a player (main, alt, mule) reads the same
   // total, so there's no alt→main resolution to do here.
@@ -89,6 +94,7 @@ export default async function RosterPage() {
     return {
       id: r.id,
       name: r.name,
+      hasPendingClaim: pendingClaimCharacterIds.has(r.id),
       canManageAccount: canManageAccounts,
       ownerUsername: r.accountUsername ?? r.ownerUsername,
       ownerRole: shownRole,

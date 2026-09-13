@@ -27,6 +27,7 @@ export type AccountCharacter = {
   isMain: boolean;
   lastActivity: string | null;
   officerTagged: boolean;
+  hasPendingClaim: boolean;
 };
 
 // One row of the account's character list. Which controls render is
@@ -129,6 +130,11 @@ export function AccountCharacterRow({
               {typeLabel}
             </span>
             <CharacterStatusBadge status={character.status} />
+            {character.hasPendingClaim && (
+              <span className="rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-amber-400">
+                Claim pending
+              </span>
+            )}
             {character.id === currentId && <span className="text-xs text-neutral-500">(this page)</span>}
           </p>
           <p className="text-sm text-neutral-400">

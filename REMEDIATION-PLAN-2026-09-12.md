@@ -742,8 +742,11 @@ needed — this phase is tracker-only.
   removed Admin's duplicate established-member controls; the Account page's
   existing server actions remain the only UI mutation surface and retain their
   own authorization checks.)
-- [ ] 8.3 Surface pending-claim and setup indicators on relevant roster/account
-  rows.
+- [x] 8.3 Surface pending-claim and setup indicators on relevant roster/account
+  rows. (`Phase 8.3` — generic pending-claim badges now mark the relevant
+  Roster and Account character rows, with an Account-level count and officer
+  link to the claim queue; requester identity remains in the officer queue.
+  The no-character setup state is the dedicated Admin queue from 8.5.)
 - [x] 8.4 Remove the duplicate established-members list from Admin. (`Phase
   8.4` — Admin now leaves established accounts to Roster → Account, rather
   than duplicating their role/removal controls.)

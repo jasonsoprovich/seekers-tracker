@@ -23,6 +23,7 @@ const RACE_FILTER_OPTIONS = [...CHAR_RACES].sort(byNameUnknownLast);
 export type RosterRow = {
   id: number;
   name: string;
+  hasPendingClaim: boolean;
   // The Account page remains readable by every member, but officers and
   // above get the explicit management action from this directory.
   canManageAccount: boolean;
@@ -282,6 +283,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
               {r.name}
             </Link>
             <CharacterStatusBadge status={r.status} />
+            {r.hasPendingClaim && (
+              <span className="rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-amber-400">
+                Claim pending
+              </span>
+            )}
             {r.departed && (
               <span className="rounded border border-red-800 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-red-400">
                 Removed from guild
@@ -370,6 +376,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
               {r.name}
             </Link>
             <CharacterStatusBadge status={r.status} />
+            {r.hasPendingClaim && (
+              <span className="rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-amber-400">
+                Claim pending
+              </span>
+            )}
           </div>
           <div className="mt-0.5 text-xs text-neutral-500">
             EP {r.ep === null ? "—" : Math.round(r.ep)} · GP {r.gp === null ? "—" : Math.round(r.gp)} · Prio{" "}

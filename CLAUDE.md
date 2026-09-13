@@ -358,6 +358,13 @@ any established-account management can occur. `tsc` passes.
 until an officer assigns an unclaimed character or they complete a claim. It
 contains no established-account role or guild-status controls. `tsc` passes.
 
+**Remediation plan Phase 8.3 — claim/setup status indicators, 2026-09-13
+(no migration; local only).** Pending claims now mark their character on the
+Roster and Account page without exposing the requester guild-wide. The Account
+summary counts pending claims and gives officers a direct link to the existing
+claim queue; verified Discord users without any character remain visible in
+the Account setup queue. `tsc` passes.
+
 **Remediation plan Phase 7 — bid-history priority clarity, 2026-09-13
 (migration 0038, LOCAL ONLY — needs `--remote` apply before its own next
 deploy; see REMEDIATION-PLAN-2026-09-12.md §Phase 7 for full per-task
