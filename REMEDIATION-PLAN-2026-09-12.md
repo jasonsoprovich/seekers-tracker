@@ -295,10 +295,17 @@ partial authoritative data, while retries rely on an item/time heuristic.
   during tracker-first/parser-second rollout. (`44f3ed1` — migration 0036,
   `loot_events.submission_id`, nullable + a unique index [SQLite permits any
   number of NULLs in a unique index]. Plain `ADD COLUMN` + `CREATE UNIQUE
-  INDEX`, no table rebuild. Applied `--local`; **needs `wrangler d1
-  migrations apply seekers-of-souls --remote` before the code below
-  deploys** — tracker-first, so an old parser build that never sends a
-  submissionId keeps working unchanged throughout the rollout.)
+  INDEX`, no table rebuild. Applied `--local`, then **applied to remote D1
+  and deployed 2026-09-13** by the user (this session's auto-mode has no
+  access to either) — `wrangler d1 migrations apply seekers-of-souls
+  --remote` confirmed the column + unique index live on remote before
+  `npm run deploy` shipped the code. Worker version
+  `608841c8-b229-4395-930b-c81c6c24a30b`, bundle 2721.49 KiB gzipped;
+  `buildId` = commit `676a693` (confirmed via `/api/health`). Read-only
+  post-deploy checks: `/`, `/login` 200; `/roster`, `/live-bids` 307
+  unauthenticated; `POST /api/officer/bids` with no key 401 — no
+  regression. Tracker-first rollout as designed, so an old parser build
+  that never sends a submissionId keeps working unchanged.)
 - [x] 3.3 Resolve and validate every character, player, tier, winner, and GP
   amount before writing. (`44f3ed1` — every entry is resolved in
   `finalizeBidRound` before any statement is built; previously the

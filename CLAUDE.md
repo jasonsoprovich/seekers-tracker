@@ -333,17 +333,17 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Remediation plan Phase 3 — atomic and idempotent bid finalization,
-2026-09-13. Tasks 3.1-3.8 done locally; migration 0036 and the deploy are
-still pending — see REMEDIATION-PLAN-2026-09-12.md §Phase 3 for full
-per-task detail.** `seekers-epgp-parser` commit `406070f` mints a UUID
+2026-09-13. Tasks 3.1-3.8 done and DEPLOYED — see
+REMEDIATION-PLAN-2026-09-12.md §Phase 3 for full per-task detail.**
+`seekers-epgp-parser` commit `406070f` mints a UUID
 (`crypto/rand`) the moment a bid round opens (`CaptureBids`/
 `SwitchBidRound`), carried through every live/parked/reviewed round and
 into `SubmitBids` — this exists because `officerapi.sendWithRetry` already
 silently retries a finalize once on a transport error or a 502/503/504
 with the identical body, and without a stable id the site had no way to
 tell that apart from a fresh submission. Tracker commit `44f3ed1`: `loot_
-events.submission_id` (migration 0036, nullable + unique, local only so
-far); `POST /api/officer/bids`'s core logic moved into `src/lib/epgp/
+events.submission_id` (migration 0036, nullable + unique); `POST
+/api/officer/bids`'s core logic moved into `src/lib/epgp/
 bid-finalization.ts`'s `finalizeBidRound` (the route is now just auth +
 JSON parsing + response mapping); every entry now resolves and validates
 fully before anything is written (previously the loot event could be
@@ -357,16 +357,25 @@ the original result untouched (GP not re-applied). New `npm run
 verify:bid-finalization` (27/27 against local D1) covers the atomic write,
 the same-submissionId retry, the item/time heuristic still gating a
 genuinely different submission, an unresolvable winner rejecting before
-any write, and a multi-winner duplicate-drop round. **Not yet applied to
-remote D1 or deployed** — this session's auto-mode has no access to run
-`wrangler d1 migrations apply --remote` or `npm run deploy` (see
-"Auto-mode blocked ops" in the assistant's own memory); hand both to the
-user via `! npx wrangler d1 migrations apply seekers-of-souls --remote`
-then `! npm run deploy`, per the plan's rollout order (schema first, then
-code). No parser release has been cut for `406070f` yet either — it's
-additive/backward-compatible (an old parser build simply never sends a
-`submissionId`, and the tracker already handles that), so cutting a release
-isn't blocking, but hasn't been done.
+any write, and a multi-winner duplicate-drop round. **Migration 0036
+applied to remote D1 and deployed to production 2026-09-13** — this
+session's auto-mode has no access to `wrangler d1 migrations apply
+--remote`/`npm run deploy` (see "Auto-mode blocked ops" in the assistant's
+own memory), so both were handed to the user via `! npx wrangler d1
+migrations apply seekers-of-souls --remote` then `! npm run deploy`. The
+first `--remote` attempt failed with a Cloudflare API 403 [code: 7403] —
+`wrangler whoami` still showed a logged-in OAuth token with `d1 (write)`
+scope and the correct account, but the token had gone stale server-side;
+`wrangler logout` + `wrangler login` (fresh browser OAuth) fixed it, then
+the retry succeeded cleanly. Worker version
+`608841c8-b229-4395-930b-c81c6c24a30b`, bundle 2721.49 KiB gzipped,
+`buildId` = commit `676a693` (confirmed via `/api/health`). Read-only
+post-deploy: `/`, `/login` 200; `/roster`, `/live-bids` 307
+unauthenticated; `POST /api/officer/bids` with no key 401 — no regression.
+No parser release has been cut for `406070f` yet — it's additive/
+backward-compatible (an old parser build simply never sends a
+`submissionId`, and the tracker already handles that), so cutting a
+release isn't blocking, but hasn't been done.
 
 **Remediation plan Phases 0 and 1 deployed to production, 2026-09-12 —
 Worker version `d027a1d5-a475-4700-8bb1-e8001ab60b24`, `buildId` = commit
