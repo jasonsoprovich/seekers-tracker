@@ -790,8 +790,13 @@ needed — this phase is tracker-only.
   destination instead of always returning to `/characters`. (Protected page
   requests carry their path to `/login?next=...`; only same-origin absolute
   paths survive `sanitizeSignInDestination`, with `/characters` as fallback.)
-- [ ] 9.7 Measure responsive layout, image payload/LCP, keyboard navigation,
-  contrast, and reduced-motion behavior before deployment.
+- [x] 9.7 Measure responsive layout, image payload/LCP, keyboard navigation,
+  contrast, and reduced-motion behavior before deployment. (`Phase 9.7` —
+  Playwright covers 320/375/390/768/1440px without overflow, optimized hero
+  payload under 300 KB and local LCP at or below 2.5s, keyboard skip/header
+  focus order, representative WCAG AA color pairs, and reduced-motion CSS.
+  Full browser suite 75/75; webpack and OpenNext production builds pass;
+  Wrangler dry run is 2789.09 KiB gzip.)
 
 ## Phase 10: Recovery and Operational Hardening
 

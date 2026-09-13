@@ -350,14 +350,29 @@ checks pass.
 2026-09-13 (no migration; local only).** `DiscordSignInButton` is the one
 client control used by the landing header and fallback `/login` page. The
 landing page starts member Discord OAuth directly while its recruitment links
-still join the guild Discord instead. A narrowly matched Next.js 16
-`src/proxy.ts` supplies the requested protected path to the authenticated
-layout; unauthenticated visitors reach `/login?next=...`, and `/login` passes
+still join the guild Discord instead. Narrowly matched Edge Middleware
+supplies the requested protected path to the authenticated layout (OpenNext
+does not yet support Next.js 16's Node-runtime proxy); unauthenticated
+visitors reach `/login?next=...`, and `/login` passes
 only a sanitized same-origin absolute path to Better Auth. External,
 protocol-relative, backslash-containing, malformed, and login-loop targets
 fall back to `/characters`. Browser coverage confirms the direct POST, a
 query-preserving `/epgp/ledger?type=bids` return, external rejection, and the
 protected-route redirect.
+
+**Remediation plan Phase 9 complete — public landing and login flow,
+2026-09-13 (no migration; local only).** `e2e/public-landing.spec.ts`
+provides the final transition gate: no horizontal overflow at 320, 375, 390,
+768, or 1440px; the priority hero response remains below 300 KB and records a
+local Chromium LCP at or below 2.5s; the skip link and header actions follow a
+visible keyboard focus order; representative hero, action, and parchment text
+pairs meet WCAG AA contrast; and all decorative animation resolves to `none`
+under reduced motion. The full Playwright suite passes 75/75; webpack and
+OpenNext production builds pass; Wrangler dry run is 2789.09 KiB gzip, below
+the 3072 KiB limit. The dry run caught that OpenNext 1.20.2 does not support
+Next.js 16's Node-runtime `proxy.ts`; the return-path header therefore uses
+the deprecated-but-supported Edge `middleware.ts` convention until the
+adapter supports Proxy. No migration or deployment is part of this phase.
 
 **Remediation plan Phase 8.1 — roster account-management entry point,
 2026-09-13 (no migration; local only).** The Roster remains the guild-wide
