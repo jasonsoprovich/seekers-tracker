@@ -332,6 +332,85 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 0 — website freeze root cause found and fixed,
+2026-09-13 (commits `f03942d`, `db77e4a`, `21f2465`; local only — see
+REMEDIATION-PLAN-2026-09-12.md §Phase 0 task 0.7, deploy still pending).**
+The freeze investigation's own working theory (per-isolate, ~20-minute
+bursts, no D1 statement pending) pointed at better-auth's async-context
+handling; this phase found and confirmed the actual mechanism rather than
+just upgrading and hoping:
+- **`nodejs_compat` was missing from `wrangler.jsonc` entirely** —
+  required by `@opennextjs/cloudflare`'s own template (confirmed against
+  its packages/cloudflare/templates/wrangler.jsonc), apparently never
+  added when this app was scaffolded. Without it, `@better-auth/core`'s
+  `./async_hooks` export can't `import("node:async_hooks")` at runtime.
+- **`@better-auth/core` 1.7.1's own package.json lists the `"edge"`
+  export condition before `"workerd"`** in that same export map, so a
+  bundler resolving both conditions picks `pure.index.mjs` — whose
+  fallback, `AsyncLocalStoragePolyfill`, is a single shared `#current`
+  field that races under concurrent requests in the same isolate, not
+  real per-continuation isolation. 1.7.2 reorders `workerd` ahead of
+  `edge` (confirmed by diffing the raw published package.json of both
+  versions, not `npm view`'s own re-sorted JSON) — and better-auth's own
+  GitHub release notes for 1.7.2 independently confirm it: "@better-auth/
+  core: Fixed async context loss in Cloudflare Workers bundles with
+  multiple runtime conditions." An exact match for the observed symptom.
+- Fix: added `nodejs_compat` to both wrangler configs; pinned
+  `better-auth`/`@better-auth/api-key`/`@better-auth/drizzle-adapter` to
+  exact `1.7.2` (Phase 11 moves to 1.7.4 later, deliberately separate —
+  it needs its own `accounts.issuer` migration); added an `overrides`
+  entry pinning the *transitive* `@better-auth/core` to `1.7.2` too — npm
+  otherwise hoisted it to `1.7.4` even though none of the three direct
+  deps asked for anything past `1.7.2`, which would have silently pulled
+  Phase 11's schema change in early.
+- Also shipped: a `checkAsyncContextImplementation()` boot log (always
+  on, once per isolate) that names which AsyncLocalStorage implementation
+  actually resolved — the ongoing, observable proof this is fixed, not a
+  one-time guess; a per-request correlation id (`x-request-id`, generated
+  if absent) folded into every `[hang]`/`[slow]`/`[perf]` line and into
+  `session.ts`'s stage labels, so Workers Logs can show one request's
+  whole timeline instead of several interleaved ones; a 12s hard deadline
+  on `getSession()` that throws `SessionLookupTimeoutError` instead of
+  resolving null on a stalled lookup, so it now surfaces as a recoverable
+  error via the existing `(app)/error.tsx`/`global-error.tsx` boundaries
+  instead of ever reaching a `redirect("/login")` (a stalled check no
+  longer looks like a logout); `prefetch={false}` on Roster's and
+  Progression's per-row account links (each can render 700+ rows) so an
+  ordinary scroll can't turn into a burst of concurrent authenticated RSC
+  requests to `/characters/[id]/account`.
+- **Verified**: the built OpenNext bundle, run under a real `wrangler dev
+  --local`, logs `[boot] async-context: AsyncLocalStorage (real,
+  per-continuation isolation)`. A real signed session cookie was minted
+  from inside the running server's own auth context (better-auth's
+  bundled `dist/plugins/test-utils/cookie-builder.mjs`) and used to
+  exercise 40 concurrent prefetch-flavored requests to distinct account
+  pages, 3×7 concurrent authenticated requests across 7 routes, 15
+  client-aborted requests mixed with 10 normal ones, and 20 concurrent
+  hits on one route — all clean, no `[hang]` warnings, server responsive
+  throughout. `tsc`, `npm run build` (webpack), and a full
+  `opennextjs-cloudflare build` all clean; `wrangler deploy --dry-run`
+  bundle 2719.42 KiB gzipped (well under the 3072 KiB Free-plan cap);
+  `npm run verify` unaffected (9/13, identical to the pre-existing
+  baseline — see the Phase 1 entry below for what those are);
+  `npm run verify:guild-removal` still 21/21. **Not yet deployed** — the
+  version bump + `nodejs_compat` flip is exactly the kind of runtime
+  change that should ship alone and be watched, not bundled with
+  anything else; see the remediation plan's task 0.7 for the deploy +
+  monitor checklist.
+- **Phase 1 — guild removal/authorization safety, done the same session
+  (commits `a0e0a4b`, `e4a760c`; local only, no migration, deploy still
+  pending):** removal now drops `players.role` to member unconditionally
+  (previously only `users.role` moved, so `syncAccountRole`'s "higher
+  role wins" login hook silently restored a removed officer/leader's old
+  role on their next login); `isMemberAllowed` no longer treats a login
+  after `departedAt` as proof of rejoining Discord — departed now stays
+  denied until an explicit leader reinstatement, full stop. The mutation
+  logic moved from admin/actions.ts's private helpers into
+  `src/lib/players.ts` (`removePlayerFromGuildCore`/
+  `reinstatePlayerFromGuildCore`) so it's reachable from a script without
+  a fake Next request context. New `scripts/verify-guild-removal.ts`
+  (`npm run verify:guild-removal`), 21/21 checks against local D1.
+
 **Stability review, 2026-09-10 (commits `21892b4`, `24cd1aa`; parser
 `eb70376`). Deployed same day: tracker Worker version `1d15c90f` (build
 `2a5c977`, D1 bookmark "pre-stability-review 2026-09-10" taken first);
