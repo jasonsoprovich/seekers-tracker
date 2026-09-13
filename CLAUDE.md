@@ -9,6 +9,12 @@ changes — it's the thing that survives a cleared conversation.
 plan** for the current rebuild: verified findings about how the guild's EPGP
 rules actually work, the target schema, and a phased task list with deadlines.
 
+**Current implementation plan:** after reading `../PLAN.md`, read
+`REMEDIATION-PLAN-2026-09-12.md`. It is the active, ordered plan for the
+post-launch stability, bid reliability, account claims, mobile, workflow, and
+UX work. The parent plan remains authoritative for domain rules and historical
+decisions; the dated remediation plan governs what to implement next.
+
 - **§11** is the execution plan — numbered phases, one task per commit, each
   tagged by repo.
 - **§1–§10** explain *why*. Consult them when a task needs context.
