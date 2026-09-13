@@ -61,3 +61,41 @@ export async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> 
 export function perfNote(msg: string): void {
   if (perfEnabled()) console.log(`[perf] ${msg}`);
 }
+
+let asyncContextChecked = false;
+
+// Remediation plan Phase 0.1/0.4 (2026-09-12): names which async-context
+// primitive better-auth's own `@better-auth/core/async_hooks` resolved to
+// in THIS isolate. "AsyncLocalStorage" is the real, per-continuation-safe
+// implementation (native workerd async_hooks, or a genuine host-provided
+// one). "AsyncLocalStoragePolyfill" is @better-auth/core's own last-resort
+// fallback — a single shared mutable field that races under concurrent
+// requests in the same isolate, matching the freeze investigation's
+// signature (per-isolate, no D1 statement pending, one request's session
+// state seemingly bleeding into another's). Which one loads depends on (a)
+// the package's exports-map condition order for its "workerd" vs "edge"
+// build (fixed in @better-auth/core 1.7.2 — see wrangler.jsonc's comment on
+// the version pin) and (b) whether `nodejs_compat` is actually on at
+// runtime, so `import("node:async_hooks")` / `globalThis.AsyncLocalStorage`
+// resolve to something real instead of nothing. Always on (this is a
+// one-time, near-zero-cost check per isolate, not a per-request cost) —
+// read it in Workers Logs after any deploy touching better-auth's version
+// or wrangler.jsonc's compatibility_flags.
+export async function checkAsyncContextImplementation(): Promise<void> {
+  if (asyncContextChecked) return;
+  asyncContextChecked = true;
+  try {
+    const { getAsyncLocalStorage } = await import("@better-auth/core/async_hooks");
+    const ALS = await getAsyncLocalStorage();
+    const name = ALS?.name || "(anonymous)";
+    if (name === "AsyncLocalStorage") {
+      console.log(`[boot] async-context: ${name} (real, per-continuation isolation)`);
+    } else {
+      console.error(
+        `[boot] async-context: ${name} — WARNING: not a real AsyncLocalStorage; cross-request state leak risk under concurrent load`,
+      );
+    }
+  } catch (e) {
+    console.error(`[boot] async-context: unavailable — ${e}`);
+  }
+}

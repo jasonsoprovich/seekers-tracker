@@ -13,8 +13,23 @@
 	// LiveAuctionSession — see custom-worker.ts's own comment.
 	"main": "custom-worker.ts",
 	"compatibility_date": "2026-08-16",
+	// "nodejs_compat" (2026-09-12, remediation plan Phase 0.3/0.4): required
+	// by @opennextjs/cloudflare's own template — see its
+	// packages/cloudflare/templates/wrangler.jsonc — and was missing here.
+	// Without it, `import("node:async_hooks")` (used internally by
+	// better-auth's request-context tracking, @better-auth/core's
+	// async_hooks export) can't resolve at runtime; better-auth falls back
+	// to checking `globalThis.AsyncLocalStorage`, and if that's ALSO absent,
+	// all the way to its own single-shared-field `AsyncLocalStoragePolyfill`
+	// — which races under concurrent requests in the same isolate (its one
+	// `#current` field is shared, not truly per-async-context). That matches
+	// the freeze investigation's exact signature: per-isolate, no D1
+	// statement pending, session state that seems to belong to a different
+	// request. See custom-worker.ts's cold-start diagnostic log for which
+	// implementation is actually resolved after this change ships.
 	"compatibility_flags": [
-		"global_fetch_strictly_public"
+		"global_fetch_strictly_public",
+		"nodejs_compat"
 	],
 	// seekersofsouls.com (apex) is the guild's live domain and the canonical
 	// host — see custom-worker.ts, which 301/308s the other two here so the
