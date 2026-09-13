@@ -24,6 +24,14 @@
 //   4.6 — settleStandings never throws back into a caller even when the
 //     underlying recompute fails, and it still leaves the durable marker
 //     behind for the repair pass to find.
+//   4.7 — Scenarios G-I exercise the actual production entry points
+//     (insertLedgerEntry, attachCharacterToPlayer's account absorption,
+//     swapMainCharacter/reverseMainSwap's fee) end to end, not just the
+//     shared primitives above. Attendance (insertEpLedgerBatch) and bids
+//     (finalizeBidRound) share those same primitives and are covered by
+//     npm run verify:attendance-minimum/verify:bid-finalization; decay
+//     commit/reverse and departure wipes by verify:global-decay/
+//     verify:guild-removal — all still pass unchanged after this phase.
 //
 // Usage:
 //   npx tsx scripts/verify-standings-resilience.ts
@@ -35,8 +43,9 @@ import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
-import { characters, epLedger, playerEpgpTotals, players, standingsDirty } from "../src/db";
+import { characters, epLedger, playerEpgpTotals, players, standingsDirty, users } from "../src/db";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
+import { insertLedgerEntry } from "../src/lib/epgp/ledger-entry";
 import {
   getStandings,
   getStandingsForPlayers,
@@ -45,6 +54,7 @@ import {
   repairDirtyStandings,
   settleStandings,
 } from "../src/lib/epgp/standings";
+import { attachCharacterToPlayer, reverseMainSwap, swapMainCharacter } from "../src/lib/players";
 
 const SNAPSHOT_NAME = "phase4-standings-resilience-test";
 
@@ -78,6 +88,22 @@ async function makePlayerWithEp(db: Db, points: number): Promise<number> {
   return player.id;
 }
 
+// insertLedgerEntry/swapMainCharacter/reverseMainSwap record `enteredBy`/
+// `appliedBy` as a real users.id FK — a plain string like "verify-script"
+// fails that constraint, so scenarios G and I need one real (throwaway)
+// user to attribute their writes to.
+async function makeUser(db: Db): Promise<string> {
+  const id = randomUUID();
+  await db.insert(users).values({
+    id,
+    email: `verify-standings-resilience-${id}@example.invalid`,
+    discordId: `test-discord-${id}`,
+    username: `VerifyStandingsUser-${id.slice(0, 8)}`,
+    role: "leader",
+  });
+  return id;
+}
+
 async function dirtyScopes(db: Db): Promise<string[]> {
   return (await db.select({ scope: standingsDirty.scope }).from(standingsDirty)).map((r) => r.scope);
 }
@@ -91,6 +117,7 @@ async function main() {
 
   try {
     const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
+    const actingUserId = await makeUser(db);
 
     // ---------------------------------------------------------------
     console.log("\nScenario A: markStandingsDirty is durable and scoped correctly");
@@ -173,6 +200,58 @@ async function main() {
     check(failures, targeted.get(playerF)?.ep === 999, `getStandingsForPlayers returns the current value regardless of the whole-table cache (got ${targeted.get(playerF)?.ep})`);
     const stillCached = await getStandings(db);
     check(failures, stillCached.get(playerF)?.ep === 50, "getStandings itself is untouched — still serving the stale cached snapshot until its own TTL expires (expected, documented tradeoff)");
+
+    // ---------------------------------------------------------------
+    console.log("\nScenario G: insertLedgerEntry (manual entry) marks dirty, settles, and returns the fresh standing");
+    const playerG = await makePlayerWithEp(db, 10);
+    await refreshStandings(db, { playerIds: [playerG] });
+    const [charG] = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, playerG));
+    const manualResult = await insertLedgerEntry(
+      db,
+      { kind: "ep", characterId: charG.id, activity: "verify-standings-resilience manual", points: 40, occurredAt: new Date().toISOString(), note: "" },
+      actingUserId,
+      "manual",
+    );
+    check(failures, manualResult.ok, `manual entry insert succeeds (${manualResult.ok ? "ok" : manualResult.error})`);
+    check(failures, manualResult.ok && manualResult.standing?.ep === 50, `insertLedgerEntry returns the affected player's fresh standing (got ${manualResult.ok ? manualResult.standing?.ep : "n/a"})`);
+    check(failures, !(await dirtyScopes(db)).includes(`player:${playerG}`), "the marker was cleared once settleStandings actually succeeded");
+
+    // ---------------------------------------------------------------
+    console.log("\nScenario H: attachCharacterToPlayer's account absorption marks the target player dirty");
+    const fromPlayer = await makePlayerWithEp(db, 75); // a standalone (no userId/discordId) — eligible to be absorbed
+    const [fromChar] = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, fromPlayer));
+    const toPlayer = await makePlayerWithEp(db, 25);
+    const [toChar] = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, toPlayer));
+    const attachResult = await attachCharacterToPlayer(db, fromChar.id, toPlayer);
+    check(failures, !attachResult.error, `attachCharacterToPlayer succeeds (${attachResult.error ?? "ok"})`);
+    check(failures, (await db.select().from(players).where(eq(players.id, fromPlayer))).length === 0, "the absorbed standalone player row was deleted");
+    check(failures, (await dirtyScopes(db)).includes(`player:${toPlayer}`), "absorbing a standalone player's ledger history marks the target player dirty");
+    await settleStandings(db, { playerIds: [toPlayer] });
+    const afterAbsorb = await db.select().from(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, toPlayer));
+    check(failures, afterAbsorb[0]?.ep === 100, `the target player's total includes the absorbed history (got ${afterAbsorb[0]?.ep})`);
+    void toChar; // resolved only to prove the row exists; not otherwise needed
+
+    // ---------------------------------------------------------------
+    console.log("\nScenario I: main-swap fee marks the player dirty, and reversing it refunds correctly");
+    const swapPlayer = await makePlayerWithEp(db, 60);
+    const [oldMain] = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, swapPlayer));
+    await db.update(players).set({ mainCharacterId: oldMain.id }).where(eq(players.id, swapPlayer));
+    const [newMain] = await db
+      .insert(characters)
+      .values({ name: `VerifyStandingsChar-${randomUUID().slice(0, 8)}`, class: UNKNOWN_CLASS_ID, race: UNKNOWN_RACE_ID, level: 1, playerId: swapPlayer })
+      .returning({ id: characters.id });
+    await refreshStandings(db, { playerIds: [swapPlayer] });
+    const swapResult = await swapMainCharacter(db, swapPlayer, newMain.id, actingUserId, 500);
+    check(failures, !swapResult.error, `swapMainCharacter with a fee succeeds (${swapResult.error ?? "ok"})`);
+    const afterSwap = await db.select().from(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, swapPlayer));
+    check(failures, afterSwap[0]?.gp === 500, `the fee landed on the player's GP total (got ${afterSwap[0]?.gp})`);
+    check(failures, !(await dirtyScopes(db)).includes(`player:${swapPlayer}`), "the swap's own settleStandings cleared its marker");
+    const [swapEvent] = await db.select({ id: schema.mainSwapEvents.id }).from(schema.mainSwapEvents).where(eq(schema.mainSwapEvents.playerId, swapPlayer));
+    const reverseResult = await reverseMainSwap(db, swapEvent.id, actingUserId);
+    check(failures, !reverseResult.error, `reverseMainSwap succeeds (${reverseResult.error ?? "ok"})`);
+    const afterReverse = await db.select().from(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, swapPlayer));
+    check(failures, (afterReverse[0]?.gp ?? 0) === 0, `reversing the swap refunds the fee (got ${afterReverse[0]?.gp})`);
+    check(failures, !(await dirtyScopes(db)).includes(`player:${swapPlayer}`), "the reversal's own settleStandings cleared its marker too");
 
     if (failures.n > 0) {
       console.error(`\n${failures.n} check(s) failed.`);
