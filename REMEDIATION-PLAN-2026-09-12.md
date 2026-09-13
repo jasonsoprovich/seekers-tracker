@@ -280,22 +280,76 @@ Finalization currently inserts the loot event, bid chunks, winner pointer, GP
 charges, and standings refresh in separate operations. A timeout can leave
 partial authoritative data, while retries rely on an item/time heuristic.
 
-- [ ] 3.1 Introduce a client-generated immutable round/submission ID and carry
-  it through parser live messages and final submission.
-- [ ] 3.2 Add the required unique schema constraint and preserve compatibility
-  during tracker-first/parser-second rollout.
-- [ ] 3.3 Resolve and validate every character, player, tier, winner, and GP
-  amount before writing.
-- [ ] 3.4 Commit loot, bids, winner relationship, and GP ledger rows in one D1
-  transactional batch.
-- [ ] 3.5 Make retries return the existing successful result for the same
-  submission ID without applying GP again.
-- [ ] 3.6 Retain item/time duplicate detection only as an officer warning for a
-  distinct possible duplicate drop.
-- [ ] 3.7 Keep all application-defined Durable Object calls out of Next Route
-  Handlers; live resolve/clear remains in `custom-worker.ts`.
-- [ ] 3.8 Cover mid-write failures, client retry, duplicate drops, multiple
-  winners, invalid rows, and standings-refresh failure.
+- [x] 3.1 Introduce a client-generated immutable round/submission ID and carry
+  it through parser live messages and final submission. (`406070f`,
+  `seekers-epgp-parser` — `CaptureBids`/`SwitchBidRound` mint a UUID via
+  `crypto/rand` [no new dependency] the moment a round opens, on
+  `BidRound.RoundID`; carried through every live/parked/reviewed round the
+  frontend holds and into `SubmitBids` as `BidsRequest.SubmissionID`. A
+  manual round mints its own client-side with `crypto.randomUUID()`. Exists
+  because `officerapi.sendWithRetry` already silently retries a finalize
+  once on a transport error or a 502/503/504 with the identical body — a
+  response lost after the write actually succeeded needs a way to be
+  recognized as the same submission, not a fresh one.)
+- [x] 3.2 Add the required unique schema constraint and preserve compatibility
+  during tracker-first/parser-second rollout. (`44f3ed1` — migration 0036,
+  `loot_events.submission_id`, nullable + a unique index [SQLite permits any
+  number of NULLs in a unique index]. Plain `ADD COLUMN` + `CREATE UNIQUE
+  INDEX`, no table rebuild. Applied `--local`; **needs `wrangler d1
+  migrations apply seekers-of-souls --remote` before the code below
+  deploys** — tracker-first, so an old parser build that never sends a
+  submissionId keeps working unchanged throughout the rollout.)
+- [x] 3.3 Resolve and validate every character, player, tier, winner, and GP
+  amount before writing. (`44f3ed1` — every entry is resolved in
+  `finalizeBidRound` before any statement is built; previously the
+  `loot_events` row was inserted first and unmatched/invalid entries were
+  only discovered afterward, so an all-invalid payload could still leave a
+  bare loot event behind. Now nothing is written at all in that case.)
+- [x] 3.4 Commit loot, bids, winner relationship, and GP ledger rows in one D1
+  transactional batch. (`44f3ed1` — `src/lib/epgp/bid-finalization.ts`'s
+  `finalizeBidRound`, one `db.batch()` call. Each bid's `loot_event_id` and
+  the loot event's own `winning_bid_id` resolve via a `(SELECT id FROM
+  loot_events WHERE submission_id = ?)` subquery rather than a JS-side id
+  from an earlier statement, since `batch()` sends the whole array as one
+  request. `last_activity_at` bumps and the standings refresh stay outside
+  the atomic batch on purpose — derived/display state, Phase 4's domain,
+  not the authoritative ledger rows this task is about.)
+- [x] 3.5 Make retries return the existing successful result for the same
+  submission ID without applying GP again. (`44f3ed1` — a `submissionId`
+  that already exists on a `loot_events` row short-circuits before
+  anything else, including the item/time heuristic below, and returns the
+  original result with `replay: true`. Verified by
+  `scripts/verify-bid-finalization.ts` Scenario B: a byte-identical retry
+  returns the same `lootEventId` and leaves exactly one `gp_ledger` row.)
+- [x] 3.6 Retain item/time duplicate detection only as an officer warning for a
+  distinct possible duplicate drop. (`44f3ed1` — unchanged in behavior
+  [still a soft 409 requiring `confirmDuplicate`], but now understood as a
+  secondary check for a genuinely different submission that merely looks
+  like a same-item near-time duplicate — task 3.5's submissionId check is
+  what actually protects a mechanical retry now. Verified by Scenario C: a
+  *different* submissionId for the same item/time is still rejected without
+  confirmation and writes nothing, then succeeds as a genuinely new loot
+  event once confirmed.)
+- [x] 3.7 Keep all application-defined Durable Object calls out of Next Route
+  Handlers; live resolve/clear remains in `custom-worker.ts`. (Confirmed
+  still true, not re-derived — this route never touched the DO before this
+  phase and still doesn't; see the route's own comment and CLAUDE.md's
+  "Hard-won gotchas".)
+- [x] 3.8 Cover mid-write failures, client retry, duplicate drops, multiple
+  winners, invalid rows, and standings-refresh failure. (`44f3ed1` —
+  `scripts/verify-bid-finalization.ts`, `npm run verify:bid-finalization`,
+  27/27 checks against local D1: a normal atomic write with a standings
+  refresh; a same-submissionId retry; the item/time heuristic on a
+  different submission; an unresolvable winner name rejecting before any
+  write [mid-write-failure-shaped: task 3.3 means there's no partial write
+  to leave behind]; a multi-winner duplicate-drop round with one unmatched
+  non-winner reported but not fatal. Needed an explicit `await
+  proxy.dispose()` before the snapshot restore in the script's own
+  `finally` — without it, a first run left a stale test row behind even
+  after "Restored snapshot" had printed, because the still-open Miniflare/
+  D1 handle flushed its own pre-restore state back over the file
+  afterward; same fix `verify-guild-removal.ts`/`verify-global-decay.ts`
+  already carry.)
 
 ## Phase 4: Fresh and Recoverable Standings
 
