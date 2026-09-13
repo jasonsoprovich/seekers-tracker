@@ -462,20 +462,76 @@ Do this only after Phase 4 correctness is proven and measurements justify it.
 
 ## Phase 5: Account-Level Character Claims
 
-- [ ] 5.1 Treat `players.userId` as account ownership source of truth while
+- [x] 5.1 Treat `players.userId` as account ownership source of truth while
   keeping `characters.ownerId` synchronized for existing authorization/UI.
-- [ ] 5.2 Let a member select one unclaimed character but create one pending
-  claim for its linked player account.
-- [ ] 5.3 Show the complete main/alt/mule group in member and officer review UI.
-- [ ] 5.4 On approval, assign the player account and synchronize ownership for
-  every linked character atomically.
-- [ ] 5.5 Resolve duplicate pending claims across the complete group without
-  deleting claim history.
-- [ ] 5.6 Refuse silent transfers where the account or a linked character is
-  attached to another real user/Discord identity.
-- [ ] 5.7 Consolidate existing duplicate pending requests safely.
-- [ ] 5.8 Cover standalone characters, imported groups, conflicting ownership,
+  (`978e8b6` — `syncCharacterOwnership` in `src/lib/players.ts`: one UPDATE
+  setting `characters.owner_id` to the player's `user_id` for every
+  character sharing that `player_id`. Called from `resolvePlayerForUser` on
+  every login [both the "already linked" and "first-claim" branches — cheap
+  self-heal, same pattern `syncAccountRole` already uses] and from
+  `attachCharacterToPlayer` after every attach/absorb.)
+- [x] 5.2 Let a member select one unclaimed character but create one pending
+  claim for its linked player account. (`978e8b6` — `requestClaim`
+  [characters/claim/actions.ts] resolves the target character's current
+  `player_id` and blocks a second pending claim by the same requester on
+  ANY character already in that group, not just the exact one picked.)
+- [x] 5.3 Show the complete main/alt/mule group in member and officer review UI.
+  (`978e8b6` — `/characters/claim` lists each unclaimed character's group
+  members under it ["Claiming this also claims…"]; `/admin/claims` shows
+  the same under each pending request ["Approving also attaches…"]. New
+  `listPlayerGroupCharacters` helper backs the verification script; the two
+  list pages batch their own group lookups directly since they span many
+  rows at once.)
+- [x] 5.4 On approval, assign the player account and synchronize ownership for
+  every linked character atomically. (`978e8b6` — `attachCharacterToPlayer`'s
+  `syncCharacterOwnership` call covers the complete RESULTING group after
+  any absorb, as one atomic UPDATE statement, not just the character named
+  in the call; its main-pointer bootstrap was also generalized to look at
+  the whole group's "main"-typed character instead of only the one just
+  attached, so claiming an alt/mule first still sets
+  `players.main_character_id` immediately rather than waiting on the
+  nightly `reconcileMainPointers` cron.)
+- [x] 5.5 Resolve duplicate pending claims across the complete group without
+  deleting claim history. (`978e8b6` — new `resolveOtherPendingClaimsForGroup`,
+  `src/lib/claims.ts`, called from `approveClaim`: every other pending claim
+  on a character now sharing the approved group's `player_id` is resolved —
+  denied [not deleted] if it's a different requester.)
+- [x] 5.6 Refuse silent transfers where the account or a linked character is
+  attached to another real user/Discord identity. (`978e8b6` —
+  `attachCharacterToPlayer` centrally refuses when the character's current
+  group has a `user_id` or `discord_id` that isn't the claimant's own,
+  replacing three duplicated ad hoc checks in `claimAlt`/
+  `linkCharacterToAccount`/`assignCharacterToUser` with one.
+  `assignCharacterToUser` no longer writes `owner_id` before that check can
+  run, so a refused claim leaves no partial write.)
+- [x] 5.7 Consolidate existing duplicate pending requests safely.
+  (`978e8b6` — the same `resolveOtherPendingClaimsForGroup` call: the SAME
+  requester's other pending claim on a sibling character becomes approved
+  with an explanatory decision note, rather than left pending or wrongly
+  denied.)
+- [x] 5.8 Cover standalone characters, imported groups, conflicting ownership,
   concurrent approvals, denial, and historical single-character claims.
+  (`978e8b6` — `scripts/verify-character-claims.ts`, `npm run
+  verify:character-claims`, 21/21 against local D1: claiming an alt of a
+  standalone imported group claims the whole group and bootstraps the main
+  pointer; a pre-seeded real identity's character refuses a silent
+  transfer; two different requesters claiming siblings in one group — the
+  approved one gets the whole group, the other's claim is denied, never
+  granted anything; the same requester's duplicate claims on a group
+  consolidate as approved; a genuinely standalone single-character claim
+  with no group still works unchanged. No migration — reuses existing
+  `players`/`characters`/`character_claims` columns. `tsc`, `npm run build`
+  [webpack], and `verify`/`verify:guild-removal`/
+  `verify:standings-resilience`/`verify:bid-finalization` all pass
+  unchanged.)
+
+**Not yet deployed** — no migration, so this can ship with any later phase's
+deploy rather than needing its own. **Not browser-verified** — same
+Discord-OAuth-credential gap as every prior claim/account-page change in
+this plan; verified instead via the script above exercising the real
+`assignCharacterToUser`/`attachCharacterToPlayer`/
+`resolveOtherPendingClaimsForGroup` entry points end to end against local
+D1.
 
 ## Phase 6: Mobile Foundation and Responsive Data Views
 

@@ -332,6 +332,76 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 5 — account-level character claims, 2026-09-13
+(commit `978e8b6`; no migration — local only in the sense that there's
+nothing to deploy beyond the next ordinary code deploy). Tasks 5.1-5.8
+done — see REMEDIATION-PLAN-2026-09-12.md §Phase 5 for full per-task
+detail.** Confirmed product decision: one officer approval claims the
+COMPLETE linked main/alt/mule player account, not just the one character a
+member happened to pick. Before this, approving a claim set `owner_id` on
+only the claimed character — a returning member whose player row already
+owned a whole pre-seeded group (sheet import / `derive:players`, PLAN.md
+§11 Phase 3) saw "Your Characters" (keyed on `owner_id`) stay empty until
+every character in the group was individually claimed and approved.
+- **`syncCharacterOwnership`** (`src/lib/players.ts`) keeps
+  `characters.owner_id` as a synchronized COPY of `players.user_id` for
+  every character sharing that `player_id` — one UPDATE, so "every linked
+  character" updates atomically as a single SQLite statement. Called from
+  `resolvePlayerForUser` on every login (both the "already linked" and
+  "first claim of a pre-seeded row" branches — cheap self-heal, mirroring
+  `syncAccountRole`'s own existing pattern) and from
+  `attachCharacterToPlayer` after every attach/absorb, so an approval that
+  pulls in a whole standalone group syncs ownership for the complete
+  result, not just the one character the claim named.
+- **`attachCharacterToPlayer`'s main-pointer bootstrap was generalized**
+  from "only if THIS character is typed main" to "whichever character in
+  the RESULTING group is typed main" (same "exactly one match" rule
+  `reconcileMainPointers`'s nightly cron already used) — claiming an alt or
+  mule of a standalone group now sets `players.main_character_id`
+  immediately instead of leaving it null until the next nightly run.
+- **Centralized the real-identity refusal** (task 5.6): `
+  attachCharacterToPlayer` now refuses outright — no partial write — when
+  the target character's current group has a `user_id` or `discord_id`
+  that isn't the claimant's own, replacing three duplicated ad hoc lookups
+  in `claimAlt`/`linkCharacterToAccount`/`assignCharacterToUser` with one.
+  `assignCharacterToUser` no longer writes `owner_id` before that check can
+  run (it used to, unconditionally, before even resolving the player).
+- **New `src/lib/claims.ts`** — `resolveOtherPendingClaimsForGroup`, pulled
+  out of `approveClaim` the same way `players.ts`'s
+  `removePlayerFromGuildCore` was pulled out of `admin/actions.ts` (PLAN.md
+  §1), so a verification script can reach it without a Next Server Action.
+  Called from `approveClaim` against the resulting group's `player_id`:
+  resolves every OTHER pending claim on a sibling character — the SAME
+  requester's duplicate becomes approved (task 5.7, with an explanatory
+  note), a DIFFERENT requester's now-unfulfillable claim becomes denied
+  (task 5.5) — never deleted, so claim history stays intact either way.
+- **`requestClaim`** (characters/claim/actions.ts, task 5.2) resolves the
+  target character's current group and blocks a second pending claim by
+  the same requester on ANY character already in it, not just the exact
+  one picked.
+- **Claim/review UI** now shows the complete group before approval (task
+  5.3): `/characters/claim` lists each unclaimed character's siblings
+  ("Claiming this also claims…"); `/admin/claims` shows the same under each
+  pending request ("Approving also attaches…"). New
+  `listPlayerGroupCharacters` helper backs the verification script below;
+  the two list pages batch their own group lookups directly (one query
+  across all rows, not one per row).
+- Verified (task 5.8): new `scripts/verify-character-claims.ts` (`npm run
+  verify:character-claims`), 21/21 against local D1 — claiming an alt of a
+  standalone imported group claims the whole group and bootstraps the main
+  pointer; a pre-seeded real identity's character refuses a silent
+  transfer (owner_id/player_id both left untouched); two different
+  requesters claiming siblings in the same group — the approved requester
+  gets the whole group, the other's claim is denied and never granted
+  anything; the same requester's duplicate claims on a group consolidate
+  as approved; a genuinely standalone single-character claim with no group
+  at all still works unchanged. `tsc`, `npm run build` (webpack), and
+  `verify`/`verify:guild-removal`/`verify:standings-resilience`/
+  `verify:bid-finalization` all pass unchanged (the main `verify` harness
+  stays at its documented 9/13 baseline — unrelated code path). **Not
+  browser-verified** — same Discord-OAuth-credential gap as every prior
+  claim/account-page change in this plan.
+
 **Remediation plan Phase 4 — fresh and recoverable standings, 2026-09-13
 (commits `2e9327c`, `10e1f71`; migration 0037 applied to remote D1 and
 DEPLOYED 2026-09-13 — Worker version `6c4ad7ae-6eda-433d-8441-ceae48ce9f23`,
