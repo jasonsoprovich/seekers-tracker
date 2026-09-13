@@ -653,15 +653,70 @@ D1.
 The stored snapshot is calculated when a round is recorded, not necessarily at
 the raw tell timestamp. Labels must not overstate historical precision.
 
-- [ ] 7.1 Rename the existing display column to `Recorded PR` and explain it
-  with concise help text.
-- [ ] 7.2 Add `Current PR` from the current materialized player standing.
-- [ ] 7.3 Store nullable player identity on new bid rows if needed for durable
+- [x] 7.1 Rename the existing display column to `Recorded PR` and explain it
+  with concise help text. (`BidHistoryTable.tsx` — the header is now
+  "Recorded PR" with a `title` tooltip explaining it's captured when the
+  round was recorded, not necessarily at the raw tell's own timestamp.
+  `ui/table-sort.tsx`'s `SortableTh` gained an optional `title` prop for
+  this — a small, backward-compatible extension of the one column-header
+  component every sortable table already shares, not a new primitive.)
+- [x] 7.2 Add `Current PR` from the current materialized player standing.
+  (New column, read via `getStandingsForPlayers` against
+  `player_epgp_totals` — the same targeted, never-10s-cached read Phase 4
+  built for exactly this "one mutation's/one row's own player" case.)
+- [x] 7.3 Store nullable player identity on new bid rows if needed for durable
   comparisons after character reassignment; backfill what can be inferred and
-  update account-absorption logic.
-- [ ] 7.4 Render both values as a compact stacked Priority field on mobile.
-- [ ] 7.5 Add sorting and tests for null, reassigned, absorbed, and historical
-  rows.
+  update account-absorption logic. (Migration `0038_strong_tyger_tiger.sql`
+  — plain `ADD COLUMN` + index, no table rebuild, applied `--local`; its own
+  trailing `UPDATE` backfills every existing row from
+  `characters.player_id` — the best inference available, since true
+  historical ownership at bid time isn't reconstructable once a character's
+  changed hands. `bid-finalization.ts`'s `finalizeBidRound` now captures
+  `character.playerId` into every new bid row at write time, same as
+  `gpLedger` already does. `players.ts`'s `absorbStandalonePlayer` now
+  moves `bids.playerId` alongside `ep_ledger`/`gp_ledger`'s own player_id
+  moves, so a bid recorded on a since-absorbed standalone player keeps
+  tracking the SAME real person after their account merges into a real
+  claim, not a stale/deleted player id.)
+- [x] 7.4 Render both values as a compact stacked Priority field on mobile.
+  (`BidHistoryTable.tsx` — desktop keeps two separate sortable "Recorded
+  PR"/"Current PR" columns [`hidden sm:table-cell`]; below `sm` those
+  collapse into one combined "Priority" cell showing both stacked
+  [`sm:hidden`] — this table keeps its Phase 6 horizontal-scroll layout
+  rather than a full MobileCard rebuild, which Phase 6 deliberately
+  deferred for it; task 7.4's own "compact stacked field" ask is narrower
+  than that and doesn't need it.)
+- [x] 7.5 Add sorting and tests for null, reassigned, absorbed, and historical
+  rows. Sorting: `useTableSort` gained `recordedPriority`/`currentPriority`
+  keys (was one `priority` key on the old single column). Tests: new
+  `scripts/verify-bid-history-priority.ts` (`npm run
+  verify:bid-history-priority`), 21/21 against local D1 (snapshot/restore) —
+  exercises the REAL `finalizeBidRound`/`attachCharacterToPlayer`/
+  `listBidHistory` entry points, not just the display logic: a historical
+  bid whose Recorded PR stays frozen while its player's later EP grant
+  moves Current PR; a bid on a still-unclaimed character (`playerId` and
+  Current PR both null, not a wrong guess); a bid's `player_id` correctly
+  following a real account absorption (the defunct standalone player row
+  gets deleted, Current PR still resolves post-absorption once standings
+  catch up — same eventual-consistency contract Phase 4's dirty-marker
+  design already established, not a new synchronous guarantee); and the
+  migration's own backfill statement re-exercised directly against a
+  simulated pre-Phase-7 NULL row.
+  Verified: `tsc`, `npm run build`, `wrangler deploy --dry-run` (2723.99
+  KiB gzipped, unchanged), the full Playwright suite (57/57, including the
+  Ledger Bids tab's overflow checks at all four widths — confirms the new
+  mobile combined column doesn't regress it), and `npm run
+  verify`/`verify:bid-finalization`/`verify:character-claims`/
+  `verify:standings-resilience`/`verify:guild-removal` all pass unchanged
+  (`npm run verify` stays at its documented 9/13 baseline — unrelated code
+  path).
+
+**Deployment note:** migration 0038 applied `--local` only. This session's
+auto-mode has no access to `wrangler d1 migrations apply --remote`/`npm run
+deploy` (see the assistant's own memory on blocked ops) — hand `! npx
+wrangler d1 migrations apply seekers-of-souls --remote` then `! npm run
+deploy` to the user when ready to ship this phase. No parser change needed
+— this phase is tracker-only.
 
 ## Phase 8: Roster and Admin Workflow Consolidation
 

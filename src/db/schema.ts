@@ -742,19 +742,38 @@ export const bids = sqliteTable(
     characterId: integer("character_id")
       .notNull()
       .references(() => characters.id),
+    // Remediation plan Phase 7 task 7.3 — the PLAYER this bid's priority
+    // belongs to, captured at bid time. Nullable: backfilled from the
+    // character's player_id where one existed (migration 0038), but a bid
+    // on a still-unclaimed/standalone character has none to capture.
+    // Durable on purpose — src/lib/players.ts's absorbStandalonePlayer moves
+    // it alongside ep_ledger/gp_ledger's own player_id whenever a standalone
+    // player merges into a real account, so "Current PR" (BidHistoryTable)
+    // keeps tracking the same real person's priority even if the character
+    // itself is later reassigned to someone else's account — re-deriving it
+    // from characters.player_id at read time would silently start showing a
+    // totally unrelated person's priority instead.
+    playerId: integer("player_id").references(() => players.id),
     tier: text("tier").notNull(),
     status: text("status", { enum: ["active", "retracted", "won", "lost"] })
       .notNull()
       .default("active"),
     // Priority Rating at bid time, so a bid's context stays explainable even
-    // after later decay/GP changes move the character's live PR.
+    // after later decay/GP changes move the character's live PR. Displayed
+    // as "Recorded PR" (BidHistoryTable) — it's the priority the bid-
+    // finalization write computed when the round was recorded, not
+    // necessarily read at the raw tell's own timestamp.
     prioritySnapshot: real("priority_snapshot"),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [index("bids_loot_event_id_idx").on(table.lootEventId), index("bids_character_id_idx").on(table.characterId)],
+  (table) => [
+    index("bids_loot_event_id_idx").on(table.lootEventId),
+    index("bids_character_id_idx").on(table.characterId),
+    index("bids_player_id_idx").on(table.playerId),
+  ],
 );
 
 // Editable mirror of the sheet's "Point Values" tab (EP activity → points,

@@ -254,7 +254,7 @@ export async function finalizeBidRound(
   // happens fully before any statement is built.
   const unmatched: string[] = [];
   const invalidTiers: string[] = [];
-  const bidValues: { characterId: number; tier: string; status: "won" | "lost"; prioritySnapshot: number | null }[] = [];
+  const bidValues: { characterId: number; playerId: number | null; tier: string; status: "won" | "lost"; prioritySnapshot: number | null }[] = [];
   for (const entry of entries) {
     const character = byLowerName.get(entry.characterName.trim().toLowerCase());
     if (!character) {
@@ -267,6 +267,11 @@ export async function finalizeBidRound(
     }
     bidValues.push({
       characterId: character.id,
+      // Phase 7 task 7.3 — captured now so BidHistoryTable's "Current PR"
+      // keeps tracking the same real person even if this character is
+      // reassigned to a different account later. See schema.ts's own
+      // comment on bids.playerId.
+      playerId: character.playerId,
       tier: entry.tier,
       status: entry.isWinner ? "won" : "lost",
       prioritySnapshot: priorityFor(character),
@@ -304,6 +309,7 @@ export async function finalizeBidRound(
       db.insert(bidsTable).values({
         lootEventId: sql`(SELECT id FROM loot_events WHERE submission_id = ${submissionKey})`,
         characterId: v.characterId,
+        playerId: v.playerId,
         tier: v.tier,
         status: v.status,
         prioritySnapshot: v.prioritySnapshot,

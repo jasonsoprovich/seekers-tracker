@@ -333,6 +333,43 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 7 — bid-history priority clarity, 2026-09-13
+(migration 0038, LOCAL ONLY — needs `--remote` apply before its own next
+deploy; see REMEDIATION-PLAN-2026-09-12.md §Phase 7 for full per-task
+detail). Tasks 7.1-7.5 done.** `bids.prioritySnapshot` was labeled just
+"Priority" on the Bids History tab, overstating its precision — it's
+captured when the round is RECORDED (bid-finalization.ts), not necessarily
+at the raw tell's own timestamp, and never changes after. Relabeled
+"Recorded PR" with an explanatory tooltip (`SortableTh` gained an optional
+`title` prop); a new "Current PR" column reads the bidder's LIVE priority
+from `player_epgp_totals` via `getStandingsForPlayers`. On mobile the two
+collapse into one compact stacked "Priority" cell rather than two more
+columns squeezed into an already-scrolling table (Phase 6 deliberately
+left this table's layout as horizontal-scroll, not a card rebuild).
+**The real substance is task 7.3**: new nullable `bids.player_id` (migration
+0038 — plain `ADD COLUMN` + index, backfilled from `characters.player_id`
+in the same migration's trailing `UPDATE`), captured at bid-finalization
+write time exactly like `gp_ledger` already does, and moved by
+`players.ts`'s `absorbStandalonePlayer` alongside `ep_ledger`/`gp_ledger`'s
+own player_id whenever a standalone player merges into a real account on
+claim. Without this, "Current PR" would have to re-derive the bidder from
+the bid's character's CURRENT owner — which silently breaks the moment a
+character is reassigned to an unrelated account, since the character
+itself doesn't remember who bid on it, only who owns it today. New
+`scripts/verify-bid-history-priority.ts` (`npm run
+verify:bid-history-priority`), 21/21 against local D1 (snapshot/restore) —
+exercises the real `finalizeBidRound`/`attachCharacterToPlayer`/
+`listBidHistory` entry points across a historical row (Recorded PR frozen,
+Current PR moves), a null row (unclaimed character, nothing to compare
+against), an absorbed row (player_id follows the real account, Current PR
+still resolves once standings catch up), and the migration's own backfill
+statement re-exercised directly. `tsc`/`npm run build`/`wrangler deploy
+--dry-run` (2723.99 KiB gzipped) all clean; the full Playwright suite
+(57/57) and every existing `verify:*` script pass unchanged (`npm run
+verify` at its documented 9/13 baseline). **Not deployed** — migration
+0038 needs a `--remote` apply before this phase's code can ship; this
+session's auto-mode has no access to that or to `npm run deploy`.
+
 **Remediation plan Phase 6 — mobile foundation and responsive data views,
 2026-09-13 (no migration; local only — see REMEDIATION-PLAN-2026-09-12.md
 §Phase 6 for full per-task detail). Tasks 6.1-6.7 done.** The authenticated

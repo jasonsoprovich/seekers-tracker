@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "@/db";
-import { characters, epLedger, gpLedger, mainSwapEvents, playerEpgpTotals, players, users } from "@/db";
+import { bids, characters, epLedger, gpLedger, mainSwapEvents, playerEpgpTotals, players, users } from "@/db";
 import { revokeApiKeysForUser } from "@/lib/api-key-auth";
 import { LEADERSHIP_ROLES, roleRank, type Role } from "@/lib/authz";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
@@ -150,6 +150,10 @@ async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: 
   await db.update(characters).set({ playerId: toPlayerId, updatedAt: now }).where(eq(characters.playerId, fromPlayerId));
   await db.update(epLedger).set({ playerId: toPlayerId }).where(eq(epLedger.playerId, fromPlayerId));
   await db.update(gpLedger).set({ playerId: toPlayerId }).where(eq(gpLedger.playerId, fromPlayerId));
+  // Phase 7 task 7.3 — bids.playerId needs the same move, or BidHistoryTable's
+  // "Current PR" would keep pointing at the defunct standalone player this
+  // absorption is about to delete.
+  await db.update(bids).set({ playerId: toPlayerId }).where(eq(bids.playerId, fromPlayerId));
   // Task 4.4/4.6 — this moved ledger rows onto toPlayerId, which needs a
   // standings refresh; mark it dirty here, at the actual mutation, rather
   // than trusting every caller of attachCharacterToPlayer to remember (they

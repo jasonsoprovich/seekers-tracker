@@ -2,7 +2,7 @@ import { desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, players, users } from "@/db";
-import { getStandings } from "./standings";
+import { getStandings, getStandingsForPlayers } from "./standings";
 
 export type EpLedgerRow = {
   id: number;
@@ -117,7 +117,17 @@ export type BidHistoryRow = {
   characterName: string;
   tier: string;
   status: "active" | "retracted" | "won" | "lost";
+  // Recorded PR (task 7.1) — the priority the bid-finalization write
+  // computed when the round was recorded, not necessarily at the raw
+  // tell's own timestamp. Never recomputed after the fact.
   prioritySnapshot: number | null;
+  // Current PR (task 7.2) — the live priority of whichever player this bid
+  // is durably tied to (bids.player_id, captured at bid time — see
+  // schema.ts), read fresh from player_epgp_totals. Null when there's no
+  // player identity to compare against: an un-backfilled pre-Phase-7 row
+  // whose character also had no player at the time, or a bid on a
+  // character that's still never been claimed/attached to any player.
+  currentPriority: number | null;
   note: string | null;
 };
 
@@ -146,6 +156,7 @@ export async function listBidHistory(
       tier: bids.tier,
       status: bids.status,
       prioritySnapshot: bids.prioritySnapshot,
+      playerId: bids.playerId,
       note: bids.note,
     })
     .from(bids)
@@ -155,7 +166,22 @@ export async function listBidHistory(
     .orderBy(desc(lootEvents.occurredAt), desc(bids.id))
     .limit(pageSize + 1)
     .offset(offset);
-  return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+  const page_ = rows.slice(0, pageSize);
+
+  // Task 7.2 — "Current PR": a live read of whoever bids.playerId durably
+  // ties this row to, not re-derived from the character's CURRENT owner
+  // (see schema.ts's comment on bids.playerId for why that distinction
+  // matters after a reassignment/absorption).
+  const playerIds = [...new Set(page_.map((r) => r.playerId).filter((id): id is number => id !== null))];
+  const standings = await getStandingsForPlayers(db, playerIds);
+
+  return {
+    rows: page_.map(({ playerId, ...r }): BidHistoryRow => ({
+      ...r,
+      currentPriority: playerId !== null ? (standings.get(playerId)?.priorityRating ?? null) : null,
+    })),
+    hasNext: rows.length > pageSize,
+  };
 }
 
 export type TotalsRow = {

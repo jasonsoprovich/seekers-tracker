@@ -51,12 +51,17 @@ export function SortableTh<K extends string>({
   sort,
   onSort,
   className,
+  title,
 }: {
   label: string;
   sortKey: K;
   sort: SortState<K>;
   onSort: (key: K) => void;
   className?: string;
+  // Optional concise help text (a native tooltip) — e.g. explaining a
+  // column whose precision could otherwise be overstated (BidHistoryTable's
+  // "Recorded PR"/"Current PR", Phase 7).
+  title?: string;
 }) {
   const active = sort?.key === sortKey;
   return (
@@ -64,6 +69,7 @@ export function SortableTh<K extends string>({
       <button
         type="button"
         onClick={() => onSort(sortKey)}
+        title={title}
         className="inline-flex items-center gap-1 font-medium transition-colors hover:text-neutral-200"
         aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"}
       >
