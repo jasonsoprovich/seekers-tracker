@@ -346,6 +346,19 @@ CSS halo/poster movement and grain, all disabled by `prefers-reduced-motion`.
 Responsive, payload, keyboard skip-link, contrast, and reduced-motion browser
 checks pass.
 
+**Remediation plan Phase 9.5-9.6 — direct sign-in and safe return paths,
+2026-09-13 (no migration; local only).** `DiscordSignInButton` is the one
+client control used by the landing header and fallback `/login` page. The
+landing page starts member Discord OAuth directly while its recruitment links
+still join the guild Discord instead. A narrowly matched Next.js 16
+`src/proxy.ts` supplies the requested protected path to the authenticated
+layout; unauthenticated visitors reach `/login?next=...`, and `/login` passes
+only a sanitized same-origin absolute path to Better Auth. External,
+protocol-relative, backslash-containing, malformed, and login-loop targets
+fall back to `/characters`. Browser coverage confirms the direct POST, a
+query-preserving `/epgp/ledger?type=bids` return, external rejection, and the
+protected-route redirect.
+
 **Remediation plan Phase 8.1 — roster account-management entry point,
 2026-09-13 (no migration; local only).** The Roster remains the guild-wide
 directory for every member, with each character name preserving its existing

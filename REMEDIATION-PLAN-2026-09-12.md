@@ -782,10 +782,14 @@ needed — this phase is tracker-only.
 - [x] 9.4 Add restrained CSS-first atmospheric motion with reduced-motion
   support; avoid heavy canvas, autoplay video, and interaction-blocking effects.
   (Decorative halo/poster movement only; no JavaScript animation.)
-- [ ] 9.5 Extract a reusable Discord sign-in control and put it directly on the
-  landing page.
-- [ ] 9.6 Keep `/login` as fallback and later preserve a sanitized internal
-  destination instead of always returning to `/characters`.
+- [x] 9.5 Extract a reusable Discord sign-in control and put it directly on the
+  landing page. (`Phase 9.5-9.6` — `DiscordSignInButton` is shared by the
+  landing header and `/login`; recruitment Discord invite links remain
+  distinct from member authentication.)
+- [x] 9.6 Keep `/login` as fallback and later preserve a sanitized internal
+  destination instead of always returning to `/characters`. (Protected page
+  requests carry their path to `/login?next=...`; only same-origin absolute
+  paths survive `sanitizeSignInDestination`, with `/characters` as fallback.)
 - [ ] 9.7 Measure responsive layout, image payload/LCP, keyboard navigation,
   contrast, and reduced-motion behavior before deployment.
 

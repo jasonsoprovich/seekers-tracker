@@ -1,40 +1,40 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
+import { DiscordSignInButton } from "@/components/auth/DiscordSignInButton";
+import { sanitizeSignInDestination } from "@/lib/auth-redirect";
 
-export default function LoginPage() {
-  const [pending, setPending] = useState(false);
+type LoginSearchParams = { next?: string | string[] };
 
-  async function signIn() {
-    setPending(true);
-    await authClient.signIn.social({ provider: "discord", callbackURL: "/characters" });
-  }
+export default async function LoginPage({ searchParams }: { searchParams: Promise<LoginSearchParams> }) {
+  const { next } = await searchParams;
+  const destination = sanitizeSignInDestination(next);
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-center text-neutral-100">
+    <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#090b07] px-6 text-center text-[#d8cda6]">
+      <div
+        aria-hidden="true"
+        className="absolute top-[-10rem] left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-[#74851d]/15 blur-3xl"
+      />
       <Link
         href="/"
-        className="absolute top-6 left-6 text-sm font-medium text-neutral-500 hover:text-neutral-300"
+        className="absolute top-6 left-6 min-h-11 content-center text-sm font-medium text-[#8f8c77] hover:text-[#e0b957]"
       >
-        ← Back to site
+        &larr; Back to site
       </Link>
-      <div>
-        <h1 className="text-2xl font-bold">Seekers of Souls</h1>
-        <p className="mt-2 text-neutral-400">Sign in with your Discord account to manage your characters.</p>
-      </div>
-      <button
-        onClick={signIn}
-        disabled={pending}
-        className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-3 font-semibold text-black transition-colors hover:bg-emerald-400 disabled:opacity-60"
-      >
-        {pending ? "Redirecting…" : "Sign in with Discord"}
-      </button>
-      <p className="max-w-sm text-sm text-neutral-500">
-        You must be a member of the Seekers of Souls Discord server to access the roster tracker.
-      </p>
-    </div>
+      <section className="relative w-full max-w-md border border-[#b8903c]/35 bg-[#10140d]/90 px-6 py-10 shadow-2xl sm:px-10">
+        <p className="text-xs font-bold tracking-[0.25em] text-[#74851d] uppercase">Member access</p>
+        <h1 className="mt-3 font-serif text-4xl font-normal tracking-tight text-[#eee1b9]">Seekers of Souls</h1>
+        <p className="mt-4 text-sm leading-6 text-[#9d987f]">
+          Sign in through the guild Discord to continue to the roster and character tools.
+        </p>
+        <DiscordSignInButton
+          callbackURL={destination}
+          className="mt-7 inline-flex min-h-12 w-full items-center justify-center border border-[#d4a942] bg-[#b8903c] px-6 font-bold tracking-wide text-[#111307] transition-colors hover:bg-[#e0b957] disabled:cursor-wait disabled:opacity-60"
+        />
+        <p className="mt-6 text-xs leading-5 text-[#747461]">
+          You must be a verified member of the Seekers of Souls Discord server to enter.
+        </p>
+      </section>
+    </main>
   );
 }

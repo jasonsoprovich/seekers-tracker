@@ -1,10 +1,12 @@
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/shell/AppShell";
 import { ViewAsBanner } from "@/components/shell/ViewAsBanner";
 import { players, users } from "@/db";
+import { sanitizeSignInDestination } from "@/lib/auth-redirect";
 import { getViewAsRole } from "@/lib/authz";
 import { isMemberAllowed } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
@@ -13,7 +15,10 @@ import { getSession } from "@/lib/session";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) {
+    const returnTo = sanitizeSignInDestination((await headers()).get("x-seekers-return-to"));
+    redirect(`/login?next=${encodeURIComponent(returnTo)}`);
+  }
 
   const db = await getDb();
   const [me] = await timed("layout.me", () =>

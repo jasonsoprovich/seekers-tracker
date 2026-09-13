@@ -1,6 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { DiscordSignInButton } from "@/components/auth/DiscordSignInButton";
+
 import styles from "./public.module.css";
 
 const DISCORD_INVITE_URL = "https://discord.gg/Xzb75CvcMH";
@@ -38,9 +40,7 @@ export default function Home() {
         </Link>
         <nav className={styles.headerActions} aria-label="Public navigation">
           <DiscordInvite compact />
-          <Link className={styles.memberLink} href="/login">
-            Member sign in
-          </Link>
+          <DiscordSignInButton className={styles.memberLink} label="Member sign in" />
         </nav>
       </header>
 
