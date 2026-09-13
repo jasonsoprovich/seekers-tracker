@@ -747,8 +747,11 @@ needed — this phase is tracker-only.
 - [x] 8.4 Remove the duplicate established-members list from Admin. (`Phase
   8.4` — Admin now leaves established accounts to Roster → Account, rather
   than duplicating their role/removal controls.)
-- [ ] 8.5 Retain a dedicated queue for verified Discord users with no character,
-  since they cannot naturally appear in the roster.
+- [x] 8.5 Retain a dedicated queue for verified Discord users with no character,
+  since they cannot naturally appear in the roster. (`Phase 8.5` — retained
+  and renamed Admin's `Account setup queue`; its only mutation assigns an
+  unclaimed character to establish the account, after which management moves
+  to Roster → Account.)
 - [ ] 8.6 Reorganize Admin into Needs Attention, Operations, EPGP, and System
   Health sections.
 - [ ] 8.7 Keep claim deep links/queue during the transition and verify every

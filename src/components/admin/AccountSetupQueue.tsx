@@ -7,7 +7,7 @@ import { assignCharacterToMember } from "@/app/(app)/admin/actions";
 import { fieldClasses } from "@/components/ui/Field";
 import { guildDate } from "@/lib/guild-timezone";
 
-export type MemberRow = {
+export type AccountSetupRow = {
   id: string;
   username: string | null;
   discordVerified: boolean;
@@ -91,11 +91,11 @@ function AssignCharacterControl({ userId, characters }: { userId: string; charac
 // established a character account yet. Established accounts are managed from
 // the Account page reached through Roster, so their role/removal controls do
 // not have a duplicate Admin surface.
-export function MembersRolesList({
+export function AccountSetupQueue({
   members,
   unclaimedCharacters,
 }: {
-  members: MemberRow[];
+  members: AccountSetupRow[];
   unclaimedCharacters: UnclaimedCharacter[];
 }) {
   const [search, setSearch] = useState("");

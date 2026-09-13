@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { MembersRolesList } from "@/components/admin/MembersRolesList";
+import { AccountSetupQueue } from "@/components/admin/AccountSetupQueue";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterClaims, characters, players, users } from "@/db";
@@ -129,13 +129,13 @@ export default async function AdminPage() {
       {needsSetup.length > 0 && (
         <section className="mt-10">
           <h2 className="text-lg font-semibold">
-            New members — no character yet <span className="ml-1 text-base font-normal text-neutral-500">{needsSetup.length}</span>
+            Account setup queue <span className="ml-1 text-base font-normal text-neutral-500">{needsSetup.length}</span>
           </h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Signed in through Discord but nothing on their account. Assign their main here (type the character name), or they can
-            claim it themselves from Your Characters.
+            Verified Discord members with no character account yet. Assign their main here (type the character name), or they can claim
+            it themselves from Your Characters.
           </p>
-          <MembersRolesList members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
+          <AccountSetupQueue members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
         </section>
       )}
 

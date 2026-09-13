@@ -352,6 +352,12 @@ checks. The only remaining Admin member list is the verified no-character
 onboarding queue, whose character assignment action creates an account before
 any established-account management can occur. `tsc` passes.
 
+**Remediation plan Phase 8.5 — no-character onboarding queue, 2026-09-13
+(no migration; local only).** The remaining Admin list is now explicitly the
+`Account setup queue`: verified Discord users who cannot appear in Roster
+until an officer assigns an unclaimed character or they complete a claim. It
+contains no established-account role or guild-status controls. `tsc` passes.
+
 **Remediation plan Phase 7 — bid-history priority clarity, 2026-09-13
 (migration 0038, LOCAL ONLY — needs `--remote` apply before its own next
 deploy; see REMEDIATION-PLAN-2026-09-12.md §Phase 7 for full per-task
