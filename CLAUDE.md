@@ -365,6 +365,13 @@ summary counts pending claims and gives officers a direct link to the existing
 claim queue; verified Discord users without any character remain visible in
 the Account setup queue. `tsc` passes.
 
+**Remediation plan Phase 8.6 — Admin workflow sections, 2026-09-13 (no
+migration; local only).** `/admin` now groups its remaining work into Needs
+Attention (claims and setup), Operations (officer app, key, SQL), EPGP
+(leader controls), and System Health (import audit) instead of a flat link
+strip. The section cards are role-filtered as before. `tsc` and the Admin
+responsive sweep pass at 320, 375, 390, and 768px (40/40 full-route checks).
+
 **Remediation plan Phase 7 — bid-history priority clarity, 2026-09-13
 (migration 0038, LOCAL ONLY — needs `--remote` apply before its own next
 deploy; see REMEDIATION-PLAN-2026-09-12.md §Phase 7 for full per-task

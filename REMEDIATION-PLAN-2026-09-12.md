@@ -755,8 +755,10 @@ needed — this phase is tracker-only.
   and renamed Admin's `Account setup queue`; its only mutation assigns an
   unclaimed character to establish the account, after which management moves
   to Roster → Account.)
-- [ ] 8.6 Reorganize Admin into Needs Attention, Operations, EPGP, and System
-  Health sections.
+- [x] 8.6 Reorganize Admin into Needs Attention, Operations, EPGP, and System
+  Health sections. (`Phase 8.6` — replaced the flat utility strip with
+  role-filtered section cards; Needs Attention contains claim requests plus
+  the setup queue, while Import Audit Trail anchors System Health.)
 - [ ] 8.7 Keep claim deep links/queue during the transition and verify every
   role's visible fields and allowed actions.
 

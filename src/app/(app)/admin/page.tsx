@@ -23,14 +23,44 @@ import { getSession } from "@/lib/session";
 // the newest tag, so this never goes stale.
 const OFFICER_APP_RELEASE_URL = "https://github.com/jasonsoprovich/seekers-epgp-parser/releases/latest";
 
-const ADMIN_TABS: { href: string; label: string; external?: boolean; badgeKey?: "pendingClaims"; show: (r: Role | null) => boolean }[] = [
-  { href: "/admin/claims", label: "Claim Requests", badgeKey: "pendingClaims", show: () => true },
-  { href: "/admin/imports", label: "Import Audit Trail", show: () => true },
-  { href: OFFICER_APP_RELEASE_URL, label: "Officer App", external: true, show: canManageEpgp },
-  { href: "/epgp/app-key", label: "App Key", show: canManageEpgp },
-  { href: "/epgp/sql", label: "SQL Sandbox", show: canManageEpgp },
-  { href: "/epgp/settings", label: "EPGP Settings", show: canManageEpgpConfig },
-  { href: "/epgp/decay", label: "EPGP Decay", show: canManageEpgpConfig },
+type AdminLink = { href: string; label: string; description: string; external?: boolean; badgeKey?: "pendingClaims"; show: (r: Role | null) => boolean };
+
+const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }[] = [
+  {
+    title: "Needs Attention",
+    description: "Requests and onboarding that need an officer before an account can manage itself.",
+    links: [
+      {
+        href: "/admin/claims",
+        label: "Claim Requests",
+        description: "Review members requesting roster characters.",
+        badgeKey: "pendingClaims",
+        show: () => true,
+      },
+    ],
+  },
+  {
+    title: "Operations",
+    description: "Officer tools for capture, API access, and read-only data investigation.",
+    links: [
+      { href: OFFICER_APP_RELEASE_URL, label: "Officer App", description: "Download the current desktop capture app.", external: true, show: canManageEpgp },
+      { href: "/epgp/app-key", label: "App Key", description: "Manage your parser API key.", show: canManageEpgp },
+      { href: "/epgp/sql", label: "SQL Sandbox", description: "Run read-only EPGP queries.", show: canManageEpgp },
+    ],
+  },
+  {
+    title: "EPGP",
+    description: "Leader-level configuration and controlled ledger-wide changes.",
+    links: [
+      { href: "/epgp/settings", label: "EPGP Settings", description: "Change effective-dated guild settings.", show: canManageEpgpConfig },
+      { href: "/epgp/decay", label: "EPGP Decay", description: "Preview, commit, or reverse decay events.", show: canManageEpgpConfig },
+    ],
+  },
+  {
+    title: "System Health",
+    description: "Audit recent imports and investigate data changes.",
+    links: [{ href: "/admin/imports", label: "Import Audit Trail", description: "Review processed import history.", show: () => true }],
+  },
 ];
 
 export default async function AdminPage() {
@@ -101,53 +131,64 @@ export default async function AdminPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader title="Admin" />
 
-      <nav className="mt-1 flex flex-wrap gap-2">
-        {ADMIN_TABS.filter((t) => t.show(role)).map((t) => (
-          <Link
-            key={t.href}
-            href={t.href}
-            {...(t.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className="rounded-full border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 transition-colors hover:border-emerald-500/60 hover:bg-neutral-900/60 hover:text-emerald-300"
-          >
-            {t.label}
-            {t.badgeKey === "pendingClaims" && pendingClaimCount > 0 && (
-              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
-                {pendingClaimCount}
-              </span>
-            )}
-            {t.external && <span aria-hidden className="ml-1 text-xs text-neutral-500">↗</span>}
-          </Link>
-        ))}
-      </nav>
-
       {realRole === "admin" && (
         <div className="mt-6">
           <ViewAsControls />
         </div>
       )}
 
-      {needsSetup.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-lg font-semibold">
-            Account setup queue <span className="ml-1 text-base font-normal text-neutral-500">{needsSetup.length}</span>
-          </h2>
-          <p className="mt-1 text-sm text-neutral-400">
-            Verified Discord members with no character account yet. Assign their main here (type the character name), or they can claim
-            it themselves from Your Characters.
-          </p>
-          <AccountSetupQueue members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
-        </section>
-      )}
-
-      {unresolvedClassCount > 0 && (
-        <p className="mt-10 text-sm text-amber-400">
-          {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the{" "}
-          <Link href="/roster" className="text-emerald-400 hover:text-emerald-300">
-            Roster
-          </Link>{" "}
-          by class &quot;Unknown&quot; to find and edit them.
-        </p>
-      )}
+      {ADMIN_SECTIONS.map((section, index) => {
+        const links = section.links.filter((link) => link.show(role));
+        return (
+          <section key={section.title} className={index === 0 ? "mt-8" : "mt-10"}>
+            <h2 className="text-lg font-semibold">{section.title}</h2>
+            <p className="mt-1 text-sm text-neutral-400">{section.description}</p>
+            {links.length > 0 && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {links.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    className="rounded-lg border border-border px-4 py-3 transition-colors hover:border-emerald-500/60 hover:bg-neutral-900/60"
+                  >
+                    <span className="flex items-center gap-2 font-medium text-neutral-200">
+                      {link.label}
+                      {link.badgeKey === "pendingClaims" && pendingClaimCount > 0 && (
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
+                          {pendingClaimCount}
+                        </span>
+                      )}
+                      {link.external && <span aria-hidden className="text-xs text-neutral-500">↗</span>}
+                    </span>
+                    <span className="mt-1 block text-sm text-neutral-500">{link.description}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+            {section.title === "Needs Attention" && needsSetup.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-base font-semibold">
+                  Account setup queue <span className="ml-1 text-sm font-normal text-neutral-500">{needsSetup.length}</span>
+                </h3>
+                <p className="mt-1 text-sm text-neutral-400">
+                  Verified Discord members with no character account yet. Assign their main here, or they can claim it from Your Characters.
+                </p>
+                <AccountSetupQueue members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
+              </div>
+            )}
+            {section.title === "System Health" && unresolvedClassCount > 0 && (
+              <p className="mt-4 text-sm text-amber-400">
+                {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the{" "}
+                <Link href="/roster" className="text-emerald-400 hover:text-emerald-300">
+                  Roster
+                </Link>{" "}
+                by class &quot;Unknown&quot; to find and edit them.
+              </p>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
