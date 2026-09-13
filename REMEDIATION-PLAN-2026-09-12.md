@@ -64,21 +64,52 @@ Better Auth 1.7.1 also has a directly relevant upstream defect: 1.7.2 changed
 native `workerd` async-context implementation instead of the generic edge
 implementation when multiple runtime conditions are enabled.
 
-- [ ] 0.1 Add precise async request-state/session boundary instrumentation and
-  correlation IDs around `auth.api.getSession()`.
-- [ ] 0.2 Disable automatic Next prefetch on high-cardinality account links in
+- [x] 0.1 Add precise async request-state/session boundary instrumentation and
+  correlation IDs around `auth.api.getSession()`. (`db77e4a` — per-request
+  `x-request-id` stamped in custom-worker.ts, folded into every
+  `[hang]`/`[slow]`/`[perf]` line and into session.ts's `authContext`/
+  `getSession` stage labels; `checkAsyncContextImplementation()` boot log.)
+- [x] 0.2 Disable automatic Next prefetch on high-cardinality account links in
   Roster, Progression, account-member lists, and other collection views.
-- [ ] 0.3 Align the runtime Better Auth package family on 1.7.2 and lock the
+  (`f03942d`.)
+- [x] 0.3 Align the runtime Better Auth package family on 1.7.2 and lock the
   resolved versions. Keep `better-auth-cloudflare` compatibility explicit.
-- [ ] 0.4 Verify the production bundle selects the `workerd` async-hooks export,
-  not `pure.index.mjs`.
-- [ ] 0.5 Add a bounded failure path so a stalled session lookup produces a
+  (`db77e4a` — exact-pinned better-auth/@better-auth/api-key/
+  @better-auth/drizzle-adapter/better-auth-cloudflare, plus an `overrides`
+  entry for the transitive `@better-auth/core`, which npm otherwise hoisted
+  to 1.7.4 — ahead of the deliberately-deferred Phase 11 upgrade.)
+- [x] 0.4 Verify the production bundle selects the `workerd` async-hooks export,
+  not `pure.index.mjs`. (`db77e4a` — confirmed two ways: diffed the raw
+  published package.json of @better-auth/core 1.7.1 vs 1.7.2 directly
+  [1.7.2 moves `workerd` ahead of `edge` in the `./async_hooks` export
+  map], and the built OpenNext bundle logs `[boot] async-context:
+  AsyncLocalStorage (real, per-continuation isolation)` under a real
+  `wrangler dev --local` run. Also found and fixed a second, independent
+  contributor: `nodejs_compat` was missing from wrangler.jsonc entirely —
+  required by @opennextjs/cloudflare's own template — without which
+  `import("node:async_hooks")` can't resolve at runtime regardless of the
+  package version.)
+- [x] 0.5 Add a bounded failure path so a stalled session lookup produces a
   recoverable error instead of an indefinitely frozen navigation. Do not hide
-  or incorrectly convert the fault into a logged-out session.
-- [ ] 0.6 Exercise concurrent authenticated RSC requests, aborted requests,
+  or incorrectly convert the fault into a logged-out session. (`db77e4a` —
+  `getSession()` races its whole authContext+getSession sequence against a
+  12s deadline that throws `SessionLookupTimeoutError` instead of resolving
+  null, propagating to the existing `(app)/error.tsx`/`global-error.tsx`
+  "Reload / Try again" boundaries instead of ever reaching a
+  `redirect("/login")`.)
+- [x] 0.6 Exercise concurrent authenticated RSC requests, aborted requests,
   repeated navigation, and a prefetch-like account-page burst locally.
+  (`db77e4a` — real signed session cookie minted from inside a running
+  local server's own auth context; 40 concurrent prefetch-flavored
+  requests to distinct account pages, 3×7 concurrent authenticated
+  document requests across 7 routes, 15 client-aborted + 10 normal
+  requests mixed, 20 concurrent hits on one route — all clean, no
+  `[hang]`, server responsive throughout.)
 - [ ] 0.7 Run tracker typecheck/build/runtime smoke tests, deploy this phase by
-  itself, and monitor Workers Logs before proceeding.
+  itself, and monitor Workers Logs before proceeding. Typecheck/build/local
+  smoke tests are done (see `db77e4a`'s commit message) — deploying and
+  watching Workers Logs is the one part of this phase still open. Deploys
+  are blocked in this session — hand to the user (`! npm run deploy`).
 
 **Exit gate:** no request-state export mismatch; account collection views do
 not issue automatic account-page prefetch storms; canceled concurrent RSC
