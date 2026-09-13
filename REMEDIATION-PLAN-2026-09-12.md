@@ -433,12 +433,18 @@ failure that can leave drift until the nightly rebuild.
   against the pre-Phase-4 code via `git stash` — the 4 failures are known
   local seed drift from earlier sim sessions, not a regression.)
 
-**Deploy status (2026-09-13): migration 0037 applied to remote D1 —
-`standings_dirty` exists on production. Code (`2e9327c`, `10e1f71`) not
-yet deployed.** Per the plan's own migration-order rule, deploy this phase
-by itself and watch `wrangler tail` before starting Phase 4B or Phase 5 —
-`! npm run deploy`, then re-check `wrangler deploy --dry-run`'s bundle size
-and `/api/health`'s `buildId` against this phase's commit.
+**Deployed 2026-09-13** — migration 0037 applied to remote D1, then `npm
+run deploy` by the user (this session's auto-mode has no access to
+either). Worker version `6c4ad7ae-6eda-433d-8441-ceae48ce9f23`, bundle
+2723.52 KiB gzipped (well under the 3072 KiB Free-plan cap), `buildId` =
+commit `b09e880` (confirmed via `/api/health`). Read-only post-deploy
+checks: `/`, `/login` 200; `/roster`, `/live-bids` 307 unauthenticated;
+`POST /api/officer/bids` with no key 401 — no regression. A short
+`wrangler tail` sample during a couple of live requests showed clean `Ok`
+statuses, no `[hang]`/errors. **Still open**: no real officer traffic has
+exercised the dirty-marker/repair path in production yet (a refresh
+actually failing and the 2-minute cron healing it) — that needs ongoing
+real usage to observe, not something a few synthetic requests establish.
 
 ### Optional Phase 4B: Live Standings Fan-Out
 

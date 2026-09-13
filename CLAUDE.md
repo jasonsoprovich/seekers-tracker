@@ -333,10 +333,10 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Remediation plan Phase 4 — fresh and recoverable standings, 2026-09-13
-(commits `2e9327c`, `10e1f71`; migration 0037 applied to remote D1
-2026-09-13 via `wrangler d1 migrations apply seekers-of-souls --remote` —
-`standings_dirty` now exists on production; code not yet deployed). Tasks
-4.1-4.7 done
+(commits `2e9327c`, `10e1f71`; migration 0037 applied to remote D1 and
+DEPLOYED 2026-09-13 — Worker version `6c4ad7ae-6eda-433d-8441-ceae48ce9f23`,
+`buildId` = commit `b09e880`, confirmed via `/api/health`). Tasks 4.1-4.7
+done
 — see REMEDIATION-PLAN-2026-09-12.md §Phase 4 for full per-task detail.**
 `player_epgp_totals` (the materialized standings table from the 2026-09-04
 work) was already the correct read model; the gap this phase closed was
