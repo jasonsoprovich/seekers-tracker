@@ -152,26 +152,96 @@ Announcement and live-bid pollers rescan it independently, and the live loop
 parses the same content more than once. A nearly 1 GB officer log makes this a
 confirmed production failure mode.
 
-- [ ] 2.1 Build one append-only tailer with file identity, byte offset, partial
-  line buffering, and truncation/replacement handling.
+- [x] 2.1 Build one append-only tailer with file identity, byte offset, partial
+  line buffering, and truncation/replacement handling. (`dafc3cc`,
+  `seekers-epgp-parser` — `internal/logtail`. `Tailer.Read()` seeks to the
+  last-read offset and only reads newly appended bytes; `os.SameFile`
+  [not path/mtime] plus a shrunk-size check trigger a reset on truncation
+  or a same-path file replacement. Returns a zero-copy `unsafe.String`
+  view over a geometrically-grown buffer rather than copying the whole
+  accumulated content on every call — an earlier version did that copy
+  and it alone cost ~20ms per poll on a 100 MB fixture, defeating the
+  point; fixed before committing, see task 2.7's numbers.)
 - [ ] 2.2 Parse each appended line once and fan events into announcement,
-  attendance, and active bid-round state.
-- [ ] 2.3 Preserve bounded startup lookback and the existing rule that active
-  character logs do not switch during a live bid round.
-- [ ] 2.4 Decouple HTTP delivery from file ingestion using a bounded,
+  attendance, and active bid-round state. **Partially done, deliberately
+  scoped down** (`63b715a`): `app.go`'s `readLog()` now goes through one
+  shared tailer per `logPath`, so the announcement watcher and the
+  live-bid poller no longer each independently re-read the whole file —
+  the confirmed failure mode (2 pollers × full-file `os.ReadFile` on a
+  ~1 GB log) is fixed. A true single-pass line-by-line state machine
+  (rewriting `internal/parse`'s regex/window-based
+  attendance/announcement/bid scanners into incremental parsers) was
+  **not** attempted — the regression risk against this app's many
+  documented edge-case fixes (whoBlockWindow, announcement session-gap
+  merging, cancel/supersede handling, park/switch rounds) outweighed the
+  remaining CPU win once the I/O side was fixed. Revisit only if profiling
+  in the field shows the per-tick regex re-scan itself (not the disk read)
+  is a real cost on a very large log.
+- [x] 2.3 Preserve bounded startup lookback and the existing rule that active
+  character logs do not switch during a live bid round. (Unaffected by
+  `dafc3cc`/`63b715a` — neither the lookback windows in
+  `ListAttendanceSnapshots`/`CaptureBids` nor `startActiveLogWatch`'s
+  `pendingLogPath` deferral while `roundItem != ""` were touched. Verified
+  directly: a throwaway `app_manual_test.go` captured attendance, appended
+  more log content, re-captured through the same tailer, then switched to
+  a different file mid-session and confirmed the new file's content
+  resolved cleanly — deleted before committing, per this repo's own
+  convention.)
+- [x] 2.4 Decouple HTTP delivery from file ingestion using a bounded,
   coalescing latest-snapshot queue, short request deadlines, and capped retry
-  backoff. Mark a snapshot delivered only after success.
+  backoff. Mark a snapshot delivered only after success. (`63b715a` —
+  `livebidpush.go`. `startLiveBidPush`'s single sequential loop [read log,
+  emit local UI event, push over HTTP] was split in two: the ingestion
+  loop now only reads/emits locally and hands the latest snapshot to a
+  `livePushMailbox` [single-slot, coalescing — a newer snapshot always
+  supersedes an older undelivered one, never queues behind it];
+  `runLivePushDelivery` drains it on its own goroutine with an 8s
+  per-attempt deadline and up to 3 capped retries [1.5s backoff],
+  `livePushStatus.markDelivered` only ever called on a genuine success.
+  Before this, a slow/hung site connection delayed the officer's OWN live
+  view of their round, not just the site's.)
 - [ ] 2.5 Surface current log size, last successful push, pending retry, and
-  delivery errors without blocking local capture or UI updates.
+  delivery errors without blocking local capture or UI updates. **Backend
+  half done** (`63b715a`): `App.GetLogTailStatus()` and
+  `App.GetLiveBidPushStatus()` are real Wails-bound methods returning live
+  data (size/bytes-read/resets; lastDeliveredAt/pendingRetry/lastError),
+  bindings regenerated. **Not yet surfaced in the frontend** — no UI reads
+  either method yet. Non-blocking is already true by construction (2.4's
+  split), independent of whether anything displays it.
 - [ ] 2.6 Test partial lines, same-second tells, repeated text, cancellations,
   truncation, replacement, character swaps, parked rounds, stalled HTTP, and
-  recovery.
-- [ ] 2.7 Generate a temporary large-log fixture and prove append latency is
-  based on new bytes rather than total file size.
-- [ ] 2.8 Run Go tests/vet, real `App` serialization tests, frontend build,
-  binding generation as needed, and full Wails build.
+  recovery. **Partially covered**: partial lines/truncation/replacement/
+  concurrent readers (`internal/logtail/logtail_test.go`, `dafc3cc`) and
+  stalled-HTTP/retry-recovery/delivered-only-on-success
+  (`livebidpush_test.go`, `63b715a`) are new tests added this phase.
+  Same-second tells, repeated text, cancellations, character swaps, and
+  parked rounds are pre-existing `internal/parse` behavior this phase
+  didn't touch (see 2.2) — already exercised by the existing
+  `attendance_test.go`/`bids_test.go`, which stayed green throughout and
+  weren't re-verified against new scenarios here.
+- [x] 2.7 Generate a temporary large-log fixture and prove append latency is
+  based on new bytes rather than total file size. (`dafc3cc` —
+  `TestTailer_LargeLog_IncrementalReadIsFast`: 100 MB fixture, full read
+  ~50ms, a 50-byte incremental append read back in ~20-40µs — roughly
+  1000-2000x faster, and the test asserts the incremental read stays under
+  1/4 of the full-read cost rather than a fixed wall-clock threshold, to
+  stay meaningful on a slower machine.)
+- [x] 2.8 Run Go tests/vet, real `App` serialization tests, frontend build,
+  binding generation as needed, and full Wails build. Done for everything
+  landed so far (`dafc3cc`, `63b715a`): `go build`/`go vet`/`go test`
+  clean, `go test -race ./...` clean including a dedicated concurrent-
+  readers test; a throwaway `app_manual_test.go` exercised the real
+  `CaptureAttendance`/`GetLogTailStatus` methods end-to-end then was
+  deleted; `wails3 generate bindings` regenerated `app.ts`/`index.ts`/
+  `models.ts` for the two new methods; `frontend/npm run build` and a full
+  `wails3 build` both succeeded; the built binary launched without a crash
+  (headless smoke check only — no GUI click-through). Re-run this gate
+  again once 2.2/2.5/2.6 close out the rest of the phase.
 - [ ] 2.9 Release through the tagged Windows workflow after compatible server
-  behavior is live, then verify updater delivery.
+  behavior is live, then verify updater delivery. Blocked on Phase 0's
+  tracker deploy (server-side compatibility isn't observed live yet) and
+  is itself a publish action (git tag + GitHub Release) — hand to the user
+  when the phase is otherwise ready.
 
 ## Phase 3: Atomic and Idempotent Bid Finalization
 

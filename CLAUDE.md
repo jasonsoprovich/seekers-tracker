@@ -332,6 +332,51 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 2 — incremental desktop log capture, in progress,
+2026-09-12 (`seekers-epgp-parser` commits `dafc3cc`, `63b715a`; no tracker
+change, no release yet).** The confirmed failure mode: a ~1 GB officer log,
+re-read in full with `os.ReadFile` by two independent pollers (the "send
+tells" announcement watcher, the live-bid push loop) every few seconds.
+- **`internal/logtail.Tailer`** (`dafc3cc`) keeps one accumulated in-memory
+  copy per file and only ever does a seeked read of newly appended bytes
+  after the first call; `os.SameFile` (not path/mtime) plus a shrunk-size
+  check catch truncation or a same-path file replacement (a fresh
+  `cmd/simlog` run) and trigger a full reset. Returns a zero-copy
+  `unsafe.String` view over a geometrically-grown buffer — proven
+  proportional-to-new-bytes on a 100 MB fixture: ~50ms full read, ~20-40µs
+  for a 50-byte incremental append (task 2.7).
+- `app.go`'s `readLog()` now goes through one shared tailer per `logPath`
+  (`63b715a`) instead of `os.ReadFile`; `setLogPath()` is the only place
+  `logPath` changes so the tailer always tracks the followed file, and
+  `currentLogPath()` gives every background goroutine a synchronized read
+  (previously unguarded across goroutines). A full line-by-line
+  incremental parse/state-machine rewrite of `internal/parse` (the fuller
+  reading of task 2.2) was deliberately **not** attempted — regression risk
+  against many documented edge-case fixes there outweighed the remaining
+  CPU win once repeated disk reads were eliminated.
+- **`livebidpush.go`** (`63b715a`, task 2.4): `startLiveBidPush` was one
+  sequential loop doing log reads, the local UI event, AND the HTTP push —
+  a slow/hung site connection delayed the officer's own live view, not
+  just the site's. Split into an ingestion loop (reads, emits locally,
+  hands the latest snapshot to a single-slot coalescing mailbox) and a
+  `runLivePushDelivery` goroutine (8s per-attempt deadline, 3 capped
+  retries, marks delivered only on success). `GetLogTailStatus`/
+  `GetLiveBidPushStatus` (task 2.5) expose the backing data; nothing in
+  the frontend reads them yet.
+- Verified: `go build`/`vet`/`test`/`test -race` all clean including new
+  concurrency/retry/coalescing tests; a throwaway `app_manual_test.go` ran
+  the real `App.CaptureAttendance`/`GetLogTailStatus` end-to-end (deleted
+  before committing); `wails3 generate bindings` + `npm run build` (frontend)
+  + full `wails3 build` all succeeded; the built binary launched without a
+  crash (headless smoke check only, no GUI click-through).
+- **Remaining in this phase**: 2.2's fuller fan-out (deliberately deferred,
+  see above); 2.5's frontend surface (no UI yet); 2.6's broader test list
+  (same-second tells/character swaps/parked rounds are pre-existing
+  `internal/parse` behavior, unaffected and already covered by
+  `attendance_test.go`/`bids_test.go`); 2.9's release, blocked on Phase 0's
+  tracker deploy landing first. See REMEDIATION-PLAN-2026-09-12.md §Phase 2
+  for the full per-task detail.
+
 **Remediation plan Phase 0 — website freeze root cause found and fixed,
 2026-09-13 (commits `f03942d`, `db77e4a`, `21f2465`; local only — see
 REMEDIATION-PLAN-2026-09-12.md §Phase 0 task 0.7, deploy still pending).**
