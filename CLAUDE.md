@@ -333,6 +333,19 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
+2026-09-13 (no migration; local only).** The generic stacked feature layout
+at `/` is now an asymmetric editorial composition built around the guild's
+actual recruitment poster and copy: identity and raid facts in the hero,
+people-first philosophy, a parchment-style Player Quest Board centerpiece,
+cleared progression, and recruitment. Public-only gold/brass/olive tokens and
+Georgia display type leave the authenticated application's Geist/emerald
+design system unchanged. The poster source is preserved, with a 224 KB WebP
+(down from 2.1 MB) used by the priority Next Image. Atmosphere is limited to
+CSS halo/poster movement and grain, all disabled by `prefers-reduced-motion`.
+Responsive, payload, keyboard skip-link, contrast, and reduced-motion browser
+checks pass.
+
 **Remediation plan Phase 8.1 — roster account-management entry point,
 2026-09-13 (no migration; local only).** The Roster remains the guild-wide
 directory for every member, with each character name preserving its existing

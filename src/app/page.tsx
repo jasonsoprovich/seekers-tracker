@@ -1,207 +1,164 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import styles from "./public.module.css";
+
 const DISCORD_INVITE_URL = "https://discord.gg/Xzb75CvcMH";
 
-function DiscordCTA({ className = "" }: { className?: string }) {
+const progression = ["Classic", "Kunark", "Velious", "Luclin"];
+
+function DiscordInvite({ compact = false }: { compact?: boolean }) {
   return (
     <a
       href={DISCORD_INVITE_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-3 font-semibold text-black transition-colors hover:bg-emerald-400 ${className}`}
+      className={compact ? styles.textLink : styles.primaryCta}
     >
-      Join us on Discord
+      Join our Discord
+      <span aria-hidden="true">&rarr;</span>
     </a>
   );
 }
 
-const aboutPoints = [
-  "Play what you love — no forced classes",
-  "Community first — helpful, respectful, drama-free",
-  "Veterans and newcomers welcome alike",
-  "A guild where people matter more than pixels",
-];
-
-const eventPoints = [
-  "2–3 guild events each week",
-  "Typical raid times: 9:00 PM – 12:00 AM EST",
-  "Flexible scheduling built around our members",
-  "Progression, epics, quests, XP groups, and more",
-];
-
-const progression = ["Classic", "Kunark", "Velious", "Luclin"];
-
-const whoWeSeek = [
-  "Respectful, team-oriented players",
-  "People who want to contribute to a positive community",
-  "Casual and hardcore players alike",
-  "Players looking for a long-term home, not just a tag above their head",
-];
-
 export default function Home() {
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
-        <span className="text-lg font-bold tracking-tight">Seekers of Souls</span>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
-          >
-            Member Login
+    <main className={styles.page}>
+      <a className={styles.skipLink} href="#guild-story">
+        Skip to guild information
+      </a>
+
+      <header className={styles.header}>
+        <Link className={styles.wordmark} href="/" aria-label="Seekers of Souls home">
+          <span className={styles.sigil} aria-hidden="true">S</span>
+          <span>
+            <strong>Seekers of Souls</strong>
+            <small>Project Quarm</small>
+          </span>
+        </Link>
+        <nav className={styles.headerActions} aria-label="Public navigation">
+          <DiscordInvite compact />
+          <Link className={styles.memberLink} href="/login">
+            Member sign in
           </Link>
-          <a
-            href={DISCORD_INVITE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium transition-colors hover:border-emerald-500 hover:text-emerald-400"
-          >
-            Discord
-          </a>
-        </div>
+        </nav>
       </header>
 
-      {/* Hero */}
-      <section className="mx-auto flex max-w-5xl flex-col items-center gap-10 px-6 py-12 text-center md:flex-row md:text-left">
-        <div className="flex-1">
-          <p className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">
-            A Project Quarm Guild
+      <section className={styles.hero} aria-labelledby="hero-heading">
+        <div className={styles.heroCopy}>
+          <p className={styles.eyebrow}>A Project Quarm guild</p>
+          <h1 id="hero-heading">Good souls leave a lasting mark.</h1>
+          <p className={styles.lede}>
+            Seekers of Souls is a community-first home for raiders, adventurers, and new players finding
+            their footing in Norrath.
           </p>
-          <h1 className="mt-3 text-4xl font-extrabold tracking-tight sm:text-5xl">Seekers of Souls</h1>
-          <p className="mt-4 text-xl text-neutral-300">Good Souls &gt; Parses.</p>
-          <p className="mt-4 text-neutral-400">
-            Seeking raiders, adventurers, and good people. We also love new players. Whether you&apos;re a
-            seasoned veteran looking for your next raid home or a brand-new player taking your first steps
-            into Norrath, you&apos;ll find a place here.
-          </p>
-          <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row md:justify-start">
-            <DiscordCTA />
-            <span className="text-sm text-neutral-500">A short, informal interview is required.</span>
+          <div className={styles.heroActions}>
+            <DiscordInvite />
+            <p>A short, informal interview is required.</p>
           </div>
+          <dl className={styles.raidFacts} aria-label="Guild raid facts">
+            <div>
+              <dt>Schedule</dt>
+              <dd>2-3 nights weekly</dd>
+            </div>
+            <div>
+              <dt>Raid time</dt>
+              <dd>9 PM - midnight EST</dd>
+            </div>
+            <div>
+              <dt>Current era</dt>
+              <dd>Luclin cleared</dd>
+            </div>
+          </dl>
         </div>
-        <div className="flex-shrink-0">
+
+        <figure className={styles.heroArt}>
+          <div className={styles.artHalo} aria-hidden="true" />
           <Image
-            src="/images/seekers-banner.png"
-            alt="Seekers of Souls"
-            width={320}
-            height={480}
-            className="rounded-2xl border border-neutral-800 shadow-2xl"
+            src="/images/seekers-banner.webp"
+            alt="Seekers of Souls members gathered before a glowing Norrath portal"
+            fill
             priority
+            fetchPriority="high"
+            sizes="(max-width: 767px) 92vw, (max-width: 1200px) 44vw, 520px"
           />
-        </div>
+          <figcaption>Community first. Solid raids. All are welcome.</figcaption>
+        </figure>
       </section>
 
-      {/* Philosophy */}
-      <section className="border-t border-neutral-900 bg-neutral-900/40">
-        <div className="mx-auto max-w-5xl px-6 py-14">
-          <h2 className="text-2xl font-bold">Our philosophy is simple</h2>
-          <div className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-4">
-            {[
-              ["⚔️", "Have fun"],
-              ["🏆", "Earn your loot"],
-              ["🤝", "Build lasting friendships"],
-              ["🌟", "Leave a legacy of respect"],
-            ].map(([icon, label]) => (
-              <div key={label} className="text-center">
-                <div className="text-3xl">{icon}</div>
-                <div className="mt-2 font-medium text-neutral-200">{label}</div>
-              </div>
-            ))}
-          </div>
-          <p className="mt-8 text-neutral-400">
-            We don&apos;t measure our members by parses. We measure them by character.
+      <section id="guild-story" className={styles.story} aria-labelledby="story-heading">
+        <div className={styles.sectionNumber} aria-hidden="true">I</div>
+        <div className={styles.storyHeading}>
+          <p className={styles.eyebrow}>The guild</p>
+          <h2 id="story-heading">People before pixels.</h2>
+        </div>
+        <div className={styles.storyCopy}>
+          <p>
+            We do not measure members by parses. We measure them by character: how they show up, help
+            others, and make the guild a better place to spend an evening.
+          </p>
+          <p>
+            Play what you love. Veterans and first-time adventurers belong at the same campfire, and
+            progress means more when the whole guild gets there together.
           </p>
         </div>
       </section>
 
-      {/* What we're about / Raids */}
-      <section className="mx-auto grid max-w-5xl gap-12 px-6 py-14 sm:grid-cols-2">
-        <div>
-          <h2 className="text-2xl font-bold">What We&apos;re About</h2>
-          <ul className="mt-4 space-y-3 text-neutral-300">
-            {aboutPoints.map((point) => (
-              <li key={point} className="flex gap-3">
-                <span className="text-emerald-400">•</span>
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold">Raids &amp; Events</h2>
-          <ul className="mt-4 space-y-3 text-neutral-300">
-            {eventPoints.map((point) => (
-              <li key={point} className="flex gap-3">
-                <span className="text-emerald-400">•</span>
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {/* Quest board */}
-      <section className="border-t border-neutral-900 bg-neutral-900/40">
-        <div className="mx-auto max-w-5xl px-6 py-14">
-          <h2 className="text-2xl font-bold">The Seeker&apos;s Player Quest Board</h2>
-          <p className="mt-4 max-w-2xl text-neutral-400">
-            One of our favorite guild features is our player-driven Quest Board. Need help with an epic?
-            Looking for a group? Want to organize a camp, key, quest, or custom event? Post it on the
-            board. If you need it, the guild shows up.
+      <section className={styles.questSection} aria-labelledby="quest-heading">
+        <div className={styles.questBoard}>
+          <div className={styles.questPin} aria-hidden="true" />
+          <p className={styles.questKicker}>A Seekers tradition</p>
+          <h2 id="quest-heading">The Player Quest Board</h2>
+          <p>
+            Need help with an epic? Looking for a camp, key, XP group, or custom event? Put it on the
+            board. Members choose the adventures that matter to them, and the guild shows up.
           </p>
+          <blockquote>&ldquo;If you need it, we seek it together.&rdquo;</blockquote>
         </div>
+        <aside className={styles.questAside} aria-label="Quest Board examples">
+          <p className={styles.eyebrow}>Pinned this week</p>
+          <ul>
+            <li><span>01</span> Epic fights and turn-ins</li>
+            <li><span>02</span> Key camps and progression flags</li>
+            <li><span>03</span> Member-led events and XP groups</li>
+          </ul>
+        </aside>
       </section>
 
-      {/* Progression */}
-      <section className="mx-auto max-w-5xl px-6 py-14">
-        <h2 className="text-2xl font-bold">Progression</h2>
-        <div className="mt-4 flex flex-wrap gap-3">
-          {progression.map((era) => (
-            <span
-              key={era}
-              className="flex items-center gap-2 rounded-full border border-emerald-800 bg-emerald-950 px-4 py-2 text-sm font-medium text-emerald-300"
-            >
-              <span aria-hidden>✔</span>
-              {era} Cleared
-            </span>
+      <section className={styles.progressionSection} aria-labelledby="progression-heading">
+        <div>
+          <p className={styles.eyebrow}>The road traveled</p>
+          <h2 id="progression-heading">Focused progression.<br />Relaxed company.</h2>
+        </div>
+        <ol className={styles.progressionList}>
+          {progression.map((era, index) => (
+            <li key={era}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{era}</strong>
+              <small>Cleared</small>
+            </li>
           ))}
-        </div>
+        </ol>
       </section>
 
-      {/* Who we seek */}
-      <section className="border-t border-neutral-900 bg-neutral-900/40">
-        <div className="mx-auto max-w-5xl px-6 py-14">
-          <h2 className="text-2xl font-bold">Who We Seek</h2>
-          <ul className="mt-4 grid gap-3 text-neutral-300 sm:grid-cols-2">
-            {whoWeSeek.map((point) => (
-              <li key={point} className="flex gap-3">
-                <span className="text-emerald-400">•</span>
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {/* Final CTA */}
-      <section className="mx-auto max-w-5xl px-6 py-20 text-center">
-        <h2 className="text-3xl font-extrabold">Join the Circle</h2>
-        <p className="mx-auto mt-4 max-w-xl text-neutral-400">
-          Looking for a guild that has your back, celebrates your successes, and helps you achieve your
-          goals? Come see what we&apos;re about.
+      <section className={styles.recruitment} aria-labelledby="recruitment-heading">
+        <p className={styles.eyebrow}>Who we seek</p>
+        <h2 id="recruitment-heading">Bring your favorite class.<br />Bring the right spirit.</h2>
+        <p>
+          We welcome casual and dedicated players who are respectful, team-oriented, and looking for a
+          long-term home rather than another tag above their head.
         </p>
-        <div className="mt-8">
-          <DiscordCTA />
+        <div className={styles.recruitmentActions}>
+          <DiscordInvite />
+          <span>Quality over quantity, always.</span>
         </div>
-        <p className="mt-10 text-sm font-semibold tracking-widest text-neutral-500 uppercase">
-          Quality &gt; Quantity — Always
-        </p>
       </section>
 
-      <footer className="border-t border-neutral-900 px-6 py-8 text-center text-sm text-neutral-600">
-        Seekers of Souls — a Project Quarm guild.
+      <footer className={styles.footer}>
+        <span>Seekers of Souls</span>
+        <span>Project Quarm</span>
+        <Link href="/login">Member access</Link>
       </footer>
-    </div>
+    </main>
   );
 }

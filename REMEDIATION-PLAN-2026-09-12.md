@@ -768,14 +768,20 @@ needed — this phase is tracker-only.
 
 ## Phase 9: Public Landing Page and Login Flow
 
-- [ ] 9.1 Replace the generic feature-grid composition with a Norrath editorial
-  layout using authentic guild/game imagery and guild-specific copy.
-- [ ] 9.2 Establish an intentional public gold/brass/olive palette and display
-  typography while retaining legible application typography.
-- [ ] 9.3 Keep content focused on guild identity, raid facts, progression,
-  recruitment, and the distinctive Quest Board.
-- [ ] 9.4 Add restrained CSS-first atmospheric motion with reduced-motion
+- [x] 9.1 Replace the generic feature-grid composition with a Norrath editorial
+  layout using authentic guild/game imagery and guild-specific copy. (`Phase
+  9.1-9.4` — asymmetric editorial hero built around the guild's existing
+  recruitment artwork, optimized from a 2.1 MB PNG to a 224 KB WebP.)
+- [x] 9.2 Establish an intentional public gold/brass/olive palette and display
+  typography while retaining legible application typography. (Scoped to the
+  public page; the authenticated application's semantic theme is unchanged.)
+- [x] 9.3 Keep content focused on guild identity, raid facts, progression,
+  recruitment, and the distinctive Quest Board. (The Quest Board is the
+  central parchment treatment rather than another interchangeable feature
+  card.)
+- [x] 9.4 Add restrained CSS-first atmospheric motion with reduced-motion
   support; avoid heavy canvas, autoplay video, and interaction-blocking effects.
+  (Decorative halo/poster movement only; no JavaScript animation.)
 - [ ] 9.5 Extract a reusable Discord sign-in control and put it directly on the
   landing page.
 - [ ] 9.6 Keep `/login` as fallback and later preserve a sanitized internal

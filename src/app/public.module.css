@@ -1,0 +1,695 @@
+.page {
+  --public-ink: #090b07;
+  --public-night: #10140d;
+  --public-paper: #d8cda6;
+  --public-muted: #9d987f;
+  --public-brass: #b8903c;
+  --public-gold: #e0b957;
+  --public-olive: #74851d;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% 16%, rgb(116 133 29 / 14%), transparent 24rem),
+    linear-gradient(180deg, var(--public-ink), var(--public-night) 52%, #080a06);
+  color: var(--public-paper);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+.page::before {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  content: "";
+  opacity: 0.2;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
+}
+
+.skipLink {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 20;
+  padding: 0.75rem 1rem;
+  transform: translateY(-150%);
+  border: 1px solid var(--public-gold);
+  background: var(--public-ink);
+  color: var(--public-paper);
+}
+
+.skipLink:focus {
+  transform: translateY(0);
+}
+
+.header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  width: min(100% - 2rem, 76rem);
+  min-height: 5.5rem;
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgb(184 144 60 / 35%);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  color: var(--public-paper);
+}
+
+.wordmark strong,
+.wordmark small {
+  display: block;
+}
+
+.wordmark strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.wordmark small {
+  margin-top: 0.15rem;
+  color: var(--public-muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+}
+
+.sigil {
+  display: grid;
+  width: 2.3rem;
+  height: 2.3rem;
+  place-items: center;
+  border: 1px solid var(--public-brass);
+  border-radius: 50%;
+  color: var(--public-gold);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.4rem;
+}
+
+.headerActions,
+.heroActions,
+.recruitmentActions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.textLink,
+.memberLink {
+  min-height: 2.75rem;
+  align-content: center;
+  color: var(--public-paper);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  transition: color 180ms ease;
+}
+
+.textLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--public-gold);
+}
+
+.memberLink {
+  padding: 0 1rem;
+  border: 1px solid rgb(216 205 166 / 30%);
+}
+
+.textLink:hover,
+.memberLink:hover,
+.footer a:hover {
+  color: #fff1bf;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  width: min(100% - 2rem, 76rem);
+  min-height: 43rem;
+  margin: 0 auto;
+  grid-template-columns: minmax(0, 1.08fr) minmax(19rem, 0.92fr);
+  align-items: center;
+  gap: clamp(2rem, 6vw, 6rem);
+  padding: 4rem 0 5.5rem;
+}
+
+.hero::after {
+  position: absolute;
+  right: -8rem;
+  bottom: 3rem;
+  width: 22rem;
+  height: 22rem;
+  border: 1px solid rgb(184 144 60 / 12%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4rem rgb(184 144 60 / 4%), 0 0 0 8rem rgb(184 144 60 / 3%);
+  content: "";
+  animation: orbit 16s linear infinite;
+}
+
+.heroCopy {
+  position: relative;
+  z-index: 2;
+}
+
+.eyebrow,
+.questKicker {
+  color: var(--public-olive);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.27em;
+  text-transform: uppercase;
+}
+
+.hero h1,
+.story h2,
+.questBoard h2,
+.progressionSection h2,
+.recruitment h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.hero h1 {
+  max-width: 11ch;
+  margin-top: 1.1rem;
+  color: #f0e4bd;
+  font-size: clamp(3.4rem, 7vw, 6.8rem);
+  line-height: 0.91;
+}
+
+.lede {
+  max-width: 38rem;
+  margin-top: 2rem;
+  color: #aaa58d;
+  font-size: clamp(1rem, 1.8vw, 1.2rem);
+  line-height: 1.75;
+}
+
+.heroActions {
+  margin-top: 2rem;
+}
+
+.heroActions p {
+  max-width: 12rem;
+  color: #777764;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.primaryCta {
+  display: inline-flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 0 1.35rem;
+  border: 1px solid #d4a942;
+  background: linear-gradient(135deg, #d8ad49, #9c772a);
+  box-shadow: 0 0 2rem rgb(224 185 87 / 12%);
+  color: #111307;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  transition: filter 180ms ease, transform 180ms ease;
+}
+
+.primaryCta:hover {
+  filter: brightness(1.12);
+  transform: translateY(-2px);
+}
+
+.raidFacts {
+  display: grid;
+  margin-top: 3.5rem;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid rgb(184 144 60 / 25%);
+  border-bottom: 1px solid rgb(184 144 60 / 25%);
+}
+
+.raidFacts div {
+  padding: 1rem 1rem 1rem 0;
+}
+
+.raidFacts div + div {
+  padding-left: 1rem;
+  border-left: 1px solid rgb(184 144 60 / 25%);
+}
+
+.raidFacts dt {
+  color: #777764;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.raidFacts dd {
+  margin-top: 0.4rem;
+  color: #d9cfac;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.98rem;
+}
+
+.heroArt {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 30rem;
+  aspect-ratio: 2 / 2.75;
+  justify-self: end;
+  overflow: hidden;
+  border: 1px solid rgb(224 185 87 / 38%);
+  background: #070906;
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 60%);
+  animation: breathe 8s ease-in-out infinite;
+}
+
+.heroArt::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  box-shadow: inset 0 0 4rem rgb(0 0 0 / 55%);
+}
+
+.heroArt img {
+  object-fit: cover;
+  object-position: center 42%;
+}
+
+.heroArt figcaption {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  padding: 1rem;
+  background: linear-gradient(transparent, rgb(5 7 4 / 96%));
+  color: #dfcf9e;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.13em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.artHalo {
+  position: absolute;
+  inset: 24% 8% auto;
+  z-index: 1;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgb(210 174 54 / 20%);
+  filter: blur(2rem);
+  animation: glow 5s ease-in-out infinite;
+}
+
+.story,
+.questSection,
+.progressionSection,
+.recruitment {
+  width: min(100% - 2rem, 76rem);
+  margin: 0 auto;
+}
+
+.story {
+  display: grid;
+  grid-template-columns: 5rem minmax(12rem, 0.8fr) minmax(18rem, 1.2fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
+  padding: 7rem 0;
+  border-top: 1px solid rgb(184 144 60 / 23%);
+}
+
+.sectionNumber {
+  color: rgb(184 144 60 / 33%);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 4rem;
+  line-height: 0.8;
+}
+
+.story h2,
+.progressionSection h2,
+.recruitment h2 {
+  margin-top: 0.8rem;
+  color: #e7dbb4;
+  font-size: clamp(2.3rem, 4.5vw, 4.2rem);
+  line-height: 1.03;
+}
+
+.storyCopy {
+  display: grid;
+  gap: 1.4rem;
+  color: #a7a28b;
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.questSection {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
+  align-items: stretch;
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 32%);
+}
+
+.questBoard {
+  position: relative;
+  padding: clamp(2rem, 5vw, 5rem);
+  border: 1px solid #8c743d;
+  background:
+    linear-gradient(rgb(57 48 27 / 10%) 1px, transparent 1px) 0 0 / 100% 2rem,
+    #c9bd91;
+  color: #282416;
+}
+
+.questBoard::before,
+.questBoard::after {
+  position: absolute;
+  width: 3rem;
+  height: 3rem;
+  border-color: #846b31;
+  content: "";
+}
+
+.questBoard::before {
+  top: 0.75rem;
+  left: 0.75rem;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.questBoard::after {
+  right: 0.75rem;
+  bottom: 0.75rem;
+  border-right: 1px solid;
+  border-bottom: 1px solid;
+}
+
+.questPin {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #765c22;
+  box-shadow: 0 0.15rem 0.3rem rgb(0 0 0 / 40%);
+}
+
+.questKicker {
+  color: #59620e;
+}
+
+.questBoard h2 {
+  margin-top: 0.8rem;
+  font-size: clamp(2.5rem, 5vw, 4.8rem);
+  line-height: 0.98;
+}
+
+.questBoard > p:not(.questKicker) {
+  max-width: 43rem;
+  margin-top: 1.5rem;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.questBoard blockquote {
+  margin-top: 2.5rem;
+  color: #52600f;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-style: italic;
+}
+
+.questAside {
+  padding: clamp(2rem, 4vw, 4rem);
+  border: 1px solid rgb(184 144 60 / 30%);
+  border-left: 0;
+  background: #11150c;
+}
+
+.questAside ul {
+  margin-top: 2rem;
+}
+
+.questAside li {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.8rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid rgb(184 144 60 / 22%);
+  color: #bbb397;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.45;
+}
+
+.questAside li span {
+  color: var(--public-olive);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.7rem;
+}
+
+.progressionSection {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.85fr) minmax(20rem, 1.15fr);
+  gap: clamp(3rem, 8vw, 8rem);
+  padding: 8rem 0;
+}
+
+.progressionList {
+  counter-reset: era;
+}
+
+.progressionList li {
+  display: grid;
+  min-height: 4.6rem;
+  grid-template-columns: 3rem 1fr auto;
+  align-items: center;
+  border-top: 1px solid rgb(184 144 60 / 28%);
+}
+
+.progressionList li:last-child {
+  border-bottom: 1px solid rgb(184 144 60 / 28%);
+}
+
+.progressionList span,
+.progressionList small {
+  color: #777764;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.progressionList strong {
+  color: #d9cfac;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+  font-weight: 400;
+}
+
+.progressionList small {
+  color: var(--public-olive);
+}
+
+.recruitment {
+  position: relative;
+  padding: clamp(3rem, 8vw, 7rem);
+  border-top: 1px solid rgb(184 144 60 / 35%);
+  border-bottom: 1px solid rgb(184 144 60 / 35%);
+  background:
+    linear-gradient(90deg, rgb(116 133 29 / 9%), transparent 60%),
+    rgb(17 20 12 / 72%);
+}
+
+.recruitment > p:not(.eyebrow) {
+  max-width: 43rem;
+  margin-top: 1.7rem;
+  color: #a7a28b;
+  line-height: 1.8;
+}
+
+.recruitmentActions {
+  margin-top: 2.5rem;
+}
+
+.recruitmentActions span {
+  color: #777764;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+
+.footer {
+  display: flex;
+  width: min(100% - 2rem, 76rem);
+  min-height: 8rem;
+  margin: 0 auto;
+  align-items: center;
+  gap: 1.5rem;
+  color: #656555;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.footer span + span::before {
+  margin-right: 1.5rem;
+  color: #4d4e3e;
+  content: "/";
+}
+
+.footer a {
+  min-height: 2.75rem;
+  margin-left: auto;
+  align-content: center;
+  color: #94917d;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-0.45rem); }
+}
+
+@keyframes glow {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50% { opacity: 0.95; transform: scale(1.06); }
+}
+
+@keyframes orbit {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 767px) {
+  .header {
+    min-height: 4.7rem;
+  }
+
+  .wordmark strong {
+    font-size: 0.8rem;
+  }
+
+  .wordmark small,
+  .headerActions .textLink {
+    display: none;
+  }
+
+  .memberLink {
+    padding: 0 0.75rem;
+    font-size: 0.65rem;
+  }
+
+  .hero {
+    min-height: auto;
+    grid-template-columns: 1fr;
+    padding: 3.5rem 0 4rem;
+  }
+
+  .hero h1 {
+    font-size: clamp(3.3rem, 17vw, 5.2rem);
+  }
+
+  .heroActions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .heroActions p {
+    max-width: none;
+  }
+
+  .raidFacts {
+    grid-template-columns: 1fr;
+  }
+
+  .raidFacts div,
+  .raidFacts div + div {
+    padding: 0.8rem 0;
+    border-top: 1px solid rgb(184 144 60 / 16%);
+    border-left: 0;
+  }
+
+  .raidFacts div:first-child {
+    border-top: 0;
+  }
+
+  .heroArt {
+    max-width: none;
+    justify-self: stretch;
+  }
+
+  .story {
+    grid-template-columns: 2.5rem 1fr;
+    padding: 5rem 0;
+  }
+
+  .storyCopy {
+    grid-column: 2;
+  }
+
+  .sectionNumber {
+    font-size: 2.5rem;
+  }
+
+  .questSection,
+  .progressionSection {
+    grid-template-columns: 1fr;
+  }
+
+  .questAside {
+    border-top: 0;
+    border-left: 1px solid rgb(184 144 60 / 30%);
+  }
+
+  .progressionSection {
+    gap: 2.5rem;
+    padding: 5rem 0;
+  }
+
+  .recruitment {
+    width: 100%;
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .recruitmentActions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .footer {
+    flex-wrap: wrap;
+    padding: 2rem 0;
+  }
+
+  .footer a {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero::after,
+  .heroArt,
+  .artHalo {
+    animation: none;
+  }
+
+  .primaryCta,
+  .textLink,
+  .memberLink {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}
