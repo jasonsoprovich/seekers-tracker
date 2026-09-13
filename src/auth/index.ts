@@ -41,7 +41,7 @@ async function verifyGuildMembershipOnLogin(db: ReturnType<typeof drizzle>, user
 // at a time from scratch." Runs alongside the guild-membership check,
 // same session.create.after hook, same reasoning (idempotent, cheap,
 // re-run every login rather than gated behind a one-time signup event).
-async function resolvePlayerOnLogin(db: ReturnType<typeof drizzle>, userId: string) {
+async function resolvePlayerOnLogin(db: ReturnType<typeof drizzle<typeof schema>>, userId: string) {
   const [user] = await db
     .select({ id: schema.users.id, discordId: schema.users.discordId, username: schema.users.username })
     .from(schema.users)

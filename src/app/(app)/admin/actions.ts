@@ -3,24 +3,26 @@
 import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { characters, players, users } from "@/db";
+import { players, users } from "@/db";
 import { revokeApiKeysForUser } from "@/lib/api-key-auth";
 import { canManageAnyCharacter, canManageEpgp, canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { refreshStandings } from "@/lib/epgp/standings";
 import {
   assignCharacterToUser,
   MAIN_SWAP_FEE_GP,
+  reinstatePlayerFromGuildCore,
+  removePlayerFromGuildCore,
   reverseMainSwap,
   swapMainCharacter,
+  type GuildStatusResult,
   type SwapMainResult,
 } from "@/lib/players";
 import { getSession } from "@/lib/session";
 
 export type SetRoleResult = { error?: string };
 
-export type MemberGuildStatusResult = { error?: string };
+export type MemberGuildStatusResult = GuildStatusResult;
 
 export type { SwapMainResult };
 
@@ -159,25 +161,34 @@ export async function assignCharacterToMember(userId: string, characterId: numbe
 // `removed` status (in-game/roster housekeeping, never affects access on
 // its own — confirmed with the leader 2026-08-29). It does three things,
 // all reversible by reinstateMember:
-//   1. drops the person's site role to `member`
+//   1. drops the person's role to `member` (both users.role and
+//      players.role — see removePlayerFromGuildCore's own comment)
 //   2. flips players.status to `departed` — (app)/layout.tsx's gate treats
 //      that like a failed Discord check: no page access, bounced to
-//      /access-denied
+//      /access-denied, until an explicit reinstatement (no auto-unlock on
+//      a later login — see isMemberAllowed)
 //   3. zeroes the player's EP across all their characters (a `departure`
 //      decay_events batch — §1e: GP is never touched). The event id is
 //      stashed on players.removalDecayEventId so reinstate can reverse it.
 // Character records and GP history stay as-is. The role is NOT auto-restored
-// on reinstate — a leader re-grants it deliberately.
+// on reinstate — a leader re-grants it deliberately. The actual mutation
+// lives in src/lib/players.ts (removePlayerFromGuildCore) — this wrapper's
+// only job is the session/role gate, same division as setPlayerMainCharacter
+// above.
 export async function removeMemberFromGuild(userId: string): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
+  const actingRole = await getUserRole(session.user.id);
+  if (!canManageRoles(actingRole)) {
+    return { error: "Only leaders can remove a member from the guild." };
+  }
   const db = await getDb();
   const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
   // A user who has never logged in since Phase 10 may have no players row
   // yet — every active member has (Phase 10 shipped 2026-08-24), so treat
   // it as "nothing to remove" rather than inventing a row.
   if (!player) return { error: "This member has no player account yet — nothing to remove." };
-  return removePlayerCore(db, session.user.id, player.id);
+  return removePlayerFromGuildCore(db, session.user.id, player.id);
 }
 
 // Same removal, keyed by players.id (2026-09-10) — so a player who exists
@@ -187,116 +198,38 @@ export async function removeMemberFromGuild(userId: string): Promise<MemberGuild
 export async function removePlayerFromGuild(playerId: number): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const db = await getDb();
-  return removePlayerCore(db, session.user.id, playerId);
-}
-
-async function removePlayerCore(
-  db: Awaited<ReturnType<typeof getDb>>,
-  actingUserId: string,
-  playerId: number,
-): Promise<MemberGuildStatusResult> {
-  const actingRole = await getUserRole(actingUserId);
+  const actingRole = await getUserRole(session.user.id);
   if (!canManageRoles(actingRole)) {
     return { error: "Only leaders can remove a member from the guild." };
   }
-  const [player] = await db
-    .select({ id: players.id, userId: players.userId, status: players.status })
-    .from(players)
-    .where(eq(players.id, playerId));
-  if (!player) return { error: "Player not found." };
-  if (player.status === "departed") return { error: "This player has already been removed." };
-  if (player.userId === actingUserId) {
-    return { error: "You can't remove yourself — sign out instead." };
-  }
-
-  const now = new Date();
-  if (player.userId !== null) {
-    const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, player.userId));
-    // Same last-leader guard as setUserRole: removing a leader strips their
-    // role, so the guild must not be left with zero leaders/admins.
-    if (target && LEADERSHIP_ROLES.includes(target.role as Role)) {
-      const leaders = await db.select({ id: users.id }).from(users).where(inArray(users.role, LEADERSHIP_ROLES));
-      if (leaders.length <= 1) {
-        return { error: "Can't remove the only leader/admin — promote someone else first." };
-      }
-    }
-    await db.update(users).set({ role: "member", updatedAt: now }).where(eq(users.id, player.userId));
-    // Same as setUserRole's demotion path — removal always drops role to
-    // "member", so any app key they held must stop existing too (leader,
-    // 2026-09-05). A no-op if they never had a key.
-    await revokeApiKeysForUser(db, player.userId);
-  }
-
-  // Zero their EP. `commitDepartureWipe` skips characters already at 0 EP
-  // and returns an error only when nothing matched — that's not a failure
-  // here, just "no EP to wipe", so removalDecayEventId stays null.
-  let removalDecayEventId: number | null = null;
-  const chars = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, player.id));
-  if (chars.length > 0) {
-    const outcome = await commitDepartureWipe(db, {
-      characterIds: chars.map((c) => c.id),
-      label: "Removed from guild",
-      appliedBy: actingUserId,
-    });
-    if (!("error" in outcome)) removalDecayEventId = outcome.decayEventId;
-  }
-
-  await db
-    .update(players)
-    .set({ status: "departed", departedAt: now, removalDecayEventId, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
-    .where(eq(players.id, player.id));
-
-  return {};
+  const db = await getDb();
+  return removePlayerFromGuildCore(db, session.user.id, playerId);
 }
 
 // Full reverse of removeMemberFromGuild's EP wipe + status, but NOT the
 // role (a leader re-grants that). Safe if the departure event was already
-// reversed by hand on /epgp/decay — that just clears the pointer.
+// reversed by hand on /epgp/decay — that just clears the pointer. The
+// mutation lives in src/lib/players.ts (reinstatePlayerFromGuildCore).
 export async function reinstateMember(userId: string): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
+  const actingRole = await getUserRole(session.user.id);
+  if (!canManageRoles(actingRole)) {
+    return { error: "Only leaders can reinstate a member." };
+  }
   const db = await getDb();
   const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
   if (!player) return { error: "This member has no player account." };
-  return reinstatePlayerCore(db, session.user.id, player.id);
+  return reinstatePlayerFromGuildCore(db, session.user.id, player.id);
 }
 
 export async function reinstatePlayer(playerId: number): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const db = await getDb();
-  return reinstatePlayerCore(db, session.user.id, playerId);
-}
-
-async function reinstatePlayerCore(
-  db: Awaited<ReturnType<typeof getDb>>,
-  actingUserId: string,
-  playerId: number,
-): Promise<MemberGuildStatusResult> {
-  const actingRole = await getUserRole(actingUserId);
+  const actingRole = await getUserRole(session.user.id);
   if (!canManageRoles(actingRole)) {
     return { error: "Only leaders can reinstate a member." };
   }
-
-  const now = new Date();
-  const [player] = await db
-    .select({ id: players.id, removalDecayEventId: players.removalDecayEventId })
-    .from(players)
-    .where(eq(players.id, playerId));
-  if (!player) return { error: "Player not found." };
-
-  if (player.removalDecayEventId != null) {
-    const outcome = await reverseDecayEvent(db, player.removalDecayEventId, actingUserId);
-    if ("error" in outcome && !/already reversed|not found/i.test(outcome.error)) {
-      return { error: `Couldn't restore EP: ${outcome.error}` };
-    }
-  }
-
-  await db
-    .update(players)
-    .set({ status: "active", departedAt: null, removalDecayEventId: null, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
-    .where(eq(players.id, player.id));
-
-  return {};
+  const db = await getDb();
+  return reinstatePlayerFromGuildCore(db, session.user.id, playerId);
 }

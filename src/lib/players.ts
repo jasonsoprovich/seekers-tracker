@@ -1,8 +1,11 @@
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
+import * as schema from "@/db";
 import { characters, epLedger, gpLedger, mainSwapEvents, playerEpgpTotals, players, users } from "@/db";
-import { roleRank, type Role } from "@/lib/authz";
+import { revokeApiKeysForUser } from "@/lib/api-key-auth";
+import { LEADERSHIP_ROLES, roleRank, type Role } from "@/lib/authz";
+import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { refreshStandings } from "@/lib/epgp/standings";
 
@@ -18,7 +21,12 @@ import { refreshStandings } from "@/lib/epgp/standings";
 //     character that has no player at all yet (discord_id-less, same
 //     "sheet-only" shape PLAN.md §11 Phase 3 task 3.5 already established)
 
-type Db = ReturnType<typeof drizzle>;
+// Schema-typed (not the bare `ReturnType<typeof drizzle>` most of this
+// codebase's lib functions use) — removePlayerFromGuildCore below passes
+// its db straight into revokeApiKeysForUser, which requires the
+// schema-carrying type. Every real caller already hands in getDb()'s
+// result, which satisfies this.
+type Db = ReturnType<typeof drizzle<typeof schema>>;
 
 // post-live-test-1 LT-30: swapping which character is a player's main costs
 // the new main 500 GP, charged as a normal manual gp_ledger row. A leader
@@ -432,4 +440,126 @@ export async function reconcileMainPointers(db: Db): Promise<{ altsRetyped: numb
     mainsRetyped: mains.meta.changes ?? 0,
     pointersSet: pointers.meta.changes ?? 0,
   };
+}
+
+export type GuildStatusResult = { error?: string };
+
+// Remediation plan Phase 1 (2026-09-12) — moved out of
+// src/app/(app)/admin/actions.ts's private removePlayerCore/
+// reinstatePlayerCore so the actual mutation logic is reachable from a
+// verification script without going through a Next Server Action (which
+// needs a real request/session context that a plain script doesn't have —
+// see scripts/verify-guild-removal.ts). This module has no "use server"
+// directive, so these are never themselves exposed as callable actions;
+// admin/actions.ts's exported removeMemberFromGuild/removePlayerFromGuild/
+// reinstateMember/reinstatePlayer remain the only entry points a client can
+// reach, and they still do their own getSession()/redirect()/canManageRoles
+// check *before* calling down into these — same division of labour as
+// swapMainCharacter/reverseMainSwap above (the "use server" wrapper gates
+// who may call in; the plain lib function trusts that and only enforces
+// the business-data invariants below, e.g. the last-leader guard, which
+// depend on the TARGET player's role, not the caller's).
+//
+// "Removed from the guild" is a player-level state, deliberately distinct
+// from a character's own `removed` status (in-game/roster housekeeping,
+// never affects access on its own — confirmed with the leader 2026-08-29).
+// It does three things, all reversible by reinstatePlayerFromGuild:
+//   1. drops the person's role to `member` — BOTH users.role (if they have
+//      a login) and players.role (task 1.1: players.role can carry a role
+//      with no linked login at all, players.role's own schema comment —
+//      Koramak, an officer who'd never logged in — and syncAccountRole
+//      takes the HIGHER of the two on every login, so leaving players.role
+//      untouched let a demoted-then-removed officer/leader silently regain
+//      their old role on their very next sign-in).
+//   2. flips players.status to `departed` — (app)/layout.tsx's gate treats
+//      that like a failed Discord check: no page access, bounced to
+//      /access-denied. Task 1.2: this stays denied until an explicit
+//      reinstatePlayerFromGuild call — see isMemberAllowed's own comment
+//      for why a later login is no longer treated as proof of rejoining.
+//   3. zeroes the player's EP across all their characters (a `departure`
+//      decay_events batch — §1e: GP is never touched). The event id is
+//      stashed on players.removalDecayEventId so reinstate can reverse it.
+//   4. revokes every app API key the account holds (task 1.3) — same as
+//      setUserRole's demotion path; a departed member's key stops existing,
+//      not just stops passing its live canManageEpgp re-check on next use.
+// Character records and GP history stay as-is. The role is NOT auto-restored
+// on reinstate — a leader re-grants it deliberately.
+export async function removePlayerFromGuildCore(db: Db, actingUserId: string, playerId: number): Promise<GuildStatusResult> {
+  const [player] = await db
+    .select({ id: players.id, userId: players.userId, status: players.status })
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!player) return { error: "Player not found." };
+  if (player.status === "departed") return { error: "This player has already been removed." };
+  if (player.userId === actingUserId) {
+    return { error: "You can't remove yourself — sign out instead." };
+  }
+
+  const now = new Date();
+  if (player.userId !== null) {
+    const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, player.userId));
+    // Same last-leader guard as setUserRole: removing a leader strips their
+    // role, so the guild must not be left with zero leaders/admins.
+    if (target && LEADERSHIP_ROLES.includes(target.role as Role)) {
+      const leaders = await db.select({ id: users.id }).from(users).where(inArray(users.role, LEADERSHIP_ROLES));
+      if (leaders.length <= 1) {
+        return { error: "Can't remove the only leader/admin — promote someone else first." };
+      }
+    }
+    await db.update(users).set({ role: "member", updatedAt: now }).where(eq(users.id, player.userId));
+    // Same as setUserRole's demotion path — removal always drops role to
+    // "member", so any app key they held must stop existing too (leader,
+    // 2026-09-05). A no-op if they never had a key.
+    await revokeApiKeysForUser(db, player.userId);
+  }
+  // Unconditional — see the function comment above for why this can't be
+  // gated on player.userId the way the users.role branch is.
+  await db.update(players).set({ role: "member", updatedAt: now }).where(eq(players.id, player.id));
+
+  // Zero their EP. `commitDepartureWipe` skips characters already at 0 EP
+  // and returns an error only when nothing matched — that's not a failure
+  // here, just "no EP to wipe", so removalDecayEventId stays null.
+  let removalDecayEventId: number | null = null;
+  const chars = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, player.id));
+  if (chars.length > 0) {
+    const outcome = await commitDepartureWipe(db, {
+      characterIds: chars.map((c) => c.id),
+      label: "Removed from guild",
+      appliedBy: actingUserId,
+    });
+    if (!("error" in outcome)) removalDecayEventId = outcome.decayEventId;
+  }
+
+  await db
+    .update(players)
+    .set({ status: "departed", departedAt: now, removalDecayEventId, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
+    .where(eq(players.id, player.id));
+
+  return {};
+}
+
+// Full reverse of removePlayerFromGuildCore's EP wipe + status, but NOT the
+// role (a leader re-grants that). Safe if the departure event was already
+// reversed by hand on /epgp/decay — that just clears the pointer.
+export async function reinstatePlayerFromGuildCore(db: Db, actingUserId: string, playerId: number): Promise<GuildStatusResult> {
+  const now = new Date();
+  const [player] = await db
+    .select({ id: players.id, removalDecayEventId: players.removalDecayEventId })
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!player) return { error: "Player not found." };
+
+  if (player.removalDecayEventId != null) {
+    const outcome = await reverseDecayEvent(db, player.removalDecayEventId, actingUserId);
+    if ("error" in outcome && !/already reversed|not found/i.test(outcome.error)) {
+      return { error: `Couldn't restore EP: ${outcome.error}` };
+    }
+  }
+
+  await db
+    .update(players)
+    .set({ status: "active", departedAt: null, removalDecayEventId: null, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
+    .where(eq(players.id, player.id));
+
+  return {};
 }

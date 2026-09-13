@@ -24,14 +24,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         role: users.role,
         discordVerified: users.discordVerified,
         discordRoleIds: users.discordRoleIds,
-        lastLoginAt: users.lastLoginAt,
         // Joined so isMemberAllowed can also reject a leader-initiated guild
         // removal (players.status 'departed') in the same query — see
-        // src/app/(app)/admin/actions.ts removeMemberFromGuild — and let a
-        // member who rejoined Discord after removal back in (departedAt vs
-        // lastLoginAt, see isMemberAllowed).
+        // src/app/(app)/admin/actions.ts removeMemberFromGuild. Denied until
+        // an explicit reinstateMember/reinstatePlayer call — see
+        // isMemberAllowed's own comment for why a later login no longer
+        // counts as rejoining.
         playerStatus: players.status,
-        departedAt: players.departedAt,
       })
       .from(users)
       .leftJoin(players, eq(players.userId, users.id))

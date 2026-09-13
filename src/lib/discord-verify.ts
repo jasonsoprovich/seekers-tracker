@@ -119,34 +119,32 @@ export function isDeniedRole(roleIds: string[]): boolean {
 // same. A NULL playerStatus (no players row yet — a user who hasn't logged
 // in since Phase 10) is not a denial: fall through to the Discord check.
 //
-// Rejoining (leader, 2026-09-10): someone removed from the guild who
-// later rejoins Discord and is given a member role again should get site
-// access back on their own — the leader only has to reinstate the
-// account's EP/characters, not unlock the login. Removal still blocks
-// access immediately (`departedAt` is stamped at the click), and it keeps
-// blocking until a login AFTER that moment re-verifies Discord membership
-// with an allowed role (`lastLoginAt` is stamped by
-// checkAndStampGuildMembership on every login). So: departed + no login
-// since removal → denied; departed + a later verified login → allowed,
-// with the account still flagged "Removed" on the roster until reinstated.
+// Remediation plan Phase 1.2 (2026-09-12): a departed account stays denied
+// until an explicit leader reinstatement (admin/actions.ts
+// reinstateMember/reinstatePlayer), full stop — a later login timestamp is
+// NOT treated as proof of rejoining. The previous rule (leader, 2026-09-10)
+// auto-restored access on any login after `departedAt`, on the theory that
+// re-verified Discord membership was enough; in practice `lastLoginAt` is
+// stamped by checkAndStampGuildMembership on every login regardless of
+// whether the *Discord* membership genuinely lapsed and came back, so it
+// proved nothing about an actual leave/rejoin — a departed member's
+// still-open session simply re-hitting a page that re-runs the login hook
+// (or the guild never having removed them on Discord's side at all) was
+// enough to silently undo the removal. A leader must now reinstate the
+// account explicitly for access to return; the departure decay
+// (players.removalDecayEventId) is reversed by that same action.
 export function isMemberAllowed(
   me:
     | {
         discordVerified: boolean;
         discordRoleIds: string | null;
         playerStatus?: string | null;
-        departedAt?: Date | null;
-        lastLoginAt?: Date | null;
       }
     | undefined,
 ): boolean {
   if (!me) return false;
-  const discordOk = !!me.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
-  if (me.playerStatus === "departed") {
-    const rejoined = !!me.lastLoginAt && (!me.departedAt || me.lastLoginAt.getTime() > me.departedAt.getTime());
-    return rejoined && discordOk;
-  }
-  return discordOk;
+  if (me.playerStatus === "departed") return false;
+  return !!me.discordVerified && !isDeniedRole(parseDiscordRoleIds(me.discordRoleIds));
 }
 
 // DB-fetching wrapper for a caller with no row of its own — custom-
@@ -158,9 +156,7 @@ export async function fetchIsMemberAllowed(db: ReturnType<typeof drizzle>, userI
     .select({
       discordVerified: users.discordVerified,
       discordRoleIds: users.discordRoleIds,
-      lastLoginAt: users.lastLoginAt,
       playerStatus: players.status,
-      departedAt: players.departedAt,
     })
     .from(users)
     .leftJoin(players, eq(players.userId, users.id))
