@@ -737,11 +737,16 @@ needed — this phase is tracker-only.
   viewers on desktop and in expanded mobile cards; every member retains the
   existing read-only character/account link. Covered by the authenticated
   Playwright roster-card flow.)
-- [ ] 8.2 Keep role, linking, main-swap, removal, and reinstatement mutations on
-  the Account page with existing server-side authorization.
+- [x] 8.2 Keep role, linking, main-swap, removal, and reinstatement mutations on
+  the Account page with existing server-side authorization. (`Phase 8.2` —
+  removed Admin's duplicate established-member controls; the Account page's
+  existing server actions remain the only UI mutation surface and retain their
+  own authorization checks.)
 - [ ] 8.3 Surface pending-claim and setup indicators on relevant roster/account
   rows.
-- [ ] 8.4 Remove the duplicate established-members list from Admin.
+- [x] 8.4 Remove the duplicate established-members list from Admin. (`Phase
+  8.4` — Admin now leaves established accounts to Roster → Account, rather
+  than duplicating their role/removal controls.)
 - [ ] 8.5 Retain a dedicated queue for verified Discord users with no character,
   since they cannot naturally appear in the roster.
 - [ ] 8.6 Reorganize Admin into Needs Attention, Operations, EPGP, and System

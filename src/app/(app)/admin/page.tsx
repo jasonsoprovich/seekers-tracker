@@ -11,7 +11,6 @@ import {
   canManageAnyCharacter,
   canManageEpgp,
   canManageEpgpConfig,
-  canManageRoles,
   getRealUserRole,
   getUserRole,
   type Role,
@@ -65,20 +64,16 @@ export default async function AdminPage() {
     .orderBy(characters.name);
   const unresolvedClassCount = roster.filter((c) => c.class === UNKNOWN_CLASS_ID).length;
 
-  const canEditRoles = canManageRoles(role);
-  // The account's main character — the name members actually know. Discord
-  // usernames only matter when verifying a claim (leader, 2026-09-11).
+  // The account's main character identifies an established account. A
+  // verified Discord user without one stays in Admin's onboarding queue;
+  // every established account is managed from its Account page via Roster.
   const mainCharacters = alias(characters, "main_characters");
   const members = await db
     .select({
       id: users.id,
       username: users.username,
-      role: users.role,
       discordVerified: users.discordVerified,
       createdAt: users.createdAt,
-      // 'departed' == removed from the guild by a leader — see
-      // RemoveMemberButton / removeMemberFromGuild.
-      playerStatus: players.status,
       mainCharacterName: mainCharacters.name,
     })
     .from(users)
@@ -96,7 +91,6 @@ export default async function AdminPage() {
   // Discord, but no character on their account yet.
   const hasCharacters = (m: (typeof verified)[number]) => ownerIds.has(m.id) || m.mainCharacterName !== null;
   const needsSetup = verified.filter((m) => !hasCharacters(m));
-  const established = verified.filter(hasCharacters);
 
   // Unclaimed roster characters an officer can attach to an account here.
   const unclaimedCharacters = roster
@@ -141,31 +135,19 @@ export default async function AdminPage() {
             Signed in through Discord but nothing on their account. Assign their main here (type the character name), or they can
             claim it themselves from Your Characters.
           </p>
-          <MembersRolesList members={needsSetup} selfUserId={session.user.id} canEditRoles={canEditRoles} unclaimedCharacters={unclaimedCharacters} />
+          <MembersRolesList members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
         </section>
       )}
 
-      <section className="mt-10">
-        <h2 className="text-lg font-semibold">
-          Members <span className="ml-1 text-base font-normal text-neutral-500">{established.length}</span>
-        </h2>
-        <p className="mt-1 text-sm text-neutral-400">
-          Everyone with a site login and at least one character.
-          {canEditRoles ? " Roles, remove-from-guild and reinstate live here." : ""} Characters themselves — main/alt/mule, linking,
-          the main swap — are managed from the{" "}
+      {unresolvedClassCount > 0 && (
+        <p className="mt-10 text-sm text-amber-400">
+          {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the{" "}
           <Link href="/roster" className="text-emerald-400 hover:text-emerald-300">
             Roster
-          </Link>
-          : open any character, then its Edit or Account tab.
+          </Link>{" "}
+          by class &quot;Unknown&quot; to find and edit them.
         </p>
-        {unresolvedClassCount > 0 && (
-          <p className="mt-2 text-sm text-amber-400">
-            {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the Roster by
-            class &quot;Unknown&quot; to find and edit them.
-          </p>
-        )}
-        <MembersRolesList members={established} selfUserId={session.user.id} canEditRoles={canEditRoles} unclaimedCharacters={unclaimedCharacters} />
-      </section>
+      )}
     </div>
   );
 }

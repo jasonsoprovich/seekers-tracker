@@ -4,19 +4,14 @@ import { useRouter } from "next/navigation";
 import { useId, useMemo, useState } from "react";
 
 import { assignCharacterToMember } from "@/app/(app)/admin/actions";
-import { RemoveMemberButton } from "@/components/admin/RemoveMemberButton";
-import { RoleSelect } from "@/components/RoleSelect";
 import { fieldClasses } from "@/components/ui/Field";
-import type { Role } from "@/lib/authz";
 import { guildDate } from "@/lib/guild-timezone";
 
 export type MemberRow = {
   id: string;
   username: string | null;
-  role: Role;
   discordVerified: boolean;
   createdAt: Date;
-  playerStatus: string | null;
   // The account's main character (players.main_character_id) — shown as
   // the row's name, since nobody knows each other by Discord username.
   mainCharacterName: string | null;
@@ -92,19 +87,15 @@ function AssignCharacterControl({ userId, characters }: { userId: string; charac
   );
 }
 
-// Guild-wide member list can run into the hundreds — same problem the "All
-// Characters" list already solved, so a client-side username filter.
-// `canEditRoles` gates the leader/admin-only role picker and remove button;
-// the character-assign picker shows for every officer+.
+// The Admin page only uses this for verified Discord members who have not
+// established a character account yet. Established accounts are managed from
+// the Account page reached through Roster, so their role/removal controls do
+// not have a duplicate Admin surface.
 export function MembersRolesList({
   members,
-  selfUserId,
-  canEditRoles,
   unclaimedCharacters,
 }: {
   members: MemberRow[];
-  selfUserId: string;
-  canEditRoles: boolean;
   unclaimedCharacters: UnclaimedCharacter[];
 }) {
   const [search, setSearch] = useState("");
@@ -154,17 +145,6 @@ export function MembersRolesList({
                   the viewport instead, at any width, not only on phones. */}
               <div className="flex flex-wrap items-center justify-end gap-3">
                 {unclaimedCharacters.length > 0 && <AssignCharacterControl userId={m.id} characters={unclaimedCharacters} />}
-                {canEditRoles && (
-                  <>
-                    <RemoveMemberButton
-                      userId={m.id}
-                      username={m.username ?? "this member"}
-                      departed={m.playerStatus === "departed"}
-                      isSelf={m.id === selfUserId}
-                    />
-                    <RoleSelect userId={m.id} role={m.role} isSelf={m.id === selfUserId} />
-                  </>
-                )}
               </div>
             </li>
           ))}

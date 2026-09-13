@@ -343,6 +343,15 @@ Account page retains its own server-side authorization gates; this is only a
 workflow entry point. `tsc` and the focused authenticated Playwright roster
 suite pass (7/7), including the mobile action.
 
+**Remediation plan Phase 8.2/8.4 — Account owns established-account
+mutations, 2026-09-13 (no migration; local only).** Admin's duplicate
+established-members list, role picker, and guild-status controls are gone.
+Roster → Account is now the UI path for role, linking, main-swap, removal,
+and reinstatement; its server actions retain their existing authorization
+checks. The only remaining Admin member list is the verified no-character
+onboarding queue, whose character assignment action creates an account before
+any established-account management can occur. `tsc` passes.
+
 **Remediation plan Phase 7 — bid-history priority clarity, 2026-09-13
 (migration 0038, LOCAL ONLY — needs `--remote` apply before its own next
 deploy; see REMEDIATION-PLAN-2026-09-12.md §Phase 7 for full per-task
