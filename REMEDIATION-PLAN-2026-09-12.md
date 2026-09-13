@@ -759,8 +759,12 @@ needed — this phase is tracker-only.
   Health sections. (`Phase 8.6` — replaced the flat utility strip with
   role-filtered section cards; Needs Attention contains claim requests plus
   the setup queue, while Import Audit Trail anchors System Health.)
-- [ ] 8.7 Keep claim deep links/queue during the transition and verify every
-  role's visible fields and allowed actions.
+- [x] 8.7 Keep claim deep links/queue during the transition and verify every
+  role's visible fields and allowed actions. (`Phase 8.7` — `/admin/claims`
+  remains the queue/deep-link target. New authenticated Playwright coverage
+  provisions local member/officer/leader/admin sessions plus an account and
+  pending-claim fixture: member is read-only, officer gets roster/account and
+  claim-queue actions, leader/admin get leadership controls. Full suite 61/61.)
 
 ## Phase 9: Public Landing Page and Login Flow
 

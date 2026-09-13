@@ -15,66 +15,109 @@
 //
 // Usage: npx tsx scripts/e2e-auth-setup.ts
 // Writes e2e/.auth/session.json (gitignored) in Playwright storageState
-// shape. A fresh synthetic user is inserted every run (id fixed as
-// "e2e-test-user") rather than depending on whatever happens to be seeded
-// locally — self-contained on a clean clone, per PLAN.md's own
+// shape. Fresh synthetic member/officer/leader/admin users are inserted every
+// run rather than depending on whatever happens to be seeded locally —
+// self-contained on a clean clone, per PLAN.md's own
 // local-first-testing convention.
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 import { makeSignature } from "better-auth/crypto";
 
 import * as schema from "../src/db";
-import { characters, users } from "../src/db";
+import { characterClaims, characters, players, users } from "../src/db";
 import { createAuth } from "../src/auth";
 
-const E2E_USER_ID = "e2e-test-user";
-const OUT_PATH = "e2e/.auth/session.json";
+const E2E_USERS = [
+  { id: "e2e-test-member", username: "E2E Test Member", role: "member" },
+  { id: "e2e-test-officer", username: "E2E Test Officer", role: "officer" },
+  { id: "e2e-test-user", username: "E2E Test Leader", role: "leader" },
+  { id: "e2e-test-admin", username: "E2E Test Admin", role: "admin" },
+] as const;
+const OUT_PATH = "e2e/.auth";
 const FIXTURES_PATH = "e2e/.auth/fixtures.json";
+
+async function writeSession(
+  auth: ReturnType<typeof createAuth>,
+  userId: string,
+  fileName: string,
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ctx: any = await auth.$context;
+  const session = await ctx.internalAdapter.createSession(userId);
+  const signedValue = `${session.token}.${await makeSignature(session.token, ctx.secret)}`;
+  const cookieName: string = ctx.authCookies.sessionToken.name;
+
+  return {
+    path: `${OUT_PATH}/${fileName}`,
+    state: {
+      cookies: [
+        {
+          name: cookieName,
+          value: signedValue,
+          domain: "localhost",
+          path: "/",
+          expires: Math.floor(Date.now() / 1000) + 60 * 60 * 24,
+          httpOnly: true,
+          secure: false,
+          sameSite: "Lax" as const,
+        },
+      ],
+      origins: [],
+    },
+  };
+}
 
 async function main() {
   const proxy = await getPlatformProxy({ configPath: "wrangler.jsonc" });
   const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
 
-  await db
-    .insert(users)
-    .values({
-      id: E2E_USER_ID,
-      email: "e2e-test-user@example.invalid",
-      username: "E2E Test Leader",
-      role: "leader",
-      discordVerified: true,
-      // Non-empty and not on the (locally blank) deny-list — see
-      // isDeniedRole()/isMemberAllowed() in src/lib/discord-verify.ts.
-      discordRoleIds: JSON.stringify(["000000000000000000"]),
-    })
-    .onConflictDoUpdate({
-      target: users.id,
-      set: { role: "leader", discordVerified: true, discordRoleIds: JSON.stringify(["000000000000000000"]) },
-    });
+  for (const user of E2E_USERS) {
+    await db
+      .insert(users)
+      .values({
+        id: user.id,
+        email: `${user.id}@example.invalid`,
+        username: user.username,
+        role: user.role,
+        discordVerified: true,
+        // Non-empty and not on the (locally blank) deny-list — see
+        // isDeniedRole()/isMemberAllowed() in src/lib/discord-verify.ts.
+        discordRoleIds: JSON.stringify(["000000000000000000"]),
+      })
+      .onConflictDoUpdate({
+        target: users.id,
+        set: { role: user.role, discordVerified: true, discordRoleIds: JSON.stringify(["000000000000000000"]) },
+      });
+  }
 
   const auth = createAuth(proxy.env as unknown as CloudflareEnv, {}, "http://localhost:3000");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx: any = await auth.$context;
-  const session = await ctx.internalAdapter.createSession(E2E_USER_ID);
-  const signedValue = `${session.token}.${await makeSignature(session.token, ctx.secret)}`;
-  const cookieName: string = ctx.authCookies.sessionToken.name;
 
-  const storageState = {
-    cookies: [
-      {
-        name: cookieName,
-        value: signedValue,
-        domain: "localhost",
-        path: "/",
-        expires: Math.floor(Date.now() / 1000) + 60 * 60 * 24,
-        httpOnly: true,
-        secure: false,
-        sameSite: "Lax" as const,
-      },
-    ],
-    origins: [],
-  };
+  const leader = E2E_USERS[2];
+  let [managedPlayer] = await db.select({ id: players.id }).from(players).where(eq(players.userId, leader.id));
+  if (!managedPlayer) {
+    await db.insert(players).values({ userId: leader.id, displayName: "E2E Managed Account", role: "leader" });
+    [managedPlayer] = await db.select({ id: players.id }).from(players).where(eq(players.userId, leader.id));
+  }
+  if (!managedPlayer) throw new Error("Could not create the E2E managed account.");
+
+  let [managedCharacter] = await db.select({ id: characters.id }).from(characters).where(eq(characters.name, "E2E Managed Character"));
+  if (!managedCharacter) {
+    await db
+      .insert(characters)
+      .values({ name: "E2E Managed Character", class: 1, race: 1, level: 60, charType: "main", ownerId: leader.id, playerId: managedPlayer.id });
+    [managedCharacter] = await db.select({ id: characters.id }).from(characters).where(eq(characters.name, "E2E Managed Character"));
+  }
+  if (!managedCharacter) throw new Error("Could not create the E2E managed character.");
+  await db.update(players).set({ mainCharacterId: managedCharacter.id }).where(eq(players.id, managedPlayer.id));
+
+  const [pendingClaim] = await db
+    .select({ id: characterClaims.id })
+    .from(characterClaims)
+    .where(and(eq(characterClaims.characterId, managedCharacter.id), eq(characterClaims.requesterId, E2E_USERS[0].id), eq(characterClaims.status, "pending")));
+  if (!pendingClaim) {
+    await db.insert(characterClaims).values({ characterId: managedCharacter.id, requesterId: E2E_USERS[0].id, note: "E2E workflow fixture" });
+  }
 
   // Any real character id, so the account-page overflow check
   // (e2e/page-overflow.spec.ts) doesn't hardcode a row from one
@@ -82,10 +125,19 @@ async function main() {
   const [anyCharacter] = await db.select({ id: characters.id }).from(characters).limit(1);
 
   const { mkdirSync, writeFileSync } = await import("node:fs");
-  mkdirSync("e2e/.auth", { recursive: true });
-  writeFileSync(OUT_PATH, JSON.stringify(storageState, null, 2));
-  writeFileSync(FIXTURES_PATH, JSON.stringify({ characterId: anyCharacter?.id ?? null }, null, 2));
-  console.log(`Wrote ${OUT_PATH} for user ${E2E_USER_ID}`);
+  mkdirSync(OUT_PATH, { recursive: true });
+  for (const user of E2E_USERS) {
+    const session = await writeSession(auth, user.id, `${user.role}.json`);
+    writeFileSync(session.path, JSON.stringify(session.state, null, 2));
+  }
+  // Keep the original path as the leader state for existing suite files.
+  const leaderSession = await writeSession(auth, leader.id, "session.json");
+  writeFileSync(leaderSession.path, JSON.stringify(leaderSession.state, null, 2));
+  writeFileSync(
+    FIXTURES_PATH,
+    JSON.stringify({ characterId: anyCharacter?.id ?? null, managedCharacterId: managedCharacter.id }, null, 2),
+  );
+  console.log(`Wrote ${OUT_PATH} session states for member, officer, leader, and admin`);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (proxy as any).dispose?.();
