@@ -332,6 +332,79 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 4 — fresh and recoverable standings, 2026-09-13
+(commits `2e9327c`, `10e1f71`; migration 0037, LOCAL ONLY so far — needs
+the standard `--remote` apply before the next deploy). Tasks 4.1-4.7 done
+— see REMEDIATION-PLAN-2026-09-12.md §Phase 4 for full per-task detail.**
+`player_epgp_totals` (the materialized standings table from the 2026-09-04
+work) was already the correct read model; the gap this phase closed was
+narrower but real: every write path calls `refreshStandings` right after
+its own ledger mutation, but that's two separate operations — a
+`refreshStandings` failure right after a successful ledger write (a D1
+hiccup, an evicted request) previously left silent drift with no record it
+had happened, undetectable until the nightly 09:17 UTC `rebuildAllStandings`
+cron caught it, up to ~24h later.
+- **`standings_dirty`** (migration 0037, plain `CREATE TABLE`) — a durable
+  "this player (or everyone) needs a refresh" marker, scoped either
+  `"all"` or `"player:<id>"`. `dirtyMarkerStatements` (`src/lib/epgp/
+  standings.ts`) rides in the SAME `db.batch()` as the ledger rows
+  wherever one already exists — bid-finalization's one atomic batch
+  (every winner charged gets a marker in that same transaction), each
+  `insertEpLedgerBatch` chunk (attendance). Where a write path isn't
+  already one transaction by its own design (decay.ts's per-row loop,
+  documented there as deliberately not atomic; `players.ts`'s
+  absorb/main-swap-fee/reverse), `markStandingsDirty` writes a fast
+  adjacent statement immediately before/after instead — matching that
+  code's own existing not-one-transaction-but-structured-to-stay-
+  recoverable pattern rather than inventing new transactional guarantees
+  those paths don't otherwise have.
+- **`settleStandings`** replaced every direct `refreshStandings` call
+  site outside `standings.ts` itself: it attempts the real recompute and
+  swallows a failure (logs, doesn't throw) instead of failing the
+  caller's mutation — safe specifically because the durable marker
+  already guarantees the repair pass or nightly rebuild finishes the job.
+- **The repair pass** (`repairDirtyStandings`) is wired into the existing
+  `*/2 * * * *` keep-warm cron in `custom-worker.ts`, as an independent
+  `ctx.waitUntil` alongside (not blocking, not blocked by) the warm ping.
+  Cheap in the overwhelmingly common case — one `SELECT` against an empty
+  table. A lingering `"all"` marker triggers a full rebuild (subsumes any
+  player-scoped marker too); otherwise one scoped refresh covers every
+  dirty player. Closes most of the ~24h gap between "a refresh failed"
+  and "the nightly job notices" down to ~2 minutes. The nightly rebuild
+  itself is untouched — still the full-table safety net.
+- **`getStandingsForPlayers(db, playerIds)`** — a targeted read straight
+  against `player_epgp_totals`, never through the existing 10s
+  whole-table `standingsCache`. Every ledger-mutating action/route now
+  returns the affected player's fresh standing from this alongside its
+  existing result (`addLedgerEntry`/`updateLedgerEntry`/
+  `deleteLedgerEntry`, `POST /api/officer/manual-entry`, `POST
+  /api/officer/attendance`, `finalizeBidRound`/`POST /api/officer/bids`).
+  Data-layer only — no current UI reads the new field yet (this app's
+  mutation components uniformly call `router.refresh()`, not a
+  client-side merge, so a UI consumer wasn't invented here without a
+  caller that needs one — same explicit split Phase 2 task 2.5 used for
+  its own frontend follow-up).
+- **`absorbStandalonePlayer`** (inside `attachCharacterToPlayer`, used by
+  claim approval/self-service alt-linking) now marks the TARGET player
+  dirty at the actual mutation site, not just relied on every caller to
+  remember afterward.
+- Verified against local D1 (snapshot/restore around each script): new
+  `scripts/verify-standings-resilience.ts` (`npm run
+  verify:standings-resilience`), 24/24 — dirty-marker durability/scoping,
+  clean clearing on success, the repair pass healing a marker with no
+  materialized row at all, a global marker's repair subsuming an
+  unrelated player-scoped one, `settleStandings` never throwing, and the
+  real `insertLedgerEntry`/`attachCharacterToPlayer`/
+  `swapMainCharacter`+`reverseMainSwap` entry points end to end.
+  `verify:bid-finalization` (27/27), `verify:guild-removal` (21/21),
+  `verify:global-decay`, and `verify:attendance-minimum` all still pass
+  unchanged. `npm run verify` stayed at its pre-existing 9/13 baseline —
+  confirmed byte-identical against the pre-Phase-4 code via `git stash`,
+  so the 4 failures are known local seed drift from earlier sim sessions,
+  not a regression. `tsc`, `npm run build`, and a full
+  `opennextjs-cloudflare build` + `wrangler deploy --dry-run` all clean
+  (2723.50 KiB gzipped, under the 3072 KiB Free-plan cap).
+
 **Remediation plan Phase 3 — atomic and idempotent bid finalization,
 2026-09-13. Tasks 3.1-3.8 done and DEPLOYED — see
 REMEDIATION-PLAN-2026-09-12.md §Phase 3 for full per-task detail.**

@@ -364,18 +364,71 @@ partial authoritative data, while retries rely on an item/time heuristic.
 avoidable weaknesses are a 10-second per-isolate memory cache and a refresh
 failure that can leave drift until the nightly rebuild.
 
-- [ ] 4.1 Remove or bypass the module cache for strict-freshness paths.
-- [ ] 4.2 Add targeted standing reads for one or several player IDs.
-- [ ] 4.3 Return affected current standing rows from successful mutations where
-  the initiating client can update immediately.
-- [ ] 4.4 Add durable dirty-player/global markers in the same transaction as
-  authoritative ledger mutations.
-- [ ] 4.5 Clear dirty markers only after successful materialization and add a
+- [x] 4.1 Remove or bypass the module cache for strict-freshness paths.
+  (`2e9327c` — `getStandingsForPlayers` reads `player_epgp_totals` directly,
+  never through the 10s whole-table `standingsCache`. The whole-table cache
+  itself stays for `getStandings()`'s roster/dashboard/Totals-tab callers —
+  removing it outright would reintroduce the per-request D1 read cost it
+  was added to solve for a display list; every strict-freshness caller
+  [a mutation's own affected player(s)] now goes through the bypass
+  instead.)
+- [x] 4.2 Add targeted standing reads for one or several player IDs.
+  (`2e9327c` — `getStandingsForPlayers(db, playerIds)`, chunked at 90 ids,
+  index-seeked `WHERE player_id IN (...)`.)
+- [x] 4.3 Return affected current standing rows from successful mutations where
+  the initiating client can update immediately. (`2e9327c` — every ledger-
+  mutating action/route [`addLedgerEntry`/`updateLedgerEntry`/
+  `deleteLedgerEntry`, `POST /api/officer/manual-entry`, `POST
+  /api/officer/attendance`, `finalizeBidRound`/`POST /api/officer/bids`]
+  now returns the affected player's fresh standing alongside its existing
+  result. Data-layer only this phase — no current UI reads the new field
+  yet, same explicit split Phase 2 task 2.5 used for its own frontend
+  follow-up; this app's mutation components uniformly use `router.refresh()`
+  today, not a client-side merge pattern, so wiring a UI consumer wasn't
+  invented here without a caller that needs it yet.)
+- [x] 4.4 Add durable dirty-player/global markers in the same transaction as
+  authoritative ledger mutations. (`2e9327c` — migration 0037,
+  `standings_dirty` [scope `"all"` or `"player:<id>"`]. `dirtyMarkerStatements`
+  rides in the SAME `db.batch()` as the ledger rows wherever one already
+  exists [bid-finalization's one atomic batch; each `insertEpLedgerBatch`
+  chunk]; `markStandingsDirty` writes a fast adjacent statement immediately
+  before/after the write where the codebase's own existing writes for that
+  path aren't already one transaction [decay.ts's per-row loop, `players.ts`'s
+  absorb/main-swap-fee/reverse] — matching that code's own documented
+  not-one-transaction-but-structured-to-stay-recoverable pattern rather than
+  introducing new transactional guarantees those paths don't otherwise have.)
+- [x] 4.5 Clear dirty markers only after successful materialization and add a
   frequent lightweight repair pass. Retain the nightly full drift check.
-- [ ] 4.6 Ensure identity/account mutations cannot forget to refresh or mark
-  affected standings.
-- [ ] 4.7 Verify attendance, bids, manual entries, ledger edits, settings,
-  decay, account absorption, and main-swap fees.
+  (`2e9327c` — `refreshStandings` deletes exactly the markers it covers once
+  it actually succeeds; `repairDirtyStandings` is the repair pass, wired
+  into the existing `*/2 * * * *` cron in `custom-worker.ts` alongside the
+  keep-warm ping [independent `ctx.waitUntil`, doesn't block or get blocked
+  by it]. The nightly 09:17 UTC `rebuildAllStandings` cron is untouched —
+  still the full-table safety net.)
+- [x] 4.6 Ensure identity/account mutations cannot forget to refresh or mark
+  affected standings. (`2e9327c` — every direct `refreshStandings` call site
+  outside `standings.ts` itself now goes through `markStandingsDirty` +
+  `settleStandings` instead, which never throws back into the caller's
+  mutation on a recompute failure. `absorbStandalonePlayer` [account
+  absorption during a claim/link] now marks the target player dirty at the
+  actual mutation site rather than relying on every caller to remember.)
+- [x] 4.7 Verify attendance, bids, manual entries, ledger edits, settings,
+  decay, account absorption, and main-swap fees. (`2e9327c`/`10e1f71` — new
+  `scripts/verify-standings-resilience.ts` [`npm run
+  verify:standings-resilience`], 24/24 against local D1: dirty-marker
+  durability and scoping, clean clearing on success, the repair pass
+  healing a marker with no materialized row at all, a global marker's
+  repair subsuming an unrelated player-scoped one, `settleStandings` never
+  throwing, `getStandingsForPlayers` bypassing the whole-table cache, and
+  the real `insertLedgerEntry`/`attachCharacterToPlayer`/
+  `swapMainCharacter`+`reverseMainSwap` entry points end to end. Existing
+  `verify:bid-finalization` [27/27], `verify:guild-removal` [21/21],
+  `verify:global-decay`, and `verify:attendance-minimum` all still pass
+  unchanged — confirms the dirty-marker plumbing didn't disturb atomicity
+  or the bids/decay/departure-wipe paths it now also covers. `npm run
+  verify` stayed at its pre-existing 9/13 baseline, confirmed identical
+  against the pre-Phase-4 code via `git stash` — the 4 failures are known
+  local seed drift from earlier sim sessions, not a regression.)
 
 ### Optional Phase 4B: Live Standings Fan-Out
 
