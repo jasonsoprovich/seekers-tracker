@@ -268,7 +268,7 @@
   z-index: 2;
   width: 100%;
   max-width: 30rem;
-  aspect-ratio: 2 / 2.75;
+  aspect-ratio: 2 / 3;
   justify-self: end;
   overflow: hidden;
   border: 1px solid rgb(224 185 87 / 38%);
@@ -286,7 +286,7 @@
 
 .heroArt img {
   object-fit: cover;
-  object-position: center 42%;
+  object-position: center;
 }
 
 .heroArt figcaption {

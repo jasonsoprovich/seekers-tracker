@@ -344,7 +344,8 @@ design system unchanged. The poster source is preserved, with a 224 KB WebP
 (down from 2.1 MB) used by the priority Next Image. Atmosphere is limited to
 CSS halo/poster movement and grain, all disabled by `prefers-reduced-motion`.
 Responsive, payload, keyboard skip-link, contrast, and reduced-motion browser
-checks pass.
+checks pass. Follow-up from the first local visual review: the hero frame now
+uses the artwork's native 2:3 aspect ratio so its title is not cropped.
 
 **Remediation plan Phase 9.5-9.6 — direct sign-in and safe return paths,
 2026-09-13 (no migration; local only).** `DiscordSignInButton` is the one

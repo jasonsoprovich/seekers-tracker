@@ -52,6 +52,8 @@ test("landing hero uses the optimized guild image within its payload budget", as
   const heroImage = page.getByAltText(/members gathered before a glowing norrath portal/i);
   await expect(heroImage).toBeVisible();
   expect(await heroImage.getAttribute("fetchpriority")).toBe("high");
+  const frame = await heroImage.locator("..").boundingBox();
+  expect((frame?.width ?? 0) / (frame?.height ?? 1)).toBeCloseTo(2 / 3, 2);
 });
 
 test("landing page records a good local LCP", async ({ page }) => {
