@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { requestClaim } from "@/app/(app)/characters/claim/actions";
 import { Button } from "@/components/ui/Button";
+import { fieldClasses } from "@/components/ui/Field";
 
 export function ClaimThisCharacterButton({ characterId, alreadyPending }: { characterId: number; alreadyPending: boolean }) {
   const [note, setNote] = useState("");
@@ -34,7 +35,7 @@ export function ClaimThisCharacterButton({ characterId, alreadyPending }: { char
         placeholder="Note for officers (optional)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        className="rounded-md border border-field bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-accent focus:outline-none sm:w-64"
+        className={`${fieldClasses()} sm:w-64`}
       />
       <Button type="button" size="sm" onClick={submit} disabled={pending}>
         {pending ? "Claiming…" : "Claim this character"}

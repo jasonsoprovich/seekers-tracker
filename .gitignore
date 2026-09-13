@@ -65,3 +65,10 @@ data/restore-points.log
 
 # generated seed SQL (regenerate with `npm run seed:xlsx`, see CLAUDE.md)
 drizzle/seed/
+
+# Playwright — e2e/.auth/session.json carries a real (local-only) session
+# cookie minted by scripts/e2e-auth-setup.ts; never commit it.
+/e2e/.auth/
+/test-results/
+/playwright-report/
+/blob-report/

@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { fieldClasses } from "@/components/ui/Field";
+import { fieldClasses, Field } from "@/components/ui/Field";
+import { MobileCard } from "@/components/ui/MobileCard";
 import { SortableTh, useTableSort } from "@/components/ui/table-sort";
 import { ledgerDate } from "@/lib/format-date";
 import type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
@@ -118,10 +119,168 @@ export function LedgerTable(props: Props) {
     router.refresh();
   }
 
+  // Mobile substitute for a table row (task 6.5): a compact card, expandable
+  // to the same fields the desktop table's extra columns show. A row being
+  // edited renders as a stacked mini-form instead — the same input elements
+  // as the desktop edit row, laid out as labeled fields rather than <td>s.
+  function renderMobileCard(r: EpRow | GpRow) {
+    const editing = editingId === r.id;
+    if (editing) {
+      return (
+        <div key={r.id} className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-neutral-900/40 p-3">
+          <Field>
+            <span className="text-neutral-400">Date</span>
+            <input
+              type="date"
+              value={draft.occurredAt}
+              onChange={(e) => setDraft((d) => ({ ...d, occurredAt: e.target.value }))}
+              className={fieldClasses()}
+            />
+          </Field>
+          <div className="text-sm text-neutral-500">{r.characterName}</div>
+          {props.type === "ep" ? (
+            <>
+              <Field>
+                <span className="text-neutral-400">Activity</span>
+                <input
+                  value={draft.activityOrTier}
+                  onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
+                  className={fieldClasses()}
+                />
+              </Field>
+              <Field>
+                <span className="text-neutral-400">Zone</span>
+                <input
+                  value={draft.zone}
+                  onChange={(e) => setDraft((d) => ({ ...d, zone: e.target.value }))}
+                  className={fieldClasses()}
+                  placeholder="Zone"
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field>
+                <span className="text-neutral-400">Item</span>
+                <input
+                  value={draft.itemName}
+                  onChange={(e) => setDraft((d) => ({ ...d, itemName: e.target.value }))}
+                  className={fieldClasses()}
+                  placeholder="Item"
+                />
+              </Field>
+              <Field>
+                <span className="text-neutral-400">Bid</span>
+                <input
+                  value={draft.activityOrTier}
+                  onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
+                  className={fieldClasses()}
+                  placeholder="Bid"
+                />
+              </Field>
+            </>
+          )}
+          <Field>
+            <span className="text-neutral-400">Points</span>
+            <input
+              value={draft.points}
+              onChange={(e) => setDraft((d) => ({ ...d, points: e.target.value }))}
+              inputMode="decimal"
+              className={fieldClasses()}
+            />
+          </Field>
+          <Field>
+            <span className="text-neutral-400">Note</span>
+            <input
+              value={draft.note}
+              onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
+              className={fieldClasses()}
+              placeholder="Note"
+            />
+          </Field>
+          <div className="flex gap-4 pt-1">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => saveEdit(r.id)}
+              className="min-h-9 text-sm font-medium text-emerald-400 hover:text-emerald-300 disabled:opacity-60"
+            >
+              {pending ? "Saving…" : "Save"}
+            </button>
+            <button type="button" disabled={pending} onClick={cancelEdit} className="min-h-9 text-sm text-neutral-400 hover:text-neutral-200">
+              Cancel
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const summary = (
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-medium">{r.characterName}</span>
+          <span className={`font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>{r.points}</span>
+        </div>
+        <div className="mt-0.5 text-xs text-neutral-500">
+          {ledgerDate(r.occurredAt, r.source)} · {props.type === "ep" ? (r as EpRow).activity : ((r as GpRow).itemName ?? "—")}
+        </div>
+      </div>
+    );
+
+    const detail = (
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+        <div>
+          <dt className="text-neutral-500">{props.type === "ep" ? "Zone" : "Bid"}</dt>
+          <dd className="text-neutral-300">{props.type === "ep" ? ((r as EpRow).zone ?? "—") : (r as GpRow).tier}</dd>
+        </div>
+        <div>
+          <dt className="text-neutral-500">Source</dt>
+          <dd className="text-neutral-300">{r.source}</dd>
+        </div>
+        <div>
+          <dt className="text-neutral-500">Recorded by</dt>
+          <dd className="text-neutral-300">{r.enteredByName ?? "—"}</dd>
+        </div>
+        <div className="col-span-2">
+          <dt className="text-neutral-500">Note</dt>
+          <dd className="text-neutral-300">{r.note || "—"}</dd>
+        </div>
+        {props.canManage && (
+          <div className="col-span-2 flex gap-4 pt-1">
+            <button
+              type="button"
+              onClick={() => startEdit(r)}
+              className="min-h-9 text-sm text-neutral-300 hover:text-neutral-100"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(r.id, r.characterName)}
+              className="min-h-9 text-sm text-red-400 hover:text-red-300"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </dl>
+    );
+
+    return <MobileCard key={r.id} summary={summary} detail={detail} />;
+  }
+
   return (
     <>
       {error && <p className="mb-2 text-sm text-red-400">{error}</p>}
-      <div className="overflow-x-auto rounded-lg border border-border">
+
+      <div className="flex flex-col gap-2 sm:hidden">
+        {sorted.map(renderMobileCard)}
+        {props.rows.length === 0 && (
+          <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">No rows match this search.</div>
+        )}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">

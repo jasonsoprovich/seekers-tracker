@@ -147,7 +147,12 @@ export function MembersRolesList({
                   Discord: {m.username ?? "(no username)"} · {m.discordVerified ? "verified" : "not verified"} · joined {guildDate(m.createdAt)}
                 </p>
               </div>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+              {/* No shrink-0 (used to be here): that forced this cluster to
+                  keep its full intrinsic width regardless of available
+                  space, so it could never wrap onto its own line within the
+                  <li>'s own flex-wrap — it just pushed the row wider than
+                  the viewport instead, at any width, not only on phones. */}
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 {unclaimedCharacters.length > 0 && <AssignCharacterControl userId={m.id} characters={unclaimedCharacters} />}
                 {canEditRoles && (
                   <>

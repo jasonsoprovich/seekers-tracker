@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { approveClaim, denyClaim } from "@/app/(app)/admin/claims/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { fieldClasses } from "@/components/ui/Field";
 
 // Approve fired immediately with no confirmation of any kind until
 // 2026-08-25 — the only mutation of the 8-site confirmation audit that had
@@ -58,7 +59,7 @@ export function ClaimReviewButtons({ claimId }: { claimId: number }) {
             placeholder="Reason (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            className="rounded-md border border-field bg-neutral-900 px-2 py-1 text-sm text-neutral-100 focus:border-accent focus:outline-none"
+            className={fieldClasses({ size: "sm" })}
           />
           <button
             type="button"

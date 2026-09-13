@@ -162,7 +162,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
       <PageHeader title="EPGP Ledger" subtitle="EP/GP transaction history, bid outcomes, and the edit trail behind them — everything that adds up to the standings on /roster." />
 
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {visibleTabs.map((tab) => (
             <Link
               key={tab.key}

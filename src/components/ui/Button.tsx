@@ -4,10 +4,14 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 type Variant = "primary" | "outline";
 type Size = "sm" | "md" | "lg";
 
+// min-h-* sm:min-h-0 (not a flat min-height): a practical touch target on
+// phones — sm stays a comfortable 36px for the dense inline-action variant,
+// md/lg get the fuller 44px used for primary actions — without growing any
+// button beyond its current desktop-density height at the sm breakpoint.
 const sizeClasses: Record<Size, string> = {
-  sm: "px-3 py-1 text-xs",
-  md: "px-4 py-2 text-sm",
-  lg: "px-6 py-3",
+  sm: "min-h-9 px-3 py-1 text-xs sm:min-h-0",
+  md: "min-h-11 px-4 py-2 text-sm sm:min-h-0",
+  lg: "min-h-11 px-6 py-3 sm:min-h-0",
 };
 
 const variantClasses: Record<Variant, string> = {

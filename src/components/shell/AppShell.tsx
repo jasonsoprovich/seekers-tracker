@@ -46,9 +46,16 @@ export async function AppShell({
   const links = allLinks.filter((l) => !l.roles || l.roles.includes(role as Role));
 
   return (
-    <div className="flex min-h-screen bg-surface text-neutral-100">
+    // Column on mobile (the top bar sits above <main> in normal document
+    // flow) so the row-flex desktop layout — the sidebar beside <main> —
+    // only applies once the sidebar itself actually renders as a row
+    // sibling at the sm breakpoint. Before this, the container was always
+    // `flex` (row) even on mobile, and the mobile-only top bar rendered by
+    // Sidebar was squeezed into a row alongside <main> instead of
+    // stacking above it.
+    <div className="flex min-h-screen flex-col bg-surface text-neutral-100 sm:flex-row">
       <Sidebar links={links} username={username} avatarUrl={avatarUrl} />
-      <main className="min-w-0 flex-1 px-6 py-8">{children}</main>
+      <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-8">{children}</main>
     </div>
   );
 }

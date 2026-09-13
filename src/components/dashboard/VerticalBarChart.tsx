@@ -55,7 +55,7 @@ export function VerticalBarChart({ bars }: { bars: Bar[] }) {
           ))}
         </div>
 
-        <div className="relative flex flex-1 justify-between gap-1" style={{ height: BAR_HEIGHT }}>
+        <div className="relative flex min-w-0 flex-1 justify-between gap-1" style={{ height: BAR_HEIGHT }}>
           {ticks.map((t) => (
             <div
               key={t}
@@ -67,7 +67,7 @@ export function VerticalBarChart({ bars }: { bars: Bar[] }) {
           {bars.map((b) => (
             <div
               key={b.key}
-              className="relative z-10 flex max-w-12 flex-1 flex-col-reverse"
+              className="relative z-10 flex min-w-0 max-w-12 flex-1 flex-col-reverse"
               style={{ height: BAR_HEIGHT }}
             >
               {b.segments.map((s, i) => {
@@ -90,10 +90,10 @@ export function VerticalBarChart({ bars }: { bars: Bar[] }) {
 
       <div className="mt-1.5 flex gap-2">
         <div className="shrink-0" style={{ width: YAXIS_WIDTH }} />
-        <div className="flex flex-1 justify-between gap-1">
+        <div className="flex min-w-0 flex-1 justify-between gap-1">
           {bars.map((b) => (
-            <div key={b.key} className="flex max-w-12 flex-1 flex-col items-center gap-0.5">
-              <span className="text-[10px] font-medium text-neutral-500" title={b.labelTitle}>
+            <div key={b.key} className="flex min-w-0 max-w-12 flex-1 flex-col items-center gap-0.5">
+              <span className="w-full truncate text-center text-[10px] font-medium text-neutral-500" title={b.labelTitle}>
                 {b.label}
               </span>
               <span className="text-[9px] text-neutral-600 tabular-nums">{b.total}</span>

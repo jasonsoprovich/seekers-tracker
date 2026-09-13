@@ -535,19 +535,118 @@ D1.
 
 ## Phase 6: Mobile Foundation and Responsive Data Views
 
-- [ ] 6.1 Change the authenticated shell to mobile column/desktop row layout.
-- [ ] 6.2 Make the mobile navigation a full-width accessible overlay/drawer
+- [x] 6.1 Change the authenticated shell to mobile column/desktop row layout.
+  (`AppShell.tsx` — the outer shell div was `flex` [row] unconditionally, even
+  on mobile, so Sidebar's mobile-only top bar rendered as a row sibling
+  squeezed next to `<main>` instead of stacking above it. Now `flex flex-col
+  sm:flex-row`.)
+- [x] 6.2 Make the mobile navigation a full-width accessible overlay/drawer
   with backdrop, focus management, Escape handling, and focus restoration.
-- [ ] 6.3 Reduce mobile padding, enforce practical touch targets, and use at
-  least 16px form text on phones.
-- [ ] 6.4 Add shared responsive page, tabs, filter, status, and data-view
-  primitives only where repeated use justifies them.
-- [ ] 6.5 Give core tables compact expandable mobile rows instead of relying
-  only on horizontal scrolling.
-- [ ] 6.6 Validate Dashboard, Roster, Account/Claims, Live Bids, Ledger, and
-  Admin at 320, 375, 390, and 768px widths.
-- [ ] 6.7 Add viewport, overflow, navigation, dialog, keyboard, and reduced
-  motion tests.
+  (`Sidebar.tsx`'s `MobileNavDrawer` — rebuilt the old inline collapsing
+  `<div>` dropdown as a real `<dialog>` opened via `showModal()`, the same
+  choice `ui/ConfirmDialog.tsx` already made: focus trap, `Esc`-closes
+  [native `cancel` event], backdrop click-to-close, and focus restoration to
+  the toggle button are all the browser's own spec-compliant implementation,
+  not hand-rolled. `autoFocus` on the close button lands focus inside on
+  open. Covered by `e2e/nav-drawer.spec.ts`.)
+- [x] 6.3 Reduce mobile padding, enforce practical touch targets, and use at
+  least 16px form text on phones. (`<main>` padding `px-6 py-8` →
+  `px-4 py-5 sm:px-6 sm:py-8`. `ui/Field.tsx`'s `fieldClasses()` — the single
+  shared helper nearly every form input in the app already goes through —
+  now sets `text-base sm:text-sm` instead of a flat `text-sm`, since every
+  field sits inside an ambient `text-sm` container and a bare `text-sm`
+  input triggers iOS Safari's zoom-on-focus on any phone; also refactored
+  the 3 remaining inputs that had duplicated `fieldClasses`' exact
+  border/bg/focus CSS by hand [`ClaimThisCharacterButton`,
+  `ClaimReviewButtons`] instead of using it, onto the shared helper, so the
+  fix reaches them too. `ui/Button.tsx`'s `sm`/`md`/`lg` sizes gained a
+  `min-h-9`/`min-h-11 sm:min-h-0` floor. Sidebar's mobile hamburger/close
+  buttons and `AccountBlock`'s mobile variant are sized to a 44px target.)
+- [x] 6.4 Add shared responsive page, tabs, filter, status, and data-view
+  primitives only where repeated use justifies them. New `ui/MobileCard.tsx`
+  — an expandable-card primitive used by both RosterTable and LedgerTable
+  (task 6.5) — is the one new shared primitive this phase's actual repeated
+  need justified. Did not extract a dedicated Tabs/FilterBar/StatusBadge
+  component: existing per-page tab bars and filter rows weren't duplicated
+  enough across pages to justify pulling out a shared abstraction over them
+  — "only where repeated use justifies it" cuts the other way here.
+- [x] 6.5 Give core tables compact expandable mobile rows instead of relying
+  only on horizontal scrolling. **Applied to RosterTable and the EP/GP
+  LedgerTable** — the two highest-traffic tables (Roster is named
+  throughout this plan as the account-management directory; the EPGP Ledger
+  is the other page every officer/leader change in this plan's history
+  touches). Below `sm`, both render `ui/MobileCard.tsx` cards (key stats
+  always visible, secondary columns behind an expand toggle; LedgerTable's
+  edit mode becomes a stacked mini-form instead of table cells) instead of
+  the `<table>`, which stays the `sm:`+ rendering — both markups are always
+  in the DOM, swapped by CSS breakpoint, not a JS media query, so there's no
+  hydration mismatch. **Not applied** to `TotalsTable`, `BidHistoryTable`,
+  `AuditLogTable`, `RaidLootTable`, `BankBrowseTable`,
+  `AdminCharacterList`/`MembersRolesList`'s own list, or `ClaimCharacterList`
+  — deliberately scoped down to the two tables named above rather than
+  attempting every table in the app in one pass; these still rely on
+  horizontal scroll on a phone. Revisit if a later phase's mobile pass on
+  Admin/Bank/Raids specifically calls for it.
+  A real bug surfaced building this: `MobileCard`'s first version wrapped
+  its whole summary in one `<button>`, and both callers' summaries carried
+  their own interactive content [RosterTable's alt-toggle button, a
+  character-name `<Link>`] — a real invalid-HTML nested-button/nested-link
+  case, caught by React's own hydration-mismatch warning under Playwright,
+  not by `tsc`/`build`. Fixed by giving `MobileCard` a dedicated small
+  disclosure button beside the summary instead of wrapping the summary in
+  one.
+- [x] 6.6 Validate Dashboard, Roster, Account/Claims, Live Bids, Ledger, and
+  Admin at 320, 375, 390, and 768px widths. Done via an automated Playwright
+  sweep (`e2e/page-overflow.spec.ts`) against a real running local server
+  with real local D1 data — not manual browser click-through, since no
+  environment running this session has Chrome's Claude extension connected
+  (a different, one-off gap from this plan's usual "no Discord OAuth"
+  note — this was a missing browser connection, not a missing credential).
+  The sweep found and fixed three real pre-existing overflow bugs, none of
+  them touched by this phase's other tasks until this validation step
+  surfaced them:
+  - `epgp/ledger`'s tab bar (Totals/EP/GP/Bids/Audit) didn't wrap — added
+    `flex-wrap`.
+  - Dashboard's `VerticalBarChart` (the "Active Members by Class" bars and
+    the Roster-by-Class chart) — each column `div` was `flex-1` but flex
+    items default to `min-width: auto` [their own content's min-content
+    size], so 16 class columns' text content refused to shrink below their
+    natural width and overflowed instead. Added `min-w-0` down the whole
+    flex chain plus a `truncate` on the label.
+  - `RosterOverview`'s sticky filter bar used a fixed `-mx-6`/`px-6` bleed
+    matched to `<main>`'s OLD flat `px-6` padding — task 6.3's
+    `px-4 py-5 sm:px-6 sm:py-8` change broke that assumption on phones
+    [only 16px of padding to bleed into, not the 24px the bleed math
+    assumed]. Fixed to `-mx-4 px-4 sm:-mx-6 sm:px-6`, matching `<main>`'s
+    padding at every width instead of just one.
+- [x] 6.7 Add viewport, overflow, navigation, dialog, keyboard, and reduced
+  motion tests. **This repo's first browser test suite** — everything
+  before this was `scripts/verify-*.ts` against local D1 directly, or
+  manual browser click-through; neither covers real rendered-DOM/CSS
+  behavior like a nav drawer's focus trap. Added Playwright
+  (`@playwright/test`, `playwright.config.ts`, `e2e/*.spec.ts`, 57 tests):
+  `viewport.spec.ts` (unauthenticated `/login`, no session needed);
+  `nav-drawer.spec.ts` (dialog open/close, focus landing + restoration,
+  Tab-stays-inside, Escape, `prefers-reduced-motion` doesn't block the
+  interaction — there's no CSS motion on this drawer to disable yet, so
+  this is a baseline guard for when a later phase, e.g. Phase 9's landing
+  page, adds real motion); `mobile-cards.spec.ts` (table↔card breakpoint
+  swap, keyboard-operated expand/collapse); `page-overflow.spec.ts` (task
+  6.6's sweep). New `scripts/e2e-auth-setup.ts` mints a real, valid
+  better-auth session cookie against local D1 — via `better-auth/crypto`'s
+  public `makeSignature` plus the app's own already-constructed auth
+  instance's `$context`, not a deep import into better-auth's unexported
+  internals — so the suite can drive the authenticated shell without
+  Discord OAuth, which no environment running this suite has ever had; a
+  synthetic `e2e-test-user` (role `leader`) is upserted fresh each run
+  rather than depending on whatever's seeded locally. `npm run test:e2e`
+  (setup + `playwright test`); config runs serially (`workers: 1`) against
+  `next dev` [needed for local D1 bindings via
+  `initOpenNextCloudflareForDev()`] after several workers cold-hitting
+  different routes at once was observed to make `next dev`'s on-demand
+  compiler abort in-flight requests — a test-infra flake, not an app bug.
+  `e2e/.auth/` (the minted session + a resolved test character id) is
+  gitignored.
 
 ## Phase 7: Bid-History Priority Clarity
 

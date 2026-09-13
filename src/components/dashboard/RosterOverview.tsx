@@ -104,13 +104,16 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
 
   return (
     <div className="mt-4">
-      {/* -mx-6/px-6 matches AppShell's <main> padding exactly, so this bar
-          bleeds flush to the same edges the page content itself sits at —
-          a mismatched -mx-4/px-4 here previously left an 8px gap each
-          side. Solid bg-surface (not /95 + backdrop-blur) and a bottom
+      {/* -mx-4/px-4 sm:-mx-6/sm:px-6 matches AppShell's <main> padding
+          exactly at every width (px-4 py-5 sm:px-6 sm:py-8, Phase 6 task
+          6.3), so this bar bleeds flush to the same edges the page content
+          itself sits at — a mismatched margin/padding pair here previously
+          left a gap each side (or, after task 6.3 narrowed <main>'s mobile
+          padding without updating this, pushed 8px past the viewport
+          instead). Solid bg-surface (not /95 + backdrop-blur) and a bottom
           border make the "stuck" state visually obvious rather than a
           near-invisible translucent strip once content scrolls under it. */}
-      <div className="sticky top-0 z-20 -mx-6 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-6 py-3">
+      <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedToggle
             value={showAlts ? "all" : "mains"}

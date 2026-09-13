@@ -30,6 +30,8 @@
     "verify:bid-finalization": "tsx scripts/verify-bid-finalization.ts",
     "verify:standings-resilience": "tsx scripts/verify-standings-resilience.ts",
     "verify:character-claims": "tsx scripts/verify-character-claims.ts",
+    "test:e2e:setup": "tsx scripts/e2e-auth-setup.ts",
+    "test:e2e": "npm run test:e2e:setup && playwright test",
     "recompute:standings": "tsx scripts/recompute-standings.ts",
     "bake-legacy-decay": "tsx scripts/bake-legacy-decay.ts"
   },
@@ -50,6 +52,7 @@
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.43",
     "@types/react": "^19.1.7",

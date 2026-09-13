@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState } from "react";
 
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { fieldClasses } from "@/components/ui/Field";
+import { MobileCard } from "@/components/ui/MobileCard";
 import { roleRank, RoleBadge } from "@/components/ui/RoleBadge";
 import type { Role } from "@/lib/authz";
 import { characterStatusLabel, type CharacterStatus } from "@/lib/character-status";
@@ -313,6 +314,93 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     );
   }
 
+  // Mobile substitute for renderRow — same data, laid out as an expandable
+  // card (MobileCard) instead of table cells. Key stats (EP/GP/priority)
+  // stay in the always-visible summary; the rest (role, type, class, level,
+  // owner) sits behind the card's own expand toggle. The alt-group
+  // show/hide toggle is a separate small button in the summary, same as
+  // renderRow's — expanding the card and revealing its alts are
+  // independent actions, not one combined toggle.
+  function renderCard(r: RosterRow, opts: { toggle?: { open: boolean; onClick: () => void } } = {}) {
+    const isAlt = r.charType === "alt";
+    const summary = (
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {opts.toggle ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              opts.toggle!.onClick();
+            }}
+            aria-label={opts.toggle.open ? "Hide alts" : "Show alts"}
+            className="flex h-8 w-8 shrink-0 items-center justify-center text-neutral-500 hover:text-neutral-200"
+          >
+            {opts.toggle.open ? "▾" : "▸"}
+          </button>
+        ) : (
+          isAlt && (
+            <span className="w-8 shrink-0 text-center text-neutral-600" aria-hidden="true">
+              ↳
+            </span>
+          )
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Link
+              href={`/characters/${r.id}/account`}
+              prefetch={false}
+              onClick={(e) => e.stopPropagation()}
+              className="font-medium hover:text-emerald-400"
+            >
+              {r.name}
+            </Link>
+            <CharacterStatusBadge status={r.status} />
+          </div>
+          <div className="mt-0.5 text-xs text-neutral-500">
+            EP {r.ep === null ? "—" : Math.round(r.ep)} · GP {r.gp === null ? "—" : Math.round(r.gp)} · Prio{" "}
+            {r.priorityRating?.toFixed(4) ?? "—"}
+          </div>
+        </div>
+      </div>
+    );
+
+    const detail = (
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+        <div>
+          <dt className="text-neutral-500">Role</dt>
+          <dd className="mt-0.5">
+            <RoleBadge role={r.ownerRole ?? "member"} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-neutral-500">Type</dt>
+          <dd className="text-neutral-300">{TYPE_LABEL[r.charType]}</dd>
+        </div>
+        <div>
+          <dt className="text-neutral-500">Class</dt>
+          <dd className="text-neutral-300">{r.className}</dd>
+        </div>
+        <div>
+          <dt className="text-neutral-500">Level</dt>
+          <dd className="text-neutral-300">{r.level}</dd>
+        </div>
+        <div className="col-span-2">
+          <dt className="text-neutral-500">Owner</dt>
+          <dd className="text-neutral-300">{r.ownerUsername ?? <span className="text-neutral-600">Unclaimed</span>}</dd>
+        </div>
+        {r.departed && (
+          <div className="col-span-2">
+            <span className="rounded border border-red-800 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-red-400">
+              Removed from guild
+            </span>
+          </div>
+        )}
+      </dl>
+    );
+
+    return <MobileCard key={r.id} summary={summary} detail={detail} accent={isAlt} />;
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-end gap-3">
@@ -411,7 +499,32 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         </span>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+      {/* Mobile: expandable cards instead of a horizontally-scrolled table
+          (task 6.5). Hidden/shown by breakpoint, not JS, so both stay
+          mounted and in sync with the same `visibleGroups`/`expanded` state. */}
+      <div className="mt-4 flex flex-col gap-2 sm:hidden">
+        {visibleGroups.map((group) => {
+          const hasAlts = group.alts.length > 0;
+          const isOpen = hasAlts && (expanded.has(group.main.id) || hasSearch || !matches(group.main));
+          return (
+            <div key={group.main.id} className="flex flex-col gap-2">
+              {renderCard(group.main, hasAlts ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
+              {hasAlts && isOpen && (
+                <div className="ml-3 flex flex-col gap-2 border-l-2 border-l-emerald-700/50 pl-2">
+                  {group.alts.map((alt) => renderCard(alt))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {visibleGroups.length === 0 && (
+          <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
+            No characters match these filters.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 hidden overflow-x-auto rounded-lg border border-border sm:block">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">

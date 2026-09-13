@@ -73,6 +73,7 @@ npx drizzle-kit generate                                # generate a migration f
 npx wrangler d1 migrations apply seekers-of-souls --local   # apply locally
 npx wrangler d1 migrations apply seekers-of-souls --remote  # apply to production — do this BEFORE deploying code that depends on it
 npx tsc --noEmit -p tsconfig.json                       # typecheck only (fast)
+npm run test:e2e                                        # Playwright — mints a local session (scripts/e2e-auth-setup.ts), then runs e2e/*.spec.ts
 ```
 
 `next lint` is currently broken in this repo (Next 16 / ESLint 9 config
@@ -331,6 +332,41 @@ contents, and never print raw Discord IDs into logs or commit messages.
   awarded values as-is; never recompute them from nominal. PLAN.md §2.
 
 ## Roadmap / status (update this section as things ship or change)
+
+**Remediation plan Phase 6 — mobile foundation and responsive data views,
+2026-09-13 (no migration; local only — see REMEDIATION-PLAN-2026-09-12.md
+§Phase 6 for full per-task detail). Tasks 6.1-6.7 done.** The authenticated
+shell (`AppShell`/`Sidebar`) is now genuinely mobile-first: `flex-col
+sm:flex-row` (was unconditionally `flex` row, so the mobile top bar
+rendered squeezed beside `<main>` instead of stacked above it); the mobile
+nav is a real `<dialog>`-based full-screen drawer (`showModal()` — focus
+trap/Escape/restoration all native, same choice as `ui/ConfirmDialog.tsx`);
+`<main>` padding is `px-4 py-5 sm:px-6 sm:py-8`; `ui/Field.tsx`'s
+`fieldClasses()` (the one shared helper nearly every form input already
+uses) sets `text-base sm:text-sm` so no input triggers iOS Safari's
+zoom-on-focus; `ui/Button.tsx` gained a 36-44px mobile touch-target floor.
+New `ui/MobileCard.tsx` — an expandable-card primitive — replaces the
+`<table>` below `sm` on RosterTable and the EP/GP LedgerTable (the two
+tables actually exercised this way; TotalsTable/BidHistoryTable/
+AuditLogTable/BankBrowseTable/admin lists still rely on horizontal scroll,
+deliberately deferred). **This is also the repo's first browser test
+suite** — Playwright (`e2e/*.spec.ts`, 57 tests, `npm run test:e2e`)
+covering viewport/overflow, the nav drawer's dialog/focus/keyboard
+contract, and the table↔card breakpoint swap; a new
+`scripts/e2e-auth-setup.ts` mints a real signed better-auth session cookie
+against local D1 (via `better-auth/crypto`'s public `makeSignature`, not a
+deep import into better-auth's internals) so the suite can drive the
+authenticated shell without Discord OAuth. The automated overflow sweep
+(task 6.6, standing in for manual click-through — no Chrome extension
+connected this session) found and fixed three real pre-existing mobile
+overflow bugs along the way: `epgp/ledger`'s tab bar not wrapping,
+Dashboard's `VerticalBarChart` flex columns refusing to shrink below their
+content's min-width, and `RosterOverview`'s sticky filter bar's bleed
+margin having been sized for `<main>`'s old flat padding. `tsc`/`npm run
+build`/`wrangler deploy --dry-run` (2723.60 KiB gzipped, unchanged) all
+clean; `npm run verify` stayed at its documented 9/13 baseline (unrelated
+code path). **Not deployed yet** — no migration, so this can ship with any
+later phase's deploy.
 
 **Remediation plan Phase 5 — account-level character claims, 2026-09-13
 (commit `978e8b6`; no migration — local only in the sense that there's
