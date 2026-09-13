@@ -44,6 +44,7 @@ test("a roster card expands via keyboard and exposes its detail fields", async (
   // own "Role" column header.
   await expect(card.getByText("Role", { exact: true })).toBeVisible();
   await expect(card.getByText("Owner", { exact: true })).toBeVisible();
+  await expect(card.getByRole("link", { name: "View / manage account" })).toBeVisible();
 
   await page.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");

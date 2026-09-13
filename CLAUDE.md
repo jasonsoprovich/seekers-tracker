@@ -333,6 +333,16 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 8.1 — roster account-management entry point,
+2026-09-13 (no migration; local only).** The Roster remains the guild-wide
+directory for every member, with each character name preserving its existing
+read-only Account-page link. Officer/leader/admin viewers now additionally
+get a clear `View / manage account` action on every desktop row and expanded
+mobile card, taking them to that account's established mutation surface. The
+Account page retains its own server-side authorization gates; this is only a
+workflow entry point. `tsc` and the focused authenticated Playwright roster
+suite pass (7/7), including the mobile action.
+
 **Remediation plan Phase 7 — bid-history priority clarity, 2026-09-13
 (migration 0038, LOCAL ONLY — needs `--remote` apply before its own next
 deploy; see REMEDIATION-PLAN-2026-09-12.md §Phase 7 for full per-task

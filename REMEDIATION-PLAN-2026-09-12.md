@@ -731,8 +731,12 @@ needed — this phase is tracker-only.
 
 ## Phase 8: Roster and Admin Workflow Consolidation
 
-- [ ] 8.1 Make Roster the primary player/character directory with a clear
-  `View / manage account` action for authorized roles.
+- [x] 8.1 Make Roster the primary player/character directory with a clear
+  `View / manage account` action for authorized roles. (`Phase 8.1` — Roster
+  now shows an explicit account-management action for officer/leader/admin
+  viewers on desktop and in expanded mobile cards; every member retains the
+  existing read-only character/account link. Covered by the authenticated
+  Playwright roster-card flow.)
 - [ ] 8.2 Keep role, linking, main-swap, removal, and reinstatement mutations on
   the Account page with existing server-side authorization.
 - [ ] 8.3 Surface pending-claim and setup indicators on relevant roster/account

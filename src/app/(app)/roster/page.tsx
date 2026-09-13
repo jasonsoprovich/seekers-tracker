@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, players, users } from "@/db";
+import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getStandings } from "@/lib/epgp/standings";
@@ -26,7 +27,8 @@ export default async function RosterPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const db = await getDb();
+  const [db, viewerRole] = await Promise.all([getDb(), getUserRole(session.user.id)]);
+  const canManageAccounts = canManageAnyCharacter(viewerRole);
   // The account's site login (players.user_id), distinct from the
   // character's own claim link (characters.owner_id): an alt linked to an
   // officer's account by a leader has no owner_id of its own, and used to
@@ -87,6 +89,7 @@ export default async function RosterPage() {
     return {
       id: r.id,
       name: r.name,
+      canManageAccount: canManageAccounts,
       ownerUsername: r.accountUsername ?? r.ownerUsername,
       ownerRole: shownRole,
       classId: r.classId,

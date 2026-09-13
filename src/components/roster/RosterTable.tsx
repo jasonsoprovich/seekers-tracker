@@ -23,6 +23,9 @@ const RACE_FILTER_OPTIONS = [...CHAR_RACES].sort(byNameUnknownLast);
 export type RosterRow = {
   id: number;
   name: string;
+  // The Account page remains readable by every member, but officers and
+  // above get the explicit management action from this directory.
+  canManageAccount: boolean;
   ownerUsername: string | null;
   ownerRole: Role | null;
   classId: number;
@@ -99,6 +102,7 @@ function compare(a: RosterRow, b: RosterRow, key: SortKey): number {
 type Group = { main: RosterRow; alts: RosterRow[] };
 
 export function RosterTable({ rows }: { rows: RosterRow[] }) {
+  const hasAccountActions = rows.some((row) => row.canManageAccount);
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState<string>("all");
   const [raceFilter, setRaceFilter] = useState<string>("all");
@@ -310,6 +314,17 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <td className="px-3 py-2 text-neutral-400">
           {r.ownerUsername ?? <span className="text-neutral-600">Unclaimed</span>}
         </td>
+        {r.canManageAccount && (
+          <td className="px-3 py-2 text-right">
+            <Link
+              href={`/characters/${r.id}/account`}
+              prefetch={false}
+              className="rounded-full border border-field px-2.5 py-1 text-xs font-medium text-neutral-300 hover:border-emerald-500/60 hover:text-emerald-300"
+            >
+              View / manage account
+            </Link>
+          </td>
+        )}
       </tr>
     );
   }
@@ -388,6 +403,17 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <dt className="text-neutral-500">Owner</dt>
           <dd className="text-neutral-300">{r.ownerUsername ?? <span className="text-neutral-600">Unclaimed</span>}</dd>
         </div>
+        {r.canManageAccount && (
+          <div className="col-span-2 pt-1">
+            <Link
+              href={`/characters/${r.id}/account`}
+              prefetch={false}
+              className="inline-flex min-h-9 items-center rounded-full border border-field px-3 py-1 text-xs font-medium text-neutral-300 hover:border-emerald-500/60 hover:text-emerald-300"
+            >
+              View / manage account
+            </Link>
+          </div>
+        )}
         {r.departed && (
           <div className="col-span-2">
             <span className="rounded border border-red-800 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-red-400">
@@ -540,6 +566,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                   </button>
                 </th>
               ))}
+              {hasAccountActions && <th className="px-3 py-2" aria-label="Account actions" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -559,7 +586,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             })}
             {visibleGroups.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-neutral-500">
+                <td colSpan={COLUMNS.length + (hasAccountActions ? 1 : 0)} className="px-3 py-6 text-center text-neutral-500">
                   No characters match these filters.
                 </td>
               </tr>
