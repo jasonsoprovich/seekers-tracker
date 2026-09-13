@@ -2,7 +2,7 @@ import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, decayEvents, epLedger, gpLedger } from "@/db";
-import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
+import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
 
@@ -350,27 +350,28 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
   if (!event) return { error: "Decay event not found." };
   if (event.reversedAt) return { error: "This decay event was already reversed." };
 
-  const [epRowsBefore, gpRowsBefore] = await Promise.all([
-    db.select().from(epLedger).where(eq(epLedger.decayEventId, decayEventId)),
-    db.select().from(gpLedger).where(eq(gpLedger.decayEventId, decayEventId)),
+  const d1 = db.$client;
+  const activeEvent = "decay_event_id = ? AND EXISTS (SELECT 1 FROM decay_events WHERE id = ? AND reversed_at IS NULL)";
+  const results = await d1.batch([
+    d1.prepare(`SELECT count(*) AS count FROM ep_ledger WHERE ${activeEvent}`).bind(decayEventId, decayEventId),
+    d1.prepare(`SELECT count(*) AS count FROM gp_ledger WHERE ${activeEvent}`).bind(decayEventId, decayEventId),
+    d1.prepare(`
+      INSERT INTO standings_dirty (scope, marked_at)
+      SELECT 'all', unixepoch()
+      WHERE EXISTS (SELECT 1 FROM decay_events WHERE id = ? AND reversed_at IS NULL)
+      ON CONFLICT(scope) DO UPDATE SET marked_at = excluded.marked_at
+    `).bind(decayEventId),
+    prepareDeleteAudit(d1, "ep", activeEvent, [decayEventId, decayEventId], reversedBy),
+    prepareDeleteAudit(d1, "gp", activeEvent, [decayEventId, decayEventId], reversedBy),
+    d1.prepare(`DELETE FROM ep_ledger WHERE ${activeEvent}`).bind(decayEventId, decayEventId),
+    d1.prepare(`DELETE FROM gp_ledger WHERE ${activeEvent}`).bind(decayEventId, decayEventId),
+    d1.prepare("UPDATE decay_events SET reversed_at = unixepoch(), reversed_by = ? WHERE id = ? AND reversed_at IS NULL RETURNING id").bind(reversedBy, decayEventId),
   ]);
 
-  // Task 4.4 — mark every affected player dirty before deleting a single
-  // row, same reasoning as the two commit paths above.
-  const reversedPlayerIds = [...new Set([...epRowsBefore, ...gpRowsBefore].map((r) => r.playerId).filter((id): id is number => id !== null))];
-  if (reversedPlayerIds.length > 0) await markStandingsDirty(db, { playerIds: reversedPlayerIds });
-
-  for (const row of epRowsBefore) {
-    await db.delete(epLedger).where(eq(epLedger.id, row.id));
-    await recordLedgerChange(db, "ep", row.id, "delete", row, null, reversedBy);
-  }
-  for (const row of gpRowsBefore) {
-    await db.delete(gpLedger).where(eq(gpLedger.id, row.id));
-    await recordLedgerChange(db, "gp", row.id, "delete", row, null, reversedBy);
-  }
-
-  await db.update(decayEvents).set({ reversedAt: new Date(), reversedBy }).where(eq(decayEvents.id, decayEventId));
+  const reversed = results[7]?.results.length === 1;
+  if (!reversed) return { error: "This decay event was already reversed." };
   await settleStandings(db, { all: true });
 
-  return { ok: true, epRows: epRowsBefore.length, gpRows: gpRowsBefore.length };
+  const count = (result: D1Result | undefined) => Number((result?.results[0] as { count?: number } | undefined)?.count ?? 0);
+  return { ok: true, epRows: count(results[0]), gpRows: count(results[1]) };
 }

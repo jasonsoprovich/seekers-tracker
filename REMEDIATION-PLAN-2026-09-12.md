@@ -801,7 +801,10 @@ needed — this phase is tracker-only.
 ## Phase 10: Recovery and Operational Hardening
 
 - [ ] 10.1 Do not expose direct D1 Time Travel restore from the main app.
-- [ ] 10.2 Make raid and decay reversal transactional or explicitly resumable.
+- [x] 10.2 Make raid and decay reversal transactional or explicitly resumable.
+  (`Phase 10.2` — both reversals now use one
+  set-based D1 batch for audit snapshots, the global dirty marker, deletes,
+  and decay reversal metadata; local failure injection proves rollback.)
 - [ ] 10.3 Make the bookmark script capture and record a pre-restore bookmark
   automatically before executing any restore.
 - [ ] 10.4 Verify and fix the standalone backup Worker's D1 export response

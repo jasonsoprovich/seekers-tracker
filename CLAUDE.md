@@ -333,6 +333,18 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 10.2 — atomic raid and decay reversal, 2026-09-13
+(no migration; local only).** `reverseRaid` and `reverseDecayEvent` no
+longer delete one ledger row and then write its audit record in separate D1
+requests. Each reversal is now one set-based `D1Database.batch()` transaction
+covering full camelCase delete snapshots, the global standings dirty marker,
+authoritative ledger/loot/bid deletes, and (for decay) the guarded reversal
+marker. The standings rebuild remains after commit and is recoverable through
+that marker. `npm run verify:reversals` exercises both real entry points,
+idempotent decay retry, and deliberate audit-FK failures proving every
+authoritative change rolls back. Existing guild-removal verification still
+passes through the decay reversal path.
+
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
 at `/` is now an asymmetric editorial composition built around the guild's

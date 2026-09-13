@@ -1,9 +1,9 @@
-import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
+import { and, eq, gte, isNull, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, raids } from "@/db";
-import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
-import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
+import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
+import { settleStandings } from "@/lib/epgp/standings";
 
 import { guildDayBounds, toGuildDateString } from "../guild-timezone";
 
@@ -283,8 +283,8 @@ export type ReverseRaidResult =
 // (src/lib/epgp/decay.ts) — each deleted ledger row gets a ledger_audit_log
 // "delete" entry (the audit table has no FK to the row, so it survives),
 // and standings are rebuilt with { all: true } at the end the same way a
-// decay reverse does. Not one D1 transaction — same parent-first,
-// sequential-delete shape as this codebase's other bulk writes.
+// decay reverse does. D1 executes the set-based batch as one transaction,
+// including the audits and dirty marker, so a partial reversal is impossible.
 //
 // The optional `raids` meta row (officer-set name/note) is left in place,
 // like a reversed decay_events row is kept: it's the record that the night
@@ -296,47 +296,44 @@ export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: stri
   if (!bounds) return { error: "Bad raid date." };
   const { start, end } = bounds;
 
-  const [epRows, gpRows, loot] = await Promise.all([
-    db.select().from(epLedger).where(and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end))),
-    db.select().from(gpLedger).where(and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end))),
-    db.select({ id: lootEvents.id }).from(lootEvents).where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
+  const startSeconds = Math.floor(start.getTime() / 1000);
+  const endSeconds = Math.floor(end.getTime() / 1000);
+  const ledgerPredicate = "source = 'parse' AND occurred_at >= ? AND occurred_at < ?";
+  const lootPredicate = "occurred_at >= ? AND occurred_at < ?";
+  const d1 = db.$client;
+  const results = await d1.batch([
+    d1.prepare(`SELECT count(*) AS count FROM ep_ledger WHERE ${ledgerPredicate}`).bind(startSeconds, endSeconds),
+    d1.prepare(`SELECT count(*) AS count FROM gp_ledger WHERE ${ledgerPredicate}`).bind(startSeconds, endSeconds),
+    d1.prepare(`SELECT count(*) AS count FROM loot_events WHERE ${lootPredicate}`).bind(startSeconds, endSeconds),
+    d1.prepare(`SELECT count(*) AS count FROM bids WHERE loot_event_id IN (SELECT id FROM loot_events WHERE ${lootPredicate})`).bind(startSeconds, endSeconds),
+    d1.prepare(`
+      INSERT INTO standings_dirty (scope, marked_at)
+      SELECT 'all', unixepoch()
+      WHERE EXISTS (SELECT 1 FROM ep_ledger WHERE ${ledgerPredicate})
+         OR EXISTS (SELECT 1 FROM gp_ledger WHERE ${ledgerPredicate})
+      ON CONFLICT(scope) DO UPDATE SET marked_at = excluded.marked_at
+    `).bind(startSeconds, endSeconds, startSeconds, endSeconds),
+    prepareDeleteAudit(d1, "gp", ledgerPredicate, [startSeconds, endSeconds], reversedBy),
+    prepareDeleteAudit(d1, "ep", ledgerPredicate, [startSeconds, endSeconds], reversedBy),
+    d1.prepare(`UPDATE loot_events SET winning_bid_id = NULL WHERE ${lootPredicate}`).bind(startSeconds, endSeconds),
+    d1.prepare(`DELETE FROM bids WHERE loot_event_id IN (SELECT id FROM loot_events WHERE ${lootPredicate})`).bind(startSeconds, endSeconds),
+    d1.prepare(`DELETE FROM loot_events WHERE ${lootPredicate}`).bind(startSeconds, endSeconds),
+    d1.prepare(`DELETE FROM gp_ledger WHERE ${ledgerPredicate}`).bind(startSeconds, endSeconds),
+    d1.prepare(`DELETE FROM ep_ledger WHERE ${ledgerPredicate}`).bind(startSeconds, endSeconds),
   ]);
 
-  if (epRows.length === 0 && gpRows.length === 0 && loot.length === 0) {
+  const count = (result: D1Result | undefined) => Number((result?.results[0] as { count?: number } | undefined)?.count ?? 0);
+  const epRows = count(results[0]);
+  const gpRows = count(results[1]);
+  const lootCount = count(results[2]);
+  const bidCount = count(results[3]);
+  if (epRows === 0 && gpRows === 0 && lootCount === 0) {
     return { error: "No parsed attendance, GP, or loot rows on that date — nothing to reverse." };
-  }
-
-  // Task 4.4 — mark every affected player dirty before deleting a single
-  // row, same reasoning as decay.ts's commit/reverse paths (this function
-  // is already documented above as not one transaction).
-  const affectedPlayerIds = [...new Set([...epRows, ...gpRows].map((r) => r.playerId).filter((id): id is number => id !== null))];
-  if (affectedPlayerIds.length > 0) await markStandingsDirty(db, { playerIds: affectedPlayerIds });
-
-  // loot_events.winning_bid_id -> bids.id, so null it out before the bids go
-  // (in case FK enforcement is on). Chunked well under SQLite's variable
-  // limit, same discipline as refreshStandings' prune.
-  const lootIds = loot.map((r) => r.id);
-  let bidCount = 0;
-  for (let i = 0; i < lootIds.length; i += 100) {
-    const chunk = lootIds.slice(i, i + 100);
-    await db.update(lootEvents).set({ winningBidId: null }).where(inArray(lootEvents.id, chunk));
-    const deletedBids = await db.delete(bids).where(inArray(bids.lootEventId, chunk)).returning({ id: bids.id });
-    bidCount += deletedBids.length;
-    await db.delete(lootEvents).where(inArray(lootEvents.id, chunk));
-  }
-
-  for (const row of gpRows) {
-    await db.delete(gpLedger).where(eq(gpLedger.id, row.id));
-    await recordLedgerChange(db, "gp", row.id, "delete", row, null, reversedBy);
-  }
-  for (const row of epRows) {
-    await db.delete(epLedger).where(eq(epLedger.id, row.id));
-    await recordLedgerChange(db, "ep", row.id, "delete", row, null, reversedBy);
   }
 
   await settleStandings(db, { all: true });
 
-  return { ok: true, epRows: epRows.length, gpRows: gpRows.length, lootEvents: lootIds.length, bids: bidCount };
+  return { ok: true, epRows, gpRows, lootEvents: lootCount, bids: bidCount };
 }
 
 export async function setRaidMeta(
