@@ -229,14 +229,16 @@ confirmed production failure mode.
   `livePushStatus.markDelivered` only ever called on a genuine success.
   Before this, a slow/hung site connection delayed the officer's OWN live
   view of their round, not just the site's.)
-- [ ] 2.5 Surface current log size, last successful push, pending retry, and
-  delivery errors without blocking local capture or UI updates. **Backend
-  half done** (`63b715a`): `App.GetLogTailStatus()` and
-  `App.GetLiveBidPushStatus()` are real Wails-bound methods returning live
-  data (size/bytes-read/resets; lastDeliveredAt/pendingRetry/lastError),
-  bindings regenerated. **Not yet surfaced in the frontend** — no UI reads
-  either method yet. Non-blocking is already true by construction (2.4's
-  split), independent of whether anything displays it.
+- [x] 2.5 Surface current log size, last successful push, pending retry, and
+  delivery errors without blocking local capture or UI updates. (`63b715a`
+  — backend: `App.GetLogTailStatus()`/`App.GetLiveBidPushStatus()`.
+  `817d73c` — frontend: `BidsPanel` polls `GetLiveBidPushStatus` every 3s
+  while a round is live [a local, in-memory call, not a network request]
+  and shows "connecting to site…" / "✓ live board synced" / "⚠ site
+  connection trouble — retrying" next to the round header;
+  `SettingsPanel` shows how much of the followed log has been read and how
+  many times the tailer reset, under the EverQuest folder section.
+  Non-blocking by construction from 2.4's split, independent of display.)
 - [ ] 2.6 Test partial lines, same-second tells, repeated text, cancellations,
   truncation, replacement, character swaps, parked rounds, stalled HTTP, and
   recovery. **Partially covered**: partial lines/truncation/replacement/
