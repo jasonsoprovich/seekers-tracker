@@ -711,12 +711,23 @@ the raw tell timestamp. Labels must not overstate historical precision.
   (`npm run verify` stays at its documented 9/13 baseline — unrelated code
   path).
 
-**Deployment note:** migration 0038 applied `--local` only. This session's
-auto-mode has no access to `wrangler d1 migrations apply --remote`/`npm run
-deploy` (see the assistant's own memory on blocked ops) — hand `! npx
-wrangler d1 migrations apply seekers-of-souls --remote` then `! npm run
-deploy` to the user when ready to ship this phase. No parser change needed
-— this phase is tracker-only.
+**Deployed 2026-09-13** — the user applied migration 0038 to remote D1
+themselves (`! npx wrangler d1 migrations apply seekers-of-souls --remote`;
+this session's auto-mode has no access to that or to `npm run deploy`). The
+first attempt 403'd with the same stale-OAuth-token symptom Phase 3 hit
+(`wrangler whoami` showed a live-looking token with `d1 (write)` scope on
+the right account, but the API call itself failed) — `wrangler logout` +
+`wrangler login` (fresh browser OAuth) fixed it, then the retry succeeded:
+368/368 `bids` rows backfilled with a `player_id` (`COUNT(*) = COUNT
+(player_id) = 368`), no orphans. `npm run deploy` followed — Worker version
+`9b959082-da00-4cd4-80d4-bca7295ca592`, bundle 2738.19 KiB gzipped (comfortably
+under the 3072 KiB Free-plan cap), `buildId` = commit `645c4de` (confirmed
+via `/api/health`). Read-only post-deploy checks: `/`, `/login` 200;
+`/roster`, `/epgp/ledger`, `/admin` 307 unauthenticated; `POST
+/api/officer/bids` with no key 401 — no regression. This also carries
+Phase 6's mobile work live for the first time (it had no migration of its
+own and was riding along with whatever deployed next). No parser change
+needed — this phase is tracker-only.
 
 ## Phase 8: Roster and Admin Workflow Consolidation
 

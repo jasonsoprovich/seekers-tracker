@@ -366,13 +366,26 @@ still resolves once standings catch up), and the migration's own backfill
 statement re-exercised directly. `tsc`/`npm run build`/`wrangler deploy
 --dry-run` (2723.99 KiB gzipped) all clean; the full Playwright suite
 (57/57) and every existing `verify:*` script pass unchanged (`npm run
-verify` at its documented 9/13 baseline). **Not deployed** — migration
-0038 needs a `--remote` apply before this phase's code can ship; this
-session's auto-mode has no access to that or to `npm run deploy`.
+verify` at its documented 9/13 baseline). **Deployed 2026-09-13** —
+migration 0038 applied to remote D1 by the user (`wrangler d1 migrations
+apply seekers-of-souls --remote`; this session's auto-mode has no access
+to either that or `npm run deploy`). First attempt 403'd with the same
+stale-OAuth-token symptom Phase 3 hit (`wrangler whoami` looked fine,
+`d1 (write)` scope on the right account, but the call itself failed);
+`wrangler logout` + `wrangler login` fixed it, retry succeeded — 368/368
+`bids` rows backfilled with a `player_id`, no orphans. `npm run deploy`
+followed: Worker version `9b959082-da00-4cd4-80d4-bca7295ca592`, bundle
+2738.19 KiB gzipped, `buildId` = commit `645c4de` (confirmed via
+`/api/health`). Read-only post-deploy: `/`, `/login` 200; `/roster`,
+`/epgp/ledger`, `/admin` 307 unauthenticated; `POST /api/officer/bids`
+with no key 401 — no regression. This deploy also carries Phase 6's
+mobile work live for the first time (it had no migration of its own and
+was riding along with whatever shipped next).
 
 **Remediation plan Phase 6 — mobile foundation and responsive data views,
-2026-09-13 (no migration; local only — see REMEDIATION-PLAN-2026-09-12.md
-§Phase 6 for full per-task detail). Tasks 6.1-6.7 done.** The authenticated
+2026-09-13 (no migration; deployed the same day as Phase 7, above — see
+REMEDIATION-PLAN-2026-09-12.md §Phase 6 for full per-task detail). Tasks
+6.1-6.7 done.** The authenticated
 shell (`AppShell`/`Sidebar`) is now genuinely mobile-first: `flex-col
 sm:flex-row` (was unconditionally `flex` row, so the mobile top bar
 rendered squeezed beside `<main>` instead of stacked above it); the mobile
@@ -402,8 +415,9 @@ content's min-width, and `RosterOverview`'s sticky filter bar's bleed
 margin having been sized for `<main>`'s old flat padding. `tsc`/`npm run
 build`/`wrangler deploy --dry-run` (2723.60 KiB gzipped, unchanged) all
 clean; `npm run verify` stayed at its documented 9/13 baseline (unrelated
-code path). **Not deployed yet** — no migration, so this can ship with any
-later phase's deploy.
+code path). **Deployed 2026-09-13** — no migration of its own, shipped
+riding along with Phase 7's deploy (Worker version
+`9b959082-da00-4cd4-80d4-bca7295ca592`, see that entry above).
 
 **Remediation plan Phase 5 — account-level character claims, 2026-09-13
 (commit `978e8b6`; no migration — local only in the sense that there's
