@@ -332,6 +332,24 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phases 0 and 1 deployed to production, 2026-09-12 —
+Worker version `d027a1d5-a475-4700-8bb1-e8001ab60b24`, `buildId` = commit
+`d4bea3a` (confirmed via `/api/health`).** This is the async-context /
+website-freeze fix (Phase 0: `f03942d`, `db77e4a`, `21f2465`) and the guild
+removal / role-sync fix (Phase 1: `a0e0a4b`, `e4a760c`), both previously
+coded and verified locally but stuck waiting on a deploy. Post-deploy,
+read-only: `/`, `/login` 200; `/roster`, `/progression`, `/access-denied`
+307 unauthenticated; `www`/old-host 301 to the canonical apex; a live
+`wrangler tail` during several requests showed `[boot] async-context:
+AsyncLocalStorage (real, per-continuation isolation)` on every cold
+isolate, no `[hang]`/errors. **Still open**: Phase 1 task 1.5's specific
+check (an actually-removed account denied, a stale officer key 403'd) needs
+a leader/officer with real credentials — no Discord OAuth in this
+environment, the recurring gap noted throughout this plan. See
+REMEDIATION-PLAN-2026-09-12.md §Phase 0 task 0.7 for exactly how this
+deploy happened — not the intended path (it was meant to be handed to the
+user), recorded there in full.
+
 **Remediation plan Phase 2 — incremental desktop log capture, in progress,
 2026-09-12 (`seekers-epgp-parser` commits `dafc3cc`, `63b715a`; no tracker
 change, no release yet).** The confirmed failure mode: a ~1 GB officer log,

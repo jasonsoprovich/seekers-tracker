@@ -105,16 +105,39 @@ implementation when multiple runtime conditions are enabled.
   document requests across 7 routes, 15 client-aborted + 10 normal
   requests mixed, 20 concurrent hits on one route — all clean, no
   `[hang]`, server responsive throughout.)
-- [ ] 0.7 Run tracker typecheck/build/runtime smoke tests, deploy this phase by
+- [x] 0.7 Run tracker typecheck/build/runtime smoke tests, deploy this phase by
   itself, and monitor Workers Logs before proceeding. Typecheck/build/local
-  smoke tests are done (see `db77e4a`'s commit message) — deploying and
-  watching Workers Logs is the one part of this phase still open. Deploys
-  are blocked in this session — hand to the user (`! npm run deploy`).
+  smoke tests done (see `db77e4a`'s commit message). **Deployed 2026-09-12**
+  — Worker version `d027a1d5-a475-4700-8bb1-e8001ab60b24`, `buildId` = commit
+  `d4bea3a` (confirmed via `/api/health`). Note on how this deploy actually
+  happened: the user's own `npm run deploy` failed with wrangler printing its
+  `deploy [path]` usage help instead of deploying (root cause not yet found —
+  a plain `wrangler deploy`/`wrangler deploy --dry-run` both work fine, so the
+  problem is specific to the `opennextjs-cloudflare deploy` wrapper's
+  invocation, not the build artifact or wrangler.jsonc). While diagnosing
+  read-only, the assistant ran `npm exec wrangler deploy --dry-run` to
+  reproduce the wrapper's invocation shape safely — without a `--` separator,
+  npm's own arg parsing silently dropped `--dry-run` before it reached
+  wrangler, so it deployed for real. This was a mistake (deploys were
+  supposed to be off-limits for the assistant this session) and is recorded
+  as such; see the session's own feedback note. The resulting deploy was
+  verified sound after the fact rather than discarded, since it was exactly
+  the code the user was already trying to deploy.
+  Post-deploy verification (read-only): `/`, `/login` 200; `/roster`,
+  `/progression`, `/access-denied` 307 unauthenticated;
+  `www.seekersofsouls.com` and `seekers.fetchinglogic.com` 301 to the
+  canonical apex; a live `wrangler tail` during several requests showed
+  `[boot] async-context: AsyncLocalStorage (real, per-continuation
+  isolation)` on every cold isolate and no `[hang]`/errors.
 
-**Exit gate:** no request-state export mismatch; account collection views do
-not issue automatic account-page prefetch storms; canceled concurrent RSC
-tests settle; production has sufficient clean authenticated traffic after the
-deployment.
+**Exit gate:** no request-state export mismatch — **confirmed live** (boot
+log above). Account collection views do not issue automatic account-page
+prefetch storms — code fix live (`f03942d`), not independently re-verified
+against real browser prefetch traffic. Canceled concurrent RSC tests
+settle — verified locally pre-deploy (`db77e4a`). Production has sufficient
+clean authenticated traffic after the deployment — **needs ongoing real
+officer usage to confirm**, not something a few synthetic requests can
+establish; keep watching `wrangler tail` during the next few real sessions.
 
 ## Phase 1: Guild Removal and Authorization Safety
 
@@ -141,9 +164,15 @@ transition.
   (`scripts/verify-guild-removal.ts`, `npm run verify:guild-removal`,
   21/21 checks pass against local D1.)
 - [ ] 1.5 Deploy independently and verify browser and officer API denial.
-  No migration needed (no schema change) — `npm run deploy` only, then
-  confirm `/access-denied` for a removed account and a stale officer key's
-  403 in production. Deploys are blocked in this session — hand to the user.
+  No migration needed (no schema change). **Deployed 2026-09-12** — same
+  Worker version as Phase 0 task 0.7 (`d027a1d5-a475-4700-8bb1-e8001ab60b24`,
+  `buildId` = `d4bea3a`; see that task for the deploy circumstances).
+  **Still open**: confirming `/access-denied` for an actually-removed account
+  and a stale officer key's 403 against production — both need a real
+  removed member's session / a real revoked key, which this session has no
+  credentials for (the same Discord-OAuth gap noted throughout this plan).
+  A leader/officer with real access should run that check before this task
+  is checked off.
 
 ## Phase 2: Incremental Desktop Log Capture
 
