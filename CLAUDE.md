@@ -382,9 +382,27 @@ denial; and verifies logout deletes its session and clears its cookie. The
 harness removes its synthetic user, player, accounts, sessions, and keys in a
 `finally`; a post-run local query found zero fixture users or keys. TypeScript
 and Playwright 81/81 pass. No external Discord request was made because local
-OAuth credentials remain unavailable. Migration 0039 and the 1.7.4 runtime
-remain local only; Phase 11.5 must apply the remote migration before deploying
-the dependent code.
+OAuth credentials remain unavailable. At this gate, migration 0039 and the
+1.7.4 runtime were still local only; the completed production rollout follows.
+
+**Remediation plan Phase 11.5 / Phase 11 complete — production Better Auth
+1.7.4 cutover, 2026-09-14.** The first scheduled portable backup was restored
+into scratch D1 and named Time Travel bookmark
+`pre-phase11-better-auth-1.7.4` was recorded before production changed. Remote
+identity precheck found zero duplicate `(provider_id, account_id)` pairs.
+Migration 0039 applied before code, removed only `accounts.issuer` and
+`accounts_issuer_account_id_idx`, and preserved all 27 account access tokens,
+77 sessions, and 11 API keys. Better Auth 1.7.4 then deployed independently as
+Worker version `2d0be9d1-7ae9-488d-805d-f9745f93e3ac`; `/api/health` reports
+build `d398016`, and the bundle is 2,836.01 KiB gzip. Post-deploy D1 has no
+pending migration or foreign-key violation. Live unauthenticated auth session
+lookup returns `200 null`; Discord sign-in emits the canonical
+`seekersofsouls.com/api/auth/callback/discord` authorization URL and signed
+state cookie; protected/canonical redirects and missing officer-key denial are
+unchanged. The generated Worker still imports the real `AsyncLocalStorage`
+from `node:async_hooks`. A real signed-in Discord callback and existing
+officer-key success require member credentials and remain for ordinary
+live-user observation; no production auth bypass was introduced.
 
 **Remediation plan Phase 10 production activation, 2026-09-14.** The user
 created the scoped `D1_REST_API_TOKEN` and deployed from the repo root, putting

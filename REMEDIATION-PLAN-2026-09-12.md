@@ -886,8 +886,23 @@ this database already carries a non-null issuer column and compound index.
   found zero leftovers. TypeScript and Playwright 81/81 pass. Local Discord
   credentials remain unavailable, so the test deliberately exercises the
   actual Better Auth OAuth persistence path without contacting Discord.)
-- [ ] 11.5 Apply the remote migration before code, deploy independently, and
-  monitor authentication traffic.
+- [x] 11.5 Apply the remote migration before code, deploy independently, and
+  monitor authentication traffic. (`Phase 11.5` — the first scheduled portable
+  backup was restored into scratch D1 and named Time Travel bookmark
+  `pre-phase11-better-auth-1.7.4` was recorded before cutover. Remote duplicate
+  check found zero `(provider_id, account_id)` conflicts. Migration 0039 then
+  applied before code and preserved 27 accounts/access tokens, 77 sessions,
+  and 11 API keys while removing only `issuer` and its index. Better Auth 1.7.4
+  deployed independently as Worker version
+  `2d0be9d1-7ae9-488d-805d-f9745f93e3ac` (health build `d398016`, 2,836.01 KiB
+  gzip). Production auth initialization, unauthenticated session lookup,
+  canonical Discord authorization URL/state cookie, protected-route redirect,
+  canonical-host redirect, and missing-key denial all respond correctly; no
+  migrations or foreign-key violations remain. The generated bundle still
+  imports Workerd's real `AsyncLocalStorage` from `node:async_hooks`. A real
+  signed-in Discord callback and existing officer-key success require member
+  credentials and remain for ordinary live-user observation; production auth
+  was not bypassed.)
 
 ## Production Verification Checklist
 
