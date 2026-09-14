@@ -861,7 +861,14 @@ this database already carries a non-null issuer column and compound index.
   snapshot was taken. The migration applied cleanly; aggregate verification
   preserved the existing account/access token, 46 sessions, and API key, while
   retaining `accounts_user_id_idx`, the primary key, and user foreign key.)
-- [ ] 11.3 Align every runtime Better Auth package on 1.7.4.
+- [x] 11.3 Align every runtime Better Auth package on 1.7.4. (`Phase 11.3` —
+  exact-pinned `better-auth`, `@better-auth/api-key`, and
+  `@better-auth/drizzle-adapter`, plus the transitive `@better-auth/core`
+  override, all resolve to 1.7.4. `better-auth-cloudflare@0.3.1` resolves
+  against the same runtime versions. The legacy schema CLI remains a dev-only
+  package and was not used to generate task 11.2's migration. TypeScript and
+  the webpack production build pass with the existing local auth/base-URL,
+  internal Durable Object, and middleware warnings.)
 - [ ] 11.4 Verify existing Discord login, first-time login, account linking,
   cookie cache, API keys, logout, and auth schema validation locally.
 - [ ] 11.5 Apply the remote migration before code, deploy independently, and

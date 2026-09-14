@@ -359,6 +359,17 @@ cleanly and preserved the existing account/access token, 46 sessions, and API
 key, plus the account primary key, user index, and user FK. Migration 0039 is
 local only and must reach remote before the 1.7.4 runtime deploy.
 
+**Remediation plan Phase 11.3 — align Better Auth 1.7.4 runtime packages,
+2026-09-14 (local only).** Exact pins for `better-auth`,
+`@better-auth/api-key`, and `@better-auth/drizzle-adapter`, plus the
+transitive `@better-auth/core` override, are now 1.7.4; `npm ls` confirms the
+runtime and `better-auth-cloudflare@0.3.1` all resolve against that set. The
+old dev-only schema CLI remains unchanged and was not used for migration 0039.
+TypeScript and the webpack production build pass with only the established
+local warnings. `npm audit --omit=dev` also reports unrelated Next/Wrangler
+advisories; keep any framework/tooling remediation isolated from this auth
+schema cutover.
+
 **Remediation plan Phase 10 production activation, 2026-09-14.** The user
 created the scoped `D1_REST_API_TOKEN` and deployed from the repo root, putting
 the Phase 10 main application live as Worker version
