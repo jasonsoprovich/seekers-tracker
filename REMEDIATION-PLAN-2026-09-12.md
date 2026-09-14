@@ -869,8 +869,20 @@ this database already carries a non-null issuer column and compound index.
   package and was not used to generate task 11.2's migration. TypeScript and
   the webpack production build pass with the existing local auth/base-URL,
   internal Durable Object, and middleware warnings.)
-- [ ] 11.4 Verify existing Discord login, first-time login, account linking,
-  cookie cache, API keys, logout, and auth schema validation locally.
+- [x] 11.4 Verify existing Discord login, first-time login, account linking,
+  cookie cache, API keys, logout, and auth schema validation locally. (`Phase
+  11.4` — new `npm run verify:auth-upgrade` passes 20/20 against local D1
+  through Better Auth 1.7.4's real adapter and request handler. It initializes
+  auth and exercises the enabled schema check; creates a first-time OAuth
+  user/account; resolves the returning Discord identity by
+  `(providerId, accountId)`; links a second provider; reads a signed session;
+  proves the signed cookie cache still resolves after the session row is
+  removed; runs API-key create/verify/list/delete/post-delete denial; and
+  verifies logout deletes its session and clears the cookie. Synthetic users,
+  players, accounts, sessions, and keys are removed in `finally`; local checks
+  found zero leftovers. TypeScript and Playwright 81/81 pass. Local Discord
+  credentials remain unavailable, so the test deliberately exercises the
+  actual Better Auth OAuth persistence path without contacting Discord.)
 - [ ] 11.5 Apply the remote migration before code, deploy independently, and
   monitor authentication traffic.
 

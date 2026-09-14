@@ -370,6 +370,22 @@ local warnings. `npm audit --omit=dev` also reports unrelated Next/Wrangler
 advisories; keep any framework/tooling remediation isolated from this auth
 schema cutover.
 
+**Remediation plan Phase 11.4 — local Better Auth authentication gate,
+2026-09-14 (local only).** `npm run verify:auth-upgrade` passes 20/20 against
+local D1 through Better Auth 1.7.4's real adapter and request handler. It
+initializes auth and exercises the enabled schema check; creates a first-time
+OAuth user/account; resolves a returning Discord identity by
+`(providerId, accountId)`; links a second provider account; reads a signed
+session; proves the signed cookie cache still resolves after its database
+session is deleted; covers API-key create/verify/list/delete/post-delete
+denial; and verifies logout deletes its session and clears its cookie. The
+harness removes its synthetic user, player, accounts, sessions, and keys in a
+`finally`; a post-run local query found zero fixture users or keys. TypeScript
+and Playwright 81/81 pass. No external Discord request was made because local
+OAuth credentials remain unavailable. Migration 0039 and the 1.7.4 runtime
+remain local only; Phase 11.5 must apply the remote migration before deploying
+the dependent code.
+
 **Remediation plan Phase 10 production activation, 2026-09-14.** The user
 created the scoped `D1_REST_API_TOKEN` and deployed from the repo root, putting
 the Phase 10 main application live as Worker version

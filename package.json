@@ -36,6 +36,7 @@
     "verify:standings-resilience": "tsx scripts/verify-standings-resilience.ts",
     "verify:character-claims": "tsx scripts/verify-character-claims.ts",
     "verify:reversals": "tsx scripts/verify-reversals.ts",
+    "verify:auth-upgrade": "tsx scripts/verify-auth-upgrade.ts",
     "test:e2e:setup": "tsx scripts/e2e-auth-setup.ts",
     "test:e2e": "npm run test:e2e:setup && playwright test",
     "recompute:standings": "tsx scripts/recompute-standings.ts",
