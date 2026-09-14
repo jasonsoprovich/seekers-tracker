@@ -415,7 +415,11 @@ Worker deployment, parser release, or actual portable export occurred. The
 only production write was uploading the existing restore-point registry to
 its canonical R2 metadata key. All Phase 10 checklist items are complete;
 backup activation remains an explicit operational gate because the scoped
-`D1_REST_API_TOKEN` does not exist yet.
+`D1_REST_API_TOKEN` does not exist yet. Final gate: Playwright 81/81;
+`npm run verify:recovery`; webpack and OpenNext production builds; main Worker
+dry run 2821.61 KiB gzip (under 3072 KiB); backup Worker typecheck and dry run
+2.24 KiB gzip. Existing local Better Auth/base-URL, internal Durable Object,
+and deprecated middleware warnings remain expected.
 
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
