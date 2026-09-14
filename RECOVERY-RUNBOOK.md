@@ -72,8 +72,9 @@ After Time Travel:
 ## Portable R2 Backups
 
 Policy: daily at 09:00 UTC, retain 35 newest SQL exports in
-`seekers-of-souls-db-backups`. The schedule is configured but cannot be
-deployed until `D1_REST_API_TOKEN` exists on `seekers-tracker-db-backup`.
+`seekers-of-souls-db-backups`. The schedule and scoped `D1_REST_API_TOKEN`
+were deployed on 2026-09-14. The first export and scratch restore still need
+validation before the backup is considered operational.
 
 One-time activation:
 
@@ -130,3 +131,12 @@ both expected R2 buckets, zero backup Workflow instances, and no backup API
 token secret. The existing named restore-point registry was uploaded to R2.
 No production restore, deployment, migration, parser release, or backup export
 was performed.
+
+2026-09-14 activation: the main application was deployed at Worker version
+`a6cdafcc-872d-45ef-9496-eceb4fc07f94` (health build `83d0561`), and the
+corrected backup Worker was deployed at version
+`4d3883d3-e017-4b56-a33d-8ff1fc21cd2f`. The backup version exposes
+`OPS_METADATA`, `KEEP_COUNT=35`, the daily Workflow schedule, and the scoped
+secret. No Workflow instance or portable export existed immediately after
+deployment; the first 09:00 UTC run remains to be validated. No migration or
+production restore occurred.

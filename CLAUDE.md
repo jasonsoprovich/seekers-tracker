@@ -334,6 +334,19 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 10 production activation, 2026-09-14.** The user
+created the scoped `D1_REST_API_TOKEN` and deployed from the repo root, putting
+the Phase 10 main application live as Worker version
+`a6cdafcc-872d-45ef-9496-eceb4fc07f94` (`/api/health` build `83d0561`). The
+backup Worker was still its August build after that root deployment
+(`KEEP_COUNT=7`, no `OPS_METADATA`), so it was then deployed from
+`workers/db-backup` as version `4d3883d3-e017-4b56-a33d-8ff1fc21cd2f` with
+the secret, both R2 bindings, `KEEP_COUNT=35`, and daily 09:00 UTC Workflow
+schedule. Deployment verification found no Workflow instances or backup
+status object yet. The first scheduled export and a scratch-D1 restore remain
+the activation gate; no migration, production restore, or manual export was
+performed.
+
 **Remediation plan Phase 10.2 — atomic raid and decay reversal, 2026-09-13
 (no migration; local only).** `reverseRaid` and `reverseDecayEvent` no
 longer delete one ledger row and then write its audit record in separate D1
@@ -2748,10 +2761,10 @@ this session; the query layer itself was proven directly instead.
 - D1→R2 backup Worker (`workers/db-backup/`) — the original 2026-08-20
   deployment never ran and had no API token. Phase 10 supersedes that old
   Free-plan/manual-only decision: Paid 30-day Time Travel is verified, the
-  Worker is fixed and configured daily at 09:00 UTC with 35-copy retention,
-  but still needs its scoped `D1_REST_API_TOKEN`, deployment, and first
-  scratch-validated export. See `workers/db-backup/README.md` and
-  `RECOVERY-RUNBOOK.md`.
+  corrected Worker and scoped `D1_REST_API_TOKEN` were deployed on 2026-09-14
+  with a daily 09:00 UTC schedule and 35-copy retention. Its first export and
+  scratch-D1 restore still need validation. See `workers/db-backup/README.md`
+  and `RECOVERY-RUNBOOK.md`.
 - Parser app's selected log file now persists across restarts/rebuilds
   (`internal/config`), not just the API key.
 - Fixed: `@better-auth/api-key`'s `keyExpiration.defaultExpiresIn` was set

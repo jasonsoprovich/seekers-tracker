@@ -12,8 +12,10 @@ kept as the last `KEEP_COUNT` (currently 35) daily snapshots.
 
 ## Status
 
-- The Worker and R2 bucket (`seekers-of-souls-db-backups`) were created on
-  2026-08-20, but no Workflow instance has ever run.
+- The updated Worker was deployed on 2026-09-14 with the scoped
+  `D1_REST_API_TOKEN`, both R2 bindings, and 35-copy retention. No Workflow
+  instance has completed yet; validate the first scheduled run before relying
+  on the backup.
 - Verified 2026-09-14: production D1 is 10,833,920 bytes and a bookmark from
   2026-09-04 resolves, confirming the effective Paid 30-day Time Travel
   window. Current Cloudflare docs also make Workflows available on both Free
@@ -22,10 +24,9 @@ kept as the last `KEEP_COUNT` (currently 35) daily snapshots.
   off-peak, gives five portable daily points beyond Time Travel, and at the
   current database size remains comfortably below R2's 10 GB-month Standard
   free allowance even when SQL text is several times larger than D1 storage.
-- `wrangler.jsonc` contains that schedule, but the updated Worker is **not yet
-  deployed**. `wrangler secret list` confirmed `D1_REST_API_TOKEN` is absent;
-  create it using the setup below before deploying, then trigger and validate
-  one manual backup before relying on the schedule.
+- `wrangler.jsonc` contains that schedule and it is deployed. The first
+  scheduled run is due at 09:00 UTC; validate its R2 object and a scratch-D1
+  restore before relying on the schedule.
 
 ## One-time setup: the API token
 
