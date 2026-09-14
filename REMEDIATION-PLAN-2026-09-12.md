@@ -805,8 +805,10 @@ needed — this phase is tracker-only.
   (`Phase 10.2` — both reversals now use one
   set-based D1 batch for audit snapshots, the global dirty marker, deletes,
   and decay reversal metadata; local failure injection proves rollback.)
-- [ ] 10.3 Make the bookmark script capture and record a pre-restore bookmark
-  automatically before executing any restore.
+- [x] 10.3 Make the bookmark script capture and record a pre-restore bookmark
+  automatically before executing any restore. (`Phase 10.3` — after typed
+  confirmation, restore records the current bookmark in the canonical R2
+  registry and fails closed if that upload does not succeed.)
 - [ ] 10.4 Verify and fix the standalone backup Worker's D1 export response
   parsing against the current Cloudflare API.
 - [ ] 10.5 Decide and document a portable R2 backup cadence after verifying the

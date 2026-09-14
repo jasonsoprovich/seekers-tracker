@@ -345,6 +345,18 @@ idempotent decay retry, and deliberate audit-FK failures proving every
 authoritative change rolls back. Existing guild-removal verification still
 passes through the decay reversal path.
 
+**Remediation plan Phase 10.3 — fail-closed remote restore points,
+2026-09-13 (no migration; local tooling only).** `remote-bookmark.sh` now
+mirrors its operator-cache TSV to
+`seekers-of-souls-imports/system-health/restore-points.tsv`, making R2 the
+canonical registry outside the D1 database it protects. Label resolution and
+listing read that remote registry. After the operator types the production
+database name but before Wrangler restore runs, the script automatically
+captures the current bookmark, appends a descriptive pre-restore entry, and
+uploads it; any capture/upload failure aborts the restore. `sync` migrates the
+existing local log. `npm run verify:bookmark` uses a fake Wrangler and proves
+the R2 upload precedes the restore invocation without contacting Cloudflare.
+
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
 at `/` is now an asymmetric editorial composition built around the guild's
