@@ -1,5 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
+import { parseExportPoll, parseExportStart } from "./export-response";
+
 type Env = {
   BACKUP_WORKFLOW: Workflow;
   BACKUP_BUCKET: R2Bucket;
@@ -9,11 +11,18 @@ type Env = {
   KEEP_COUNT: string;
 };
 
-type ExportPollResult = {
-  result?: { at_bookmark?: string; signed_url?: string; filename?: string };
-};
-
 const BACKUP_PREFIX = "seekers-of-souls/";
+
+async function listAllBackups(bucket: R2Bucket): Promise<R2Object[]> {
+  const objects: R2Object[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ prefix: BACKUP_PREFIX, cursor });
+    objects.push(...page.objects);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return objects;
+}
 
 // D1's export API is async: POST once to start it (get back a bookmark),
 // then POST again with that bookmark to poll — result.signed_url only
@@ -22,7 +31,7 @@ const BACKUP_PREFIX = "seekers-of-souls/";
 // bearer token (D1:Edit scope) instead of just the D1 binding other
 // Workers in this project use.
 export class BackupWorkflow extends WorkflowEntrypoint<Env> {
-  async run(_event: WorkflowEvent<unknown>, step: WorkflowStep) {
+  async run(event: WorkflowEvent<unknown>, step: WorkflowStep) {
     const exportURL = `https://api.cloudflare.com/client/v4/accounts/${this.env.ACCOUNT_ID}/d1/database/${this.env.DATABASE_ID}/export`;
     const headers = new Headers({
       "Content-Type": "application/json",
@@ -34,20 +43,24 @@ export class BackupWorkflow extends WorkflowEntrypoint<Env> {
     // exactly the polling behavior a not-yet-ready export needs.
     const bookmark = await step.do("start export", async () => {
       const res = await fetch(exportURL, { method: "POST", headers, body: JSON.stringify({ output_format: "polling" }) });
-      const { result } = (await res.json()) as ExportPollResult;
-      if (!result?.at_bookmark) throw new Error("D1 export didn't return at_bookmark");
-      return result.at_bookmark;
+      return parseExportStart(res.status, await res.json());
     });
 
     const key = await step.do("poll until ready, store in R2", async () => {
-      const res = await fetch(exportURL, { method: "POST", headers, body: JSON.stringify({ current_bookmark: bookmark }) });
-      const { result } = (await res.json()) as ExportPollResult;
-      if (!result?.signed_url || !result.filename) throw new Error("D1 export not ready yet");
+      const res = await fetch(exportURL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ output_format: "polling", current_bookmark: bookmark }),
+      });
+      const result = parseExportPoll(res.status, await res.json());
+      if (!result) throw new Error("D1 export not ready yet");
 
-      const dump = await fetch(result.signed_url);
+      const dump = await fetch(result.signedUrl);
       if (!dump.ok || !dump.body) throw new Error(`Couldn't fetch the export dump: ${dump.status}`);
 
-      const objectKey = `${BACKUP_PREFIX}${new Date().toISOString().slice(0, 10)}-${result.filename}`;
+      const timestamp = new Date().toISOString().replaceAll(":", "-");
+      const filename = result.filename.split(/[\\/]/).pop() || "export.sql";
+      const objectKey = `${BACKUP_PREFIX}${timestamp}-${event.instanceId}-${filename}`;
       await this.env.BACKUP_BUCKET.put(objectKey, dump.body);
       return objectKey;
     });
@@ -57,8 +70,7 @@ export class BackupWorkflow extends WorkflowEntrypoint<Env> {
     // week doesn't lose its whole backup history to an age cutoff.
     await step.do("prune old backups", async () => {
       const keepCount = Number(this.env.KEEP_COUNT) || 7;
-      const listed = await this.env.BACKUP_BUCKET.list({ prefix: BACKUP_PREFIX });
-      const newestFirst = listed.objects.slice().sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime());
+      const newestFirst = (await listAllBackups(this.env.BACKUP_BUCKET)).sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime());
       const stale = newestFirst.slice(keepCount);
       for (const obj of stale) {
         await this.env.BACKUP_BUCKET.delete(obj.key);

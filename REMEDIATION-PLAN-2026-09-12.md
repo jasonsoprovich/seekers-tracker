@@ -809,8 +809,10 @@ needed — this phase is tracker-only.
   automatically before executing any restore. (`Phase 10.3` — after typed
   confirmation, restore records the current bookmark in the canonical R2
   registry and fails closed if that upload does not succeed.)
-- [ ] 10.4 Verify and fix the standalone backup Worker's D1 export response
-  parsing against the current Cloudflare API.
+- [x] 10.4 Verify and fix the standalone backup Worker's D1 export response
+  parsing against the current Cloudflare API. (`Phase 10.4` — parses the
+  documented nested completion result, validates API/operation failures,
+  polls with `output_format`, uses unique keys, and paginates retention.)
 - [ ] 10.5 Decide and document a portable R2 backup cadence after verifying the
   actual Cloudflare plan and retention window.
 - [ ] 10.6 Add a read-only System Health/Maintenance view for last rebuild,

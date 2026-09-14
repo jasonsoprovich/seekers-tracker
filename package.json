@@ -19,6 +19,7 @@
     "snapshot": "scripts/snapshot.sh",
     "bookmark": "scripts/remote-bookmark.sh",
     "verify:bookmark": "scripts/verify-remote-bookmark.sh",
+    "verify:backup-export": "tsx scripts/verify-backup-export.ts",
     "sync:apply": "scripts/sync-apply.sh",
     "verify": "tsx scripts/verify-harness.ts",
     "backfill:expansion-decay": "tsx scripts/backfill-expansion-decay.ts",

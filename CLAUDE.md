@@ -357,6 +357,17 @@ uploads it; any capture/upload failure aborts the restore. `sync` migrates the
 existing local log. `npm run verify:bookmark` uses a fake Wrangler and proves
 the R2 upload precedes the restore invocation without contacting Cloudflare.
 
+**Remediation plan Phase 10.4 — current D1 export API parsing, 2026-09-13
+(standalone backup Worker; not deployed).** The completed export URL and
+filename are nested at `result.result`, not directly under the API envelope's
+`result` as the Worker previously assumed. `export-response.ts` now validates
+HTTP/envelope/operation errors and parses that current documented shape; poll
+requests retain required `output_format: "polling"`. Backup object keys include
+the full timestamp and Workflow instance ID to prevent same-day overwrite,
+and retention walks every R2 list page. `npm run verify:backup-export`, the
+backup Worker's strict typecheck, and its Wrangler dry run pass (1.69 KiB
+gzip). No production Workflow was triggered or deployed.
+
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
 at `/` is now an asymmetric editorial composition built around the guild's
