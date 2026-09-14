@@ -334,6 +334,26 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Final remediation audit and Phase 4 hardening, 2026-09-14.** Tracker commit
+`acea4fb` is deployed as Worker version
+`461b8656-adf7-4a3e-9783-4b31b4f325e5` after remote migration 0040; parser
+commit `a319441` is released as `v0.1.16`. The audit fixed generation-unsafe
+dirty-marker clearing, unbounded/overstated repair, stale standings returned
+after a failed refresh, the simultaneous same-submission bid race, parser
+partial-line parsing, and missing round IDs on live events. Production checks:
+no pending migrations, `standings_dirty.marker_token` present, zero dirty
+markers, zero ledger/materialized EP/GP mismatches, zero FK violations, health
+build `acea4fb`; unauthenticated route/API/canonical-host behavior unchanged.
+Both repo `main` branches are pushed and synchronized. Local gates: tracker
+TypeScript/build/OpenNext dry run, Playwright 81/81, standings/bids/removal/
+decay/attendance verification; parser Go tests/race/vet, frontend build, Wails
+binding generation/full build. Still intentionally open: real removed-member,
+revoked-key, signed-in Discord, valid officer-key, representative raid traffic,
+and complete live-bid lifecycle checks; Phase 2's single-pass parser redesign
+and remaining scenario matrix; optional Phase 4B. Officers must update to
+`v0.1.16` before tonight's test and should rotate a near-1 GB EQ log because
+parser CPU/RAM remains proportional to accumulated content until Phase 2.2.
+
 **Remediation plan Phase 11.1 — Better Auth 1.7.4 upgrade review,
 2026-09-14 (documentation only).** Better Auth 1.7.3 reverted the temporary
 1.7.0-1.7.2 `accounts.issuer` identity model back to the stable

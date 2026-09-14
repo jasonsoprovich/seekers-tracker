@@ -1,7 +1,7 @@
 # Seekers Stability, Reliability, and UX Remediation Plan
 
 **Created:** 2026-09-12  
-**Status:** Approved for implementation  
+**Status:** Implemented and audited; explicit deferred/live-verification items remain
 **Applies to:** `seekers-tracker` and `seekers-epgp-parser`
 
 This is the active implementation plan for post-launch stability, bid
@@ -9,6 +9,43 @@ reliability, account claims, responsive UI, workflow, and public-site work.
 Read `../PLAN.md` first. That original plan remains authoritative for guild
 rules, EPGP behavior, schema history, and architectural constraints. This plan
 defines the order of new work and does not override those domain rules.
+
+## Final Audit — 2026-09-14
+
+All required tracker migrations through 0040 are applied to production and
+tracker commit `acea4fb` is deployed as Worker version
+`461b8656-adf7-4a3e-9783-4b31b4f325e5`. Parser `v0.1.16` is published from
+`a319441` with the Windows executable and `SHA256SUMS`; this is the first
+release carrying Phase 3's immutable submission ID. Both repositories' `main`
+branches are synchronized with origin.
+
+The audit found and corrected three completion overstatements before this
+rollout: a concurrent standings refresh could erase a newer dirty marker;
+repair could exceed D1's safe parameter count and report markers cleared after
+a failure; and the parser could parse an unterminated trailing log line while
+omitting the round ID from live update events. The tracker now generation-tags
+markers, conditionally clears only the generation it recomputed, repairs in
+bounded chunks, returns standings only after a successful refresh, and
+normalizes simultaneous identical bid finalizations into one write plus one
+replay. Manual ledger insertion, account absorption, and main-swap fees now
+mark dirty before their first authoritative write, closing their prior
+post-write/no-marker failure window. The account page uses a targeted fresh
+standing read.
+
+Post-deploy read-only checks found no pending migrations, no foreign-key
+violations, zero dirty markers, and zero EP/GP ledger-to-materialized-total
+mismatches. The existing two-minute repair cron was also directly observed
+clearing a global marker and restoring a temporarily drifted production read
+model before this deployment.
+
+Items intentionally still open are task 1.5's real removed-member/revoked-key
+checks; task 2.2's higher-risk single-pass parser redesign; the remaining task
+2.6 scenario matrix; optional Phase 4B; and the credential/representative-
+traffic checks left open in the production checklist. These are not hidden
+implementation, migration, or deployment failures. For tonight, officers must
+confirm the installed app reports `v0.1.16` before relying on immutable retry
+protection, and should use a fresh or rotated EQ log because parsing CPU/memory
+still scales with accumulated log size until task 2.2 is designed.
 
 ## Confirmed Product Decisions
 
@@ -245,6 +282,8 @@ confirmed production failure mode.
   concurrent readers (`internal/logtail/logtail_test.go`, `dafc3cc`) and
   stalled-HTTP/retry-recovery/delivered-only-on-success
   (`livebidpush_test.go`, `63b715a`) are new tests added this phase.
+  `a319441` tightened the partial-line case: an unterminated trailing record is
+  now buffered and withheld from every parser until its newline arrives.
   Same-second tells, repeated text, cancellations, character swaps, and
   parked rounds are pre-existing `internal/parse` behavior this phase
   didn't touch (see 2.2) — already exercised by the existing
@@ -268,11 +307,13 @@ confirmed production failure mode.
   `wails3 build` both succeeded; the built binary launched without a crash
   (headless smoke check only — no GUI click-through). Re-run this gate
   again once 2.2/2.5/2.6 close out the rest of the phase.
-- [ ] 2.9 Release through the tagged Windows workflow after compatible server
-  behavior is live, then verify updater delivery. Blocked on Phase 0's
-  tracker deploy (server-side compatibility isn't observed live yet) and
-  is itself a publish action (git tag + GitHub Release) — hand to the user
-  when the phase is otherwise ready.
+- [x] 2.9 Release through the tagged Windows workflow after compatible server
+  behavior is live, then verify updater delivery. (`v0.1.15` first shipped the
+  incremental tailer/status UI; `v0.1.16`, published 2026-09-14 from `a319441`,
+  also carries immutable submission IDs, completed-line buffering, and live
+  round-ID propagation. The tag workflow succeeded and published the Windows
+  executable plus `SHA256SUMS`; GitHub latest-release/updater discovery points
+  at this release.)
 
 ## Phase 3: Atomic and Idempotent Bid Finalization
 
@@ -445,6 +486,19 @@ statuses, no `[hang]`/errors. **Still open**: no real officer traffic has
 exercised the dirty-marker/repair path in production yet (a refresh
 actually failing and the 2-minute cron healing it) — that needs ongoing
 real usage to observe, not something a few synthetic requests establish.
+
+**Audit hardening deployed 2026-09-14** — `acea4fb`, migration 0040, Worker
+version `461b8656-adf7-4a3e-9783-4b31b4f325e5`. Migration 0040 adds a marker
+generation token. Refreshes snapshot generations before reading ledgers and
+conditionally clear only those exact generations, so a concurrent write can no
+longer be erased by an older refresh. Repair batches are bounded at 40 players
+and report only markers actually removed. The resilience harness now induces a
+real refresh failure and uses a trigger to replace a marker during an upsert,
+proving the newer generation survives. A concurrent bid-finalization scenario
+also proves two same-ID requests create one event/charge and one replay. Local
+Phase 4/decay/removal/attendance gates, production build, OpenNext dry run, and
+Playwright 81/81 pass. Production has zero dirty markers, zero standings
+mismatches, and zero foreign-key violations after deployment.
 
 ### Optional Phase 4B: Live Standings Fan-Out
 
@@ -908,17 +962,17 @@ this database already carries a non-null issuer column and compound index.
 
 Apply the relevant subset after every deployed phase.
 
-- [ ] Record Git commit(s), branch, Worker version, migration(s), and parser tag.
-- [ ] Confirm unauthenticated routes and canonical redirects.
+- [x] Record Git commit(s), branch, Worker version, migration(s), and parser tag.
+- [x] Confirm unauthenticated routes and canonical redirects.
 - [ ] Confirm authenticated navigation and session continuity.
 - [ ] Confirm member/officer/leader/admin authorization boundaries.
 - [ ] Confirm officer API-key success and revoked/demoted denial.
 - [ ] Confirm no new `[hang]`, D1 watchdog, body-stall, or uncaught exception
   events under representative traffic.
-- [ ] Confirm authoritative ledger rows and derived standings agree after writes.
+- [x] Confirm authoritative ledger rows and derived standings agree after writes.
 - [ ] Confirm live-bid reconnect, persistence, resolve, and clear behavior.
 - [ ] Confirm desktop and mobile smoke routes.
-- [ ] Update this plan and durable repository notes with the observed result.
+- [x] Update this plan and durable repository notes with the observed result.
 
 ## Expected Commit Discipline
 
