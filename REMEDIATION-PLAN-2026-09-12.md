@@ -800,7 +800,9 @@ needed — this phase is tracker-only.
 
 ## Phase 10: Recovery and Operational Hardening
 
-- [ ] 10.1 Do not expose direct D1 Time Travel restore from the main app.
+- [x] 10.1 Do not expose direct D1 Time Travel restore from the main app.
+  (`Phase 10.6` verifies `/admin/health` is read-only and contains no restore
+  action; destructive recovery remains only in the operator CLI script.)
 - [x] 10.2 Make raid and decay reversal transactional or explicitly resumable.
   (`Phase 10.2` — both reversals now use one
   set-based D1 batch for audit snapshots, the global dirty marker, deletes,
@@ -818,9 +820,14 @@ needed — this phase is tracker-only.
   bookmark confirms Paid/30-day Time Travel; production D1 is 10.8 MB. Chosen
   policy is daily 09:00 UTC with 35 R2 copies. Deployment awaits the missing
   scoped `D1_REST_API_TOKEN` and one validated manual export.)
-- [ ] 10.6 Add a read-only System Health/Maintenance view for last rebuild,
+- [x] 10.6 Add a read-only System Health/Maintenance view for last rebuild,
   dirty standings, backup status, retention, and named restore-point metadata.
-- [ ] 10.7 Keep restore-point metadata outside the D1 database it protects.
+  (`Phase 10.6` — officer-visible `/admin/health`; leaders retain the separate
+  settings-page rebuild control.)
+- [x] 10.7 Keep restore-point metadata outside the D1 database it protects.
+  (Canonical registry is R2 key
+  `seekers-of-souls-imports/system-health/restore-points.tsv`; the existing
+  local log has been uploaded and remains only an operator cache.)
 - [ ] 10.8 Exercise the operator recovery runbook without restoring production.
 
 ## Phase 11: Better Auth 1.7.4 and Issuer Cleanup

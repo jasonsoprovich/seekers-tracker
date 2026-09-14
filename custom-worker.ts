@@ -33,8 +33,9 @@ import { createAuth } from "./src/auth";
 import * as schema from "./src/db";
 import { bids as bidsTable, characters, lootEvents, users } from "./src/db";
 import { verifyOfficerApiKey } from "./src/lib/api-key-auth";
+import { runRecordedStandingsRebuild } from "./src/lib/system-health";
 import { fetchIsMemberAllowed } from "./src/lib/discord-verify";
-import { getStandings, rebuildAllStandings, repairDirtyStandings } from "./src/lib/epgp/standings";
+import { getStandings, repairDirtyStandings } from "./src/lib/epgp/standings";
 import { checkAsyncContextImplementation, markRequest, perfEnabled, setPerfEnabled } from "./src/lib/perf";
 import { reconcileMainPointers } from "./src/lib/players";
 
@@ -649,7 +650,7 @@ export default {
     // per-cycle-rollover shift under decay_model=legacy — and, via
     // rebuildAllStandings, re-derives characters.last_activity_at too.
     const db = drizzle(env.DATABASE, { schema });
-    const { players } = await rebuildAllStandings(db);
+    const { players } = await runRecordedStandingsRebuild(db, env.IMPORT_ARCHIVE, "nightly-cron");
     console.log(`[cron] rebuilt standings + last_activity for ${players} players`);
 
     // Prune expired session rows. better-auth's session.create.after hook

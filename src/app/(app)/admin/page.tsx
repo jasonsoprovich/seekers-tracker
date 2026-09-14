@@ -58,8 +58,11 @@ const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }
   },
   {
     title: "System Health",
-    description: "Audit recent imports and investigate data changes.",
-    links: [{ href: "/admin/imports", label: "Import Audit Trail", description: "Review processed import history.", show: () => true }],
+    description: "Audit recent imports and inspect read-only recovery status.",
+    links: [
+      { href: "/admin/health", label: "System Health / Maintenance", description: "Review standings, backups, retention, and restore points.", show: () => true },
+      { href: "/admin/imports", label: "Import Audit Trail", description: "Review processed import history.", show: () => true },
+    ],
   },
 ];
 

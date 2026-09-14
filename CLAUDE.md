@@ -382,6 +382,23 @@ deployed Workflow has zero instances, and `wrangler secret list` is empty:
 updated Worker deployed and one manual export restored into scratch before the
 schedule is trusted.
 
+**Remediation plan Phase 10.1/10.6/10.7 — read-only System Health and
+off-D1 metadata, 2026-09-14 (no migration; app/backup Worker not deployed).**
+Admin's System Health section now links officer+ users to `/admin/health`, a
+read-only view of `standings_dirty`, the last recorded full rebuild, portable
+backup attempt/success, verified 30-day Time Travel and 35-export policy, and
+named restore points with estimated window state. There is deliberately no
+restore/rebuild/delete action on this page; leaders still rebuild from EPGP
+Settings, while Time Travel remains CLI-only. Every full rebuild caller
+(nightly cron, settings action, officer API) uses
+`runRecordedStandingsRebuild`, preserving latest attempt/last success in the
+existing imports R2 bucket. The backup Worker writes compact status there too,
+but its SQL bucket remains unbound from the main app. Restore-point metadata is
+canonical at R2 key `system-health/restore-points.tsv`, outside protected D1;
+the existing local registry was uploaded successfully. `verify:system-health`
+passes against local D1/R2, and focused auth/responsive browser coverage passes
+50/50 (member denied, officer allowed, no mutation controls, 320-768px).
+
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
 at `/` is now an asymmetric editorial composition built around the guild's

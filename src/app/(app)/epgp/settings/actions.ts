@@ -1,12 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { setSetting, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
 import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { markStandingsDirty, rebuildAllStandings, settleStandings } from "@/lib/epgp/standings";
+import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
+import { runRecordedStandingsRebuild } from "@/lib/system-health";
 
 export type UpdateSettingResult = { error?: string };
 export type RebuildStandingsResult = { players?: number; error?: string };
@@ -75,6 +77,7 @@ export async function rebuildStandingsAction(): Promise<RebuildStandingsResult> 
   }
 
   const db = await getDb();
-  const result = await rebuildAllStandings(db);
+  const { env } = await getCloudflareContext({ async: true });
+  const result = await runRecordedStandingsRebuild(db, env.IMPORT_ARCHIVE, "settings-action");
   return { players: result.players };
 }

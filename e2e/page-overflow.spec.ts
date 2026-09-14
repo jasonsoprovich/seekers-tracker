@@ -23,6 +23,7 @@ const ROUTES = [
   "/epgp/ledger?type=bids",
   "/epgp/ledger?type=audit",
   "/admin",
+  "/admin/health",
 ];
 
 const WIDTHS = [320, 375, 390, 768];

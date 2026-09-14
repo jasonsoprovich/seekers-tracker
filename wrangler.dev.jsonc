@@ -66,7 +66,7 @@
 	// Mirrors wrangler.jsonc. In local dev a cron only fires with
 	// `wrangler dev --test-scheduled` + a hit to /__scheduled — harmless otherwise.
 	"triggers": {
-		"crons": ["17 9 * * *"]
+		"crons": ["17 9 * * *", "*/2 * * * *"]
 	},
 	"observability": {
 		"enabled": true

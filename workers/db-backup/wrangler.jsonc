@@ -46,6 +46,12 @@
 		{
 			"binding": "BACKUP_BUCKET",
 			"bucket_name": "seekers-of-souls-db-backups"
+		},
+		{
+			// Compact status only; the SQL backup bucket remains unbound from
+			// the request-serving application.
+			"binding": "OPS_METADATA",
+			"bucket_name": "seekers-of-souls-imports"
 		}
 	],
 	"observability": {

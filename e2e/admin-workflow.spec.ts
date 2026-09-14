@@ -19,6 +19,11 @@ test.describe("member workflow", () => {
     await expect(page.getByText("Link a character to E2E Managed Character")).toHaveCount(0);
     await expect(page.getByText("Guild membership", { exact: true })).toHaveCount(0);
   });
+
+  test("cannot open operational health", async ({ page }) => {
+    await page.goto("/admin/health");
+    await expect(page).toHaveURL(/\/characters$/);
+  });
 });
 
 test.describe("officer workflow", () => {
@@ -36,6 +41,15 @@ test.describe("officer workflow", () => {
     await page.getByRole("link", { name: "Review claims" }).click();
     await expect(page).toHaveURL(/\/admin\/claims$/);
     await expect(page.getByRole("heading", { name: "Claim Requests" })).toBeVisible();
+  });
+
+  test("can inspect read-only system health", async ({ page }) => {
+    await page.goto("/admin");
+    await page.getByRole("link", { name: "System Health / Maintenance" }).click();
+    await expect(page.getByRole("heading", { name: "System Health" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Standings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Portable Backups" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /restore|rebuild|delete/i })).toHaveCount(0);
   });
 });
 

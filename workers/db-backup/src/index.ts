@@ -5,6 +5,7 @@ import { parseExportPoll, parseExportStart } from "./export-response";
 type Env = {
   BACKUP_WORKFLOW: Workflow;
   BACKUP_BUCKET: R2Bucket;
+  OPS_METADATA: R2Bucket;
   D1_REST_API_TOKEN: string;
   ACCOUNT_ID: string;
   DATABASE_ID: string;
@@ -12,6 +13,26 @@ type Env = {
 };
 
 const BACKUP_PREFIX = "seekers-of-souls/";
+const BACKUP_STATUS_KEY = "system-health/backup.json";
+
+type BackupStatus = {
+  schemaVersion: 1;
+  latestAttempt: { status: "running" | "succeeded" | "failed"; instanceId: string; startedAt: string; completedAt?: string; failedAt?: string; error?: string };
+  lastSuccess?: { completedAt: string; objectKey: string; objectSize: number; bookmark: string; retainedObjects: number };
+};
+
+async function readBackupStatus(bucket: R2Bucket): Promise<BackupStatus | null> {
+  try {
+    const object = await bucket.get(BACKUP_STATUS_KEY);
+    return object ? ((await object.json()) as BackupStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeBackupStatus(bucket: R2Bucket, status: BackupStatus): Promise<void> {
+  await bucket.put(BACKUP_STATUS_KEY, JSON.stringify(status), { httpMetadata: { contentType: "application/json" } });
+}
 
 async function listAllBackups(bucket: R2Bucket): Promise<R2Object[]> {
   const objects: R2Object[] = [];
@@ -38,52 +59,91 @@ export class BackupWorkflow extends WorkflowEntrypoint<Env> {
       Authorization: `Bearer ${this.env.D1_REST_API_TOKEN}`,
     });
 
-    // Throwing inside step.do() is the intended way to retry here — the
-    // Workflow engine backs off and retries automatically, which is
-    // exactly the polling behavior a not-yet-ready export needs.
-    const bookmark = await step.do("start export", async () => {
-      const res = await fetch(exportURL, { method: "POST", headers, body: JSON.stringify({ output_format: "polling" }) });
-      return parseExportStart(res.status, await res.json());
-    });
-
-    const key = await step.do("poll until ready, store in R2", async () => {
-      const res = await fetch(exportURL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ output_format: "polling", current_bookmark: bookmark }),
+    const startedAt = new Date().toISOString();
+    const previous = await step.do("record backup start", async () => {
+      const prior = await readBackupStatus(this.env.OPS_METADATA);
+      await writeBackupStatus(this.env.OPS_METADATA, {
+        schemaVersion: 1,
+        latestAttempt: { status: "running", instanceId: event.instanceId, startedAt },
+        ...(prior?.lastSuccess ? { lastSuccess: prior.lastSuccess } : {}),
       });
-      const result = parseExportPoll(res.status, await res.json());
-      if (!result) throw new Error("D1 export not ready yet");
-
-      const dump = await fetch(result.signedUrl);
-      if (!dump.ok || !dump.body) throw new Error(`Couldn't fetch the export dump: ${dump.status}`);
-
-      const timestamp = new Date().toISOString().replaceAll(":", "-");
-      const filename = result.filename.split(/[\\/]/).pop() || "export.sql";
-      const objectKey = `${BACKUP_PREFIX}${timestamp}-${event.instanceId}-${filename}`;
-      await this.env.BACKUP_BUCKET.put(objectKey, dump.body);
-      return objectKey;
+      return prior;
     });
 
-    // Count-based retention (not age-based): "keep the last N nightly
-    // backups" is what was asked for, so a guild that goes quiet for a
-    // week doesn't lose its whole backup history to an age cutoff.
-    await step.do("prune old backups", async () => {
-      const keepCount = Number(this.env.KEEP_COUNT) || 7;
-      const newestFirst = (await listAllBackups(this.env.BACKUP_BUCKET)).sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime());
-      const stale = newestFirst.slice(keepCount);
-      for (const obj of stale) {
-        await this.env.BACKUP_BUCKET.delete(obj.key);
+    try {
+      // Throwing inside step.do() is the intended way to retry here — the
+      // Workflow engine backs off and retries automatically, which is
+      // exactly the polling behavior a not-yet-ready export needs.
+      const bookmark = await step.do("start export", async () => {
+        const res = await fetch(exportURL, { method: "POST", headers, body: JSON.stringify({ output_format: "polling" }) });
+        return parseExportStart(res.status, await res.json());
+      });
+
+      const backup = await step.do("poll until ready, store in R2", async () => {
+        const res = await fetch(exportURL, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ output_format: "polling", current_bookmark: bookmark }),
+        });
+        const result = parseExportPoll(res.status, await res.json());
+        if (!result) throw new Error("D1 export not ready yet");
+
+        const dump = await fetch(result.signedUrl);
+        if (!dump.ok || !dump.body) throw new Error(`Couldn't fetch the export dump: ${dump.status}`);
+
+        const timestamp = new Date().toISOString().replaceAll(":", "-");
+        const filename = result.filename.split(/[\\/]/).pop() || "export.sql";
+        const objectKey = `${BACKUP_PREFIX}${timestamp}-${event.instanceId}-${filename}`;
+        const object = await this.env.BACKUP_BUCKET.put(objectKey, dump.body, { customMetadata: { bookmark, workflowInstanceId: event.instanceId } });
+        return { key: objectKey, size: object.size };
+      });
+
+      // Count-based retention keeps the newest N successful exports even if
+      // a scheduled day is missed.
+      const retainedObjects = await step.do("prune old backups", async () => {
+        const keepCount = Number(this.env.KEEP_COUNT) || 35;
+        const newestFirst = (await listAllBackups(this.env.BACKUP_BUCKET)).sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime());
+        for (const obj of newestFirst.slice(keepCount)) await this.env.BACKUP_BUCKET.delete(obj.key);
+        return Math.min(newestFirst.length, keepCount);
+      });
+
+      const completedAt = new Date().toISOString();
+      await step.do("record backup success", async () => {
+        const success = { completedAt, objectKey: backup.key, objectSize: backup.size, bookmark, retainedObjects };
+        await writeBackupStatus(this.env.OPS_METADATA, {
+          schemaVersion: 1,
+          latestAttempt: { status: "succeeded", instanceId: event.instanceId, startedAt, completedAt },
+          lastSuccess: success,
+        });
+      });
+
+      return backup.key;
+    } catch (error) {
+      try {
+        await step.do("record backup failure", async () => {
+          await writeBackupStatus(this.env.OPS_METADATA, {
+            schemaVersion: 1,
+            latestAttempt: {
+              status: "failed",
+              instanceId: event.instanceId,
+              startedAt,
+              failedAt: new Date().toISOString(),
+              error: String(error instanceof Error ? error.message : error).slice(0, 300),
+            },
+            ...(previous?.lastSuccess ? { lastSuccess: previous.lastSuccess } : {}),
+          });
+        });
+      } catch (metadataError) {
+        console.error(`Couldn't record backup failure metadata: ${metadataError}`);
       }
-    });
-
-    return key;
+      throw error;
+    }
   }
 }
 
 export default {
   async fetch(): Promise<Response> {
-    return new Response("seekers-tracker-db-backup — nightly D1 -> R2 export, see wrangler.jsonc for the schedule. Not a public app.", {
+    return new Response("seekers-tracker-db-backup — daily D1 -> R2 export. Not a public app.", {
       status: 200,
     });
   },
