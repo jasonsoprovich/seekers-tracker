@@ -1,4 +1,4 @@
-import { and, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
@@ -65,12 +65,22 @@ type RefreshOpts =
 export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: RefreshOpts): Promise<void> {
   const asOf = opts.asOf ?? new Date();
   const scoped = "playerIds" in opts;
-  const playerFilter = scoped ? opts.playerIds.filter((id): id is number => Number.isFinite(id)) : null;
+  const playerFilter = scoped ? opts.playerIds.filter((id): id is number => Number.isInteger(id) && id > 0) : null;
 
   // Nothing to do — e.g. a ledger row whose character has no player_id yet
   // (PLAN.md §16): it contributes to no total, same as computeEpgpTotals
   // excludes it.
   if (scoped && (playerFilter as number[]).length === 0) return;
+
+  // Snapshot marker generations before reading the ledgers. A mutation that
+  // lands while this refresh is running replaces its token; the conditional
+  // delete at the end then leaves that newer work queued for repair.
+  const coveredMarkers = scoped
+    ? await db
+        .select({ scope: standingsDirty.scope, markerToken: standingsDirty.markerToken })
+        .from(standingsDirty)
+        .where(inArray(standingsDirty.scope, (playerFilter as number[]).map(playerScope)))
+    : await db.select({ scope: standingsDirty.scope, markerToken: standingsDirty.markerToken }).from(standingsDirty);
 
   const [totals, lastActivity] = await Promise.all([
     computeEpgpTotals(db, { asOf, ...(playerFilter ? { playerIds: playerFilter } : {}) }),
@@ -134,9 +144,9 @@ export async function refreshStandings(db: ReturnType<typeof drizzle>, opts: Ref
   // was asked to cover, whether or not each still has a total row (a
   // player pruned above still got its recompute attempted).
   if (scoped) {
-    await deleteDirtyMarkers(db, (playerFilter as number[]).map(playerScope));
+    await deleteDirtyMarkers(db, coveredMarkers);
   } else {
-    await db.delete(standingsDirty);
+    await deleteDirtyMarkers(db, coveredMarkers);
   }
 }
 
@@ -166,9 +176,18 @@ function playerScope(playerId: number): string {
 }
 const GLOBAL_SCOPE = "all";
 
-async function deleteDirtyMarkers(db: ReturnType<typeof drizzle>, scopes: string[]): Promise<void> {
-  for (let i = 0; i < scopes.length; i += 90) {
-    await db.delete(standingsDirty).where(inArray(standingsDirty.scope, scopes.slice(i, i + 90)));
+type DirtyMarkerGeneration = { scope: string; markerToken: string };
+
+async function deleteDirtyMarkers(db: ReturnType<typeof drizzle>, markers: DirtyMarkerGeneration[]): Promise<void> {
+  for (let i = 0; i < markers.length; i += 40) {
+    const statements = markers.slice(i, i + 40).map((marker) =>
+      db
+        .delete(standingsDirty)
+        .where(and(eq(standingsDirty.scope, marker.scope), eq(standingsDirty.markerToken, marker.markerToken))),
+    );
+    if (statements.length > 0) {
+      await db.batch(statements as unknown as [(typeof statements)[number], ...(typeof statements)[number][]]);
+    }
   }
 }
 
@@ -182,21 +201,22 @@ export type StandingsTarget = { playerIds: number[] } | { all: true };
 // — harmless either way, but keeps "how long has this been dirty" honest
 // for anyone inspecting the table by hand.
 export function dirtyMarkerStatements(db: ReturnType<typeof drizzle>, target: StandingsTarget): BatchItem<"sqlite">[] {
+  const markerToken = crypto.randomUUID();
   if ("all" in target) {
     return [
       db
         .insert(standingsDirty)
-        .values({ scope: GLOBAL_SCOPE })
-        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } }) as unknown as BatchItem<"sqlite">,
+        .values({ scope: GLOBAL_SCOPE, markerToken })
+        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markerToken, markedAt: new Date() } }) as unknown as BatchItem<"sqlite">,
     ];
   }
-  const ids = [...new Set(target.playerIds.filter((id): id is number => Number.isFinite(id)))];
+  const ids = [...new Set(target.playerIds.filter((id): id is number => Number.isInteger(id) && id > 0))];
   return ids.map(
     (id) =>
       db
         .insert(standingsDirty)
-        .values({ scope: playerScope(id) })
-        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } }) as unknown as BatchItem<"sqlite">,
+        .values({ scope: playerScope(id), markerToken })
+        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markerToken, markedAt: new Date() } }) as unknown as BatchItem<"sqlite">,
   );
 }
 
@@ -206,18 +226,22 @@ export function dirtyMarkerStatements(db: ReturnType<typeof drizzle>, target: St
 // well before the much more expensive/failure-prone refreshStandings call
 // that follows.
 export async function markStandingsDirty(db: ReturnType<typeof drizzle>, target: StandingsTarget): Promise<void> {
+  const markerToken = crypto.randomUUID();
   if ("all" in target) {
-    await db.insert(standingsDirty).values({ scope: GLOBAL_SCOPE }).onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } });
+    await db
+      .insert(standingsDirty)
+      .values({ scope: GLOBAL_SCOPE, markerToken })
+      .onConflictDoUpdate({ target: standingsDirty.scope, set: { markerToken, markedAt: new Date() } });
     return;
   }
-  const ids = [...new Set(target.playerIds.filter((id): id is number => Number.isFinite(id)))];
+  const ids = [...new Set(target.playerIds.filter((id): id is number => Number.isInteger(id) && id > 0))];
   if (ids.length === 0) return;
   for (let i = 0; i < ids.length; i += 40) {
     const chunk = ids.slice(i, i + 40).map((id) =>
       db
         .insert(standingsDirty)
-        .values({ scope: playerScope(id) })
-        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markedAt: new Date() } }),
+        .values({ scope: playerScope(id), markerToken })
+        .onConflictDoUpdate({ target: standingsDirty.scope, set: { markerToken, markedAt: new Date() } }),
     );
     await db.batch(chunk as unknown as [(typeof chunk)[number], ...(typeof chunk)[number][]]);
   }
@@ -234,11 +258,13 @@ export async function markStandingsDirty(db: ReturnType<typeof drizzle>, target:
 // durable to fall back on (there are none left after this phase; kept as a
 // separate export because scripts/recompute-standings-style callers with no
 // preceding ledger write have no marker to leave behind either way).
-export async function settleStandings(db: ReturnType<typeof drizzle>, target: StandingsTarget): Promise<void> {
+export async function settleStandings(db: ReturnType<typeof drizzle>, target: StandingsTarget): Promise<boolean> {
   try {
     await refreshStandings(db, target);
+    return true;
   } catch (err) {
     console.error(`[standings] refresh failed, leaving dirty marker(s) for the repair pass: ${err}`);
+    return false;
   }
 }
 
@@ -257,14 +283,19 @@ export async function repairDirtyStandings(db: ReturnType<typeof drizzle>): Prom
 
   if (rows.some((r) => r.scope === GLOBAL_SCOPE)) {
     await settleStandings(db, { all: true });
-    return { scopes: rows.length };
+  } else {
+    const playerIds = rows
+      .map((r) => (r.scope.startsWith("player:") ? Number(r.scope.slice("player:".length)) : NaN))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    for (let i = 0; i < playerIds.length; i += 40) {
+      await settleStandings(db, { playerIds: playerIds.slice(i, i + 40) });
+    }
   }
 
-  const playerIds = rows
-    .map((r) => (r.scope.startsWith("player:") ? Number(r.scope.slice("player:".length)) : NaN))
-    .filter((id) => Number.isFinite(id));
-  if (playerIds.length > 0) await settleStandings(db, { playerIds });
-  return { scopes: rows.length };
+  // Report only markers that are actually gone. This remains truthful when
+  // a refresh fails or a concurrent mutation replaces a marker generation.
+  const remaining = new Set((await db.select({ scope: standingsDirty.scope }).from(standingsDirty)).map((r) => r.scope));
+  return { scopes: rows.filter((r) => !remaining.has(r.scope)).length };
 }
 
 // One-call "recompute everyone" for the /epgp/settings "Rebuild standings"
@@ -341,7 +372,7 @@ export async function getStandings(db: ReturnType<typeof drizzle>): Promise<Map<
 // after a write on this one. A player with no row (no ledger history) is
 // simply absent from the returned map, same as getStandings.
 export async function getStandingsForPlayers(db: ReturnType<typeof drizzle>, playerIds: number[]): Promise<Map<number, StandingsRow>> {
-  const ids = [...new Set(playerIds.filter((id): id is number => Number.isFinite(id)))];
+  const ids = [...new Set(playerIds.filter((id): id is number => Number.isInteger(id) && id > 0))];
   const out = new Map<number, StandingsRow>();
   if (ids.length === 0) return out;
   for (let i = 0; i < ids.length; i += 90) {

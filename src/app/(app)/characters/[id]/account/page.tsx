@@ -14,7 +14,7 @@ import { RoleBadge } from "@/components/ui/RoleBadge";
 import { characterClaims, characters, mainSwapEvents, players, users } from "@/db";
 import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { getStandings } from "@/lib/epgp/standings";
+import { getStandingsForPlayers } from "@/lib/epgp/standings";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { guildDate } from "@/lib/guild-timezone";
 import { getSession } from "@/lib/session";
@@ -112,7 +112,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
       })
       .from(characters)
       .where(eq(characters.playerId, player.id)),
-    getStandings(db),
+    getStandingsForPlayers(db, [player.id]),
     db.select().from(mainSwapEvents).where(eq(mainSwapEvents.playerId, player.id)).orderBy(desc(mainSwapEvents.id)).limit(5),
     db
       .select({ characterId: characterClaims.characterId })

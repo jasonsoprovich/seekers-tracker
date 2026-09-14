@@ -1,0 +1,1 @@
+ALTER TABLE `standings_dirty` ADD `marker_token` text DEFAULT '' NOT NULL;

@@ -147,6 +147,9 @@ async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: 
   if (!from || from.userId !== null || from.discordId !== null) return false;
 
   const now = new Date();
+  // This legacy multi-statement path is not atomic. Mark before moving any
+  // ledger row so every successful partial or complete move is recoverable.
+  await markStandingsDirty(db, { playerIds: [toPlayerId] });
   await db.update(characters).set({ playerId: toPlayerId, updatedAt: now }).where(eq(characters.playerId, fromPlayerId));
   await db.update(epLedger).set({ playerId: toPlayerId }).where(eq(epLedger.playerId, fromPlayerId));
   await db.update(gpLedger).set({ playerId: toPlayerId }).where(eq(gpLedger.playerId, fromPlayerId));
@@ -159,7 +162,6 @@ async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: 
   // than trusting every caller of attachCharacterToPlayer to remember (they
   // do today, but this is the one place the fact "these rows moved" is
   // known for certain).
-  await markStandingsDirty(db, { playerIds: [toPlayerId] });
   await db.delete(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, fromPlayerId));
   await db.delete(players).where(eq(players.id, fromPlayerId));
   return true;
@@ -364,6 +366,7 @@ export async function swapMainCharacter(
   // other manual ledger write. Skipped entirely when waived.
   let feeGpLedgerId: number | null = null;
   if (feeGp > 0) {
+    await markStandingsDirty(db, { playerIds: [playerId] });
     const noteText = `Main swap fee — ${prevMainName ?? "(no previous main)"} → ${target.name}`;
     const [feeRow] = await db
       .insert(gpLedger)
@@ -384,7 +387,6 @@ export async function swapMainCharacter(
       })
       .returning();
     feeGpLedgerId = feeRow.id;
-    await markStandingsDirty(db, { playerIds: [playerId] });
     await recordLedgerChange(db, "gp", feeRow.id, "create", null, feeRow, approvedBy);
   }
 

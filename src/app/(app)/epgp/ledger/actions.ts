@@ -122,8 +122,8 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   // guarantees the repair pass finishes this even if settleStandings fails.
   let standing: StandingsRow | null = null;
   if (affectedPlayerId != null) {
-    await settleStandings(db, { playerIds: [affectedPlayerId] });
-    standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
+    const settled = await settleStandings(db, { playerIds: [affectedPlayerId] });
+    if (settled) standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
   }
   // The edit may have moved this character's most recent ledger row (a
   // date change), which "bump if newer" can't walk back — recompute it.
@@ -164,8 +164,8 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
 
   let standing: StandingsRow | null = null;
   if (affectedPlayerId != null) {
-    await settleStandings(db, { playerIds: [affectedPlayerId] });
-    standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
+    const settled = await settleStandings(db, { playerIds: [affectedPlayerId] });
+    if (settled) standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
   }
   // Deleting a row can drop this character's most recent activity — recompute.
   if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);

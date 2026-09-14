@@ -38,7 +38,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
@@ -139,6 +139,27 @@ async function main() {
     check(failures, totalsRow[0]?.ep === 200, `player_epgp_totals reflects the real ledger sum (got ${totalsRow[0]?.ep})`);
 
     // ---------------------------------------------------------------
+    console.log("\nScenario B2: a refresh cannot clear a newer concurrent marker generation");
+    await markStandingsDirty(db, { playerIds: [playerB] });
+    await db.run(sql.raw(`
+      CREATE TRIGGER verify_standings_concurrent_marker
+      AFTER UPDATE ON player_epgp_totals
+      WHEN NEW.player_id = ${playerB}
+      BEGIN
+        UPDATE standings_dirty SET marker_token = 'newer-mutation' WHERE scope = 'player:${playerB}';
+      END
+    `));
+    await refreshStandings(db, { playerIds: [playerB] });
+    await db.run(sql.raw("DROP TRIGGER verify_standings_concurrent_marker"));
+    const [newerMarker] = await db
+      .select({ markerToken: standingsDirty.markerToken })
+      .from(standingsDirty)
+      .where(eq(standingsDirty.scope, `player:${playerB}`));
+    check(failures, newerMarker?.markerToken === "newer-mutation", "the concurrent marker survives the older refresh");
+    await refreshStandings(db, { playerIds: [playerB] });
+    check(failures, !(await dirtyScopes(db)).includes(`player:${playerB}`), "a subsequent refresh clears the preserved marker");
+
+    // ---------------------------------------------------------------
     console.log("\nScenario C: a marker left by a mutation survives an unrelated refresh failure, and the repair pass heals it");
     const playerC = await makePlayerWithEp(db, 300);
     // Simulates task 4.4's guarantee directly: the durable marker is
@@ -173,17 +194,16 @@ async function main() {
     check(failures, (await dirtyScopes(db)).length === 0, "the global repair clears every marker, not just player-scoped ones");
 
     // ---------------------------------------------------------------
-    console.log("\nScenario E: settleStandings never throws, even against an invalid target");
-    // A playerId that can't possibly exist is harmless to computeEpgpTotals
-    // (it just contributes nothing) — settleStandings should complete
-    // normally rather than needing a try/catch at every call site.
+    console.log("\nScenario E: settleStandings reports and swallows a real refresh failure");
     let threw = false;
+    let settled = true;
     try {
-      await settleStandings(db, { playerIds: [-1] });
+      settled = await settleStandings({} as Db, { playerIds: [1] });
     } catch {
       threw = true;
     }
     check(failures, !threw, "settleStandings completes without throwing");
+    check(failures, !settled, "settleStandings reports that materialization failed");
 
     // ---------------------------------------------------------------
     console.log("\nScenario F: getStandingsForPlayers bypasses the whole-table cache (tasks 4.1/4.2)");

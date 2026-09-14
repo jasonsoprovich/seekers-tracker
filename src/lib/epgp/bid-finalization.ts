@@ -99,6 +99,37 @@ function parseOccurredAt(raw: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+async function replayResult(db: ReturnType<typeof drizzle>, submissionId: string): Promise<FinalizeBidRoundResult | null> {
+  const [existing] = await db
+    .select({ id: lootEvents.id })
+    .from(lootEvents)
+    .where(eq(lootEvents.submissionId, submissionId))
+    .limit(1);
+  if (!existing) return null;
+
+  const [[countRow], winnerRows] = await Promise.all([
+    db.select({ n: sql<number>`count(*)` }).from(bidsTable).where(eq(bidsTable.lootEventId, existing.id)),
+    db
+      .select({ playerId: characters.playerId })
+      .from(bidsTable)
+      .innerJoin(characters, eq(characters.id, bidsTable.characterId))
+      .where(and(eq(bidsTable.lootEventId, existing.id), eq(bidsTable.status, "won"))),
+  ]);
+  const winnerPlayerIds = [...new Set(winnerRows.map((r) => r.playerId).filter((id): id is number => id !== null))];
+  const settled = winnerPlayerIds.length === 0 || (await settleStandings(db, { playerIds: winnerPlayerIds }));
+  const replayStandings = settled ? await getStandingsForPlayers(db, winnerPlayerIds) : new Map<number, StandingsRow>();
+  return {
+    ok: true,
+    status: 200,
+    lootEventId: existing.id,
+    inserted: Number(countRow?.n ?? 0),
+    unmatched: [],
+    invalidTiers: [],
+    replay: true,
+    standings: [...replayStandings.values()],
+  };
+}
+
 export async function finalizeBidRound(
   db: ReturnType<typeof drizzle>,
   body: FinalizeBidRoundInput,
@@ -153,33 +184,8 @@ export async function finalizeBidRound(
   // call — nothing is written on the way to a 409 below, so a resend after
   // THAT never finds a match here and falls through normally.
   if (submissionId !== null) {
-    const [existing] = await db
-      .select({ id: lootEvents.id })
-      .from(lootEvents)
-      .where(eq(lootEvents.submissionId, submissionId))
-      .limit(1);
-    if (existing) {
-      const [[countRow], winnerRows] = await Promise.all([
-        db.select({ n: sql<number>`count(*)` }).from(bidsTable).where(eq(bidsTable.lootEventId, existing.id)),
-        db
-          .select({ playerId: characters.playerId })
-          .from(bidsTable)
-          .innerJoin(characters, eq(characters.id, bidsTable.characterId))
-          .where(and(eq(bidsTable.lootEventId, existing.id), eq(bidsTable.status, "won"))),
-      ]);
-      const winnerPlayerIds = [...new Set(winnerRows.map((r) => r.playerId).filter((id): id is number => id !== null))];
-      const replayStandings = await getStandingsForPlayers(db, winnerPlayerIds);
-      return {
-        ok: true,
-        status: 200,
-        lootEventId: existing.id,
-        inserted: Number(countRow?.n ?? 0),
-        unmatched: [],
-        invalidTiers: [],
-        replay: true,
-        standings: [...replayStandings.values()],
-      };
-    }
+    const replay = await replayResult(db, submissionId);
+    if (replay) return replay;
   }
 
   // Soft duplicate guard — skipped when the caller has already confirmed.
@@ -372,7 +378,18 @@ export async function finalizeBidRound(
   // batch — a transaction, so a mid-write failure rolls every one of these
   // statements back together instead of leaving, say, bids recorded with
   // no GP charged.
-  await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  try {
+    await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  } catch (error) {
+    // Two identical requests can both miss the preflight lookup. The unique
+    // submission_id constraint lets only one batch commit; turn the loser
+    // into the same replay response instead of leaking a constraint error.
+    if (submissionId !== null) {
+      const replay = await replayResult(db, submissionId);
+      if (replay) return replay;
+    }
+    throw error;
+  }
 
   // last_activity_at bumps are deliberately OUTSIDE the atomic batch above
   // — derived/display state, not the authoritative ledger rows task 3.4 is
@@ -391,8 +408,8 @@ export async function finalizeBidRound(
   // particular attempt fails.
   let standings: StandingsRow[] = [];
   if (chargedPlayerIds.size > 0) {
-    await settleStandings(db, { playerIds: [...chargedPlayerIds] });
-    standings = [...(await getStandingsForPlayers(db, [...chargedPlayerIds])).values()];
+    const settled = await settleStandings(db, { playerIds: [...chargedPlayerIds] });
+    if (settled) standings = [...(await getStandingsForPlayers(db, [...chargedPlayerIds])).values()];
   }
 
   const [lootEventRow] = await db.select({ id: lootEvents.id }).from(lootEvents).where(eq(lootEvents.submissionId, submissionKey)).limit(1);

@@ -564,6 +564,9 @@ export const playerEpgpTotals = sqliteTable("player_epgp_totals", {
 // 2-minute cron) or the nightly rebuild still owes that player a refresh.
 export const standingsDirty = sqliteTable("standings_dirty", {
   scope: text("scope").primaryKey(),
+  // Replaced on every mark. A refresh deletes only the token it observed
+  // before recomputing, so it cannot erase a newer concurrent mutation.
+  markerToken: text("marker_token").notNull().default(""),
   markedAt: integer("marked_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

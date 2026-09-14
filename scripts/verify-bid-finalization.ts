@@ -75,9 +75,11 @@ async function main() {
     const winnerName = `VerifyWinner${randomUUID().slice(0, 6)}`;
     const loserName = `VerifyLoser${randomUUID().slice(0, 6)}`;
     const secondWinnerName = `VerifySecondWinner${randomUUID().slice(0, 6)}`;
+    const concurrentWinnerName = `VCW${randomUUID().slice(0, 6)}`;
     const winner = await makeCharacter(db, winnerName);
     const loser = await makeCharacter(db, loserName);
     const secondWinner = await makeCharacter(db, secondWinnerName);
+    const concurrentWinner = await makeCharacter(db, concurrentWinnerName);
 
     // -----------------------------------------------------------------
     // Scenario A: a normal round with a submissionId — the loot event,
@@ -154,6 +156,34 @@ async function main() {
     check(failures, gpAfterRetry.length === 1, `GP charged exactly once despite the retry (got ${gpAfterRetry.length} row(s))`);
     const bidsAfterRetry = await db.select().from(bids).where(eq(bids.lootEventId, resultA.lootEventId));
     check(failures, bidsAfterRetry.length === 2, "no duplicate bid rows from the retry");
+
+    // -----------------------------------------------------------------
+    // Scenario B2: simultaneous requests can both miss the initial replay
+    // lookup. The unique constraint chooses one writer; the other must be
+    // normalized into a replay response rather than surfacing a D1 error.
+    // -----------------------------------------------------------------
+    console.log("\nScenario B2: concurrent requests with the same submissionId");
+    const concurrentSubmissionId = randomUUID();
+    const concurrentItem = `Verify Concurrent Item ${randomUUID().slice(0, 6)}`;
+    const concurrentBody = {
+      itemName: concurrentItem,
+      entries: [{ characterName: concurrentWinnerName, tier: "High Bid", occurredAt: now.toISOString(), isWinner: true }],
+      submissionId: concurrentSubmissionId,
+    };
+    const concurrentResults = await Promise.all([
+      finalizeBidRound(db, concurrentBody, enteredBy),
+      finalizeBidRound(db, concurrentBody, enteredBy),
+    ]);
+    check(failures, concurrentResults.every((result) => result.ok), "both concurrent requests report success");
+    if (concurrentResults.every((result) => result.ok)) {
+      const successes = concurrentResults.filter((result) => result.ok);
+      check(failures, successes[0].lootEventId === successes[1].lootEventId, "both requests return the same loot event");
+      check(failures, successes.filter((result) => result.replay).length === 1, "exactly one request is normalized into a replay");
+    }
+    const concurrentLoot = await db.select().from(lootEvents).where(eq(lootEvents.submissionId, concurrentSubmissionId));
+    const concurrentGp = await db.select().from(gpLedger).where(eq(gpLedger.characterId, concurrentWinner.characterId));
+    check(failures, concurrentLoot.length === 1, "concurrent requests create one loot event");
+    check(failures, concurrentGp.length === 1, "concurrent requests charge GP exactly once");
 
     // -----------------------------------------------------------------
     // Scenario C: item/time heuristic (task 3.6) — a DIFFERENT

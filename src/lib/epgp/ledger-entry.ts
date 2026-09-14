@@ -98,6 +98,12 @@ export async function insertLedgerEntry(
   // the target/main character.
   const playerId = character.playerId;
 
+  // This single-row path is not otherwise transactional. Mark first so a
+  // failed marker write prevents the ledger mutation; an insert failure may
+  // leave harmless extra repair work, but a successful insert can never be
+  // left without a durable marker.
+  if (playerId != null) await markStandingsDirty(db, { playerIds: [playerId] });
+
   if (input.kind === "ep") {
     // computeEpgpTotals (Phase 3 task 3.11) groups by ep_ledger.player_id,
     // not character_id — a row written with player_id left NULL is
@@ -129,7 +135,6 @@ export async function insertLedgerEntry(
         source,
       })
       .returning();
-    if (playerId != null) await markStandingsDirty(db, { playerIds: [playerId] });
     if (source === "manual") await recordLedgerChange(db, "ep", row.id, "create", null, row, enteredBy);
   } else {
     const [row] = await db
@@ -150,7 +155,6 @@ export async function insertLedgerEntry(
         source,
       })
       .returning();
-    if (playerId != null) await markStandingsDirty(db, { playerIds: [playerId] });
     if (source === "manual") await recordLedgerChange(db, "gp", row.id, "create", null, row, enteredBy);
   }
 
@@ -183,8 +187,8 @@ export async function insertLedgerEntry(
   // failure doesn't undo the ledger write that already committed.
   let standing: StandingsRow | null = null;
   if (!opts.deferStandingsRefresh && playerId != null) {
-    await settleStandings(db, { playerIds: [playerId] });
-    standing = (await getStandingsForPlayers(db, [playerId])).get(playerId) ?? null;
+    const settled = await settleStandings(db, { playerIds: [playerId] });
+    if (settled) standing = (await getStandingsForPlayers(db, [playerId])).get(playerId) ?? null;
   }
 
   return { ok: true, playerId, standing };

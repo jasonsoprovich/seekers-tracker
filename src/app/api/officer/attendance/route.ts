@@ -246,8 +246,8 @@ export async function POST(request: Request) {
     // rows, so a failure here doesn't lose the refresh, just delays it to
     // the repair pass.
     if (result.playerIds.length > 0) {
-      await settleStandings(db, { playerIds: result.playerIds });
-      standings = [...(await getStandingsForPlayers(db, result.playerIds)).values()];
+      const settled = await settleStandings(db, { playerIds: result.playerIds });
+      if (settled) standings = [...(await getStandingsForPlayers(db, result.playerIds)).values()];
     }
   }
 
