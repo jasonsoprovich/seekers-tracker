@@ -68,7 +68,9 @@ Two options depending on how far back you need to go:
 - **From an R2 dump** (further back, or if Time Travel's window has
   passed): download the `.sql` file from R2
   (`npx wrangler r2 object get seekers-of-souls-db-backups/<key> --file backup.sql`),
-  then apply it to a disposable database first with
-  `npx wrangler d1 execute seekers-recovery-drill --remote --file backup.sql`.
+  prepare its interleaved table/data order with
+  `npx tsx scripts/prepare-d1-export.ts backup.sql importable.sql`, then apply
+  it to a disposable database first with
+  `npx wrangler d1 execute seekers-recovery-drill --remote --file importable.sql`.
   Never paste a portable dump directly into production as a test. It is a
   full SQL script, not a scoped restore.

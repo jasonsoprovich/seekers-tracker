@@ -828,7 +828,10 @@ needed — this phase is tracker-only.
   (Canonical registry is R2 key
   `seekers-of-souls-imports/system-health/restore-points.tsv`; the existing
   local log has been uploaded and remains only an operator cache.)
-- [ ] 10.8 Exercise the operator recovery runbook without restoring production.
+- [x] 10.8 Exercise the operator recovery runbook without restoring production.
+  (`Phase 10.8` — committed runbook plus `verify:recovery`; the drill covers
+  atomic reversal/rollback, fake restore ordering, API fixtures, local health,
+  and export→prepared SQL→fresh isolated D1 import. No production restore.)
 
 ## Phase 11: Better Auth 1.7.4 and Issuer Cleanup
 

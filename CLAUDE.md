@@ -107,8 +107,9 @@ served `/`, `/login`, `/roster` correctly and redirected `/keys` to
 **zero D1 billing, no row-read or write caps.** The free-tier budget problem
 does not exist locally. **Never test decay or migration logic against remote
 D1.** A bad decay run writes thousands of rows against the 100K/day write cap
-and is painful to undo. Remote does have D1 Time Travel (7 days, free plan)
-as a last-resort rollback — don't rely on it as a testing strategy.
+and is painful to undo. Remote does have D1 Time Travel (30 days on the
+verified Paid account) as a last-resort rollback — don't rely on it as a
+testing strategy.
 
 - Local DB lives at
   `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite` (one real
@@ -398,6 +399,23 @@ canonical at R2 key `system-health/restore-points.tsv`, outside protected D1;
 the existing local registry was uploaded successfully. `verify:system-health`
 passes against local D1/R2, and focused auth/responsive browser coverage passes
 50/50 (member denied, officer allowed, no mutation controls, 320-768px).
+
+**Remediation plan Phase 10.8 / Phase 10 complete — recovery drill,
+2026-09-14 (no migration or production restore).** The operator procedure is
+now committed at `RECOVERY-RUNBOOK.md`; `npm run
+verify:recovery` composes the reversal rollback, fake-Wrangler bookmark order,
+current export-envelope, local D1/R2 health, and backup-Worker type checks. Its
+first run found that Cloudflare's D1 SQL export interleaves each table's rows
+before later referenced tables exist, so a fresh D1 import failed even with
+`defer_foreign_keys`. `prepare-d1-export.ts` now safely tokenizes the dump and
+reorders it as all tables → data → indexes/views. The rerun exported local D1,
+prepared it, imported it into isolated fresh Miniflare state, and verified real
+character rows. No production Time Travel restore, migration, app/backup
+Worker deployment, parser release, or actual portable export occurred. The
+only production write was uploading the existing restore-point registry to
+its canonical R2 metadata key. All Phase 10 checklist items are complete;
+backup activation remains an explicit operational gate because the scoped
+`D1_REST_API_TOKEN` does not exist yet.
 
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
@@ -2723,14 +2741,13 @@ this session; the query layer itself was proven directly instead.
   update checks" for the cut-a-release steps.
   **PLAN.md Phase 7 upgrades this** from notify-only into an actual
   download-and-swap, reusing the existing version/release plumbing.
-- Nightly D1→R2 backup Worker (`workers/db-backup/`) — deployed, code
-  works, **deliberately left unscheduled**. Decided 2026-08-20: D1's own
-  Time Travel (point-in-time recovery, always-on, zero setup — 7 days on
-  this account's Free plan) already covers the realistic risk here (bad
-  data/a bug, not a Cloudflare-account-level disaster), so paying for
-  Workers Paid or building free-tier Cron polling isn't worth it right
-  now. Revisit only if the actual risk profile changes — see
-  `workers/db-backup/README.md` for how to turn it on later.
+- D1→R2 backup Worker (`workers/db-backup/`) — the original 2026-08-20
+  deployment never ran and had no API token. Phase 10 supersedes that old
+  Free-plan/manual-only decision: Paid 30-day Time Travel is verified, the
+  Worker is fixed and configured daily at 09:00 UTC with 35-copy retention,
+  but still needs its scoped `D1_REST_API_TOKEN`, deployment, and first
+  scratch-validated export. See `workers/db-backup/README.md` and
+  `RECOVERY-RUNBOOK.md`.
 - Parser app's selected log file now persists across restarts/rebuilds
   (`internal/config`), not just the API key.
 - Fixed: `@better-auth/api-key`'s `keyExpiration.defaultExpiresIn` was set

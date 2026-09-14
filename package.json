@@ -21,6 +21,7 @@
     "verify:bookmark": "scripts/verify-remote-bookmark.sh",
     "verify:backup-export": "tsx scripts/verify-backup-export.ts",
     "verify:system-health": "tsx scripts/verify-system-health.ts",
+    "verify:recovery": "scripts/verify-recovery.sh",
     "sync:apply": "scripts/sync-apply.sh",
     "verify": "tsx scripts/verify-harness.ts",
     "backfill:expansion-decay": "tsx scripts/backfill-expansion-decay.ts",
