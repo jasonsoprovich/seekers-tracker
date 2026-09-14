@@ -813,8 +813,11 @@ needed — this phase is tracker-only.
   parsing against the current Cloudflare API. (`Phase 10.4` — parses the
   documented nested completion result, validates API/operation failures,
   polls with `output_format`, uses unique keys, and paginates retention.)
-- [ ] 10.5 Decide and document a portable R2 backup cadence after verifying the
-  actual Cloudflare plan and retention window.
+- [x] 10.5 Decide and document a portable R2 backup cadence after verifying the
+  actual Cloudflare plan and retention window. (`Phase 10.5` — a 10-day-old
+  bookmark confirms Paid/30-day Time Travel; production D1 is 10.8 MB. Chosen
+  policy is daily 09:00 UTC with 35 R2 copies. Deployment awaits the missing
+  scoped `D1_REST_API_TOKEN` and one validated manual export.)
 - [ ] 10.6 Add a read-only System Health/Maintenance view for last rebuild,
   dirty standings, backup status, retention, and named restore-point metadata.
 - [ ] 10.7 Keep restore-point metadata outside the D1 database it protects.

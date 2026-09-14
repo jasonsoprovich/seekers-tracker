@@ -368,6 +368,20 @@ and retention walks every R2 list page. `npm run verify:backup-export`, the
 backup Worker's strict typecheck, and its Wrangler dry run pass (1.69 KiB
 gzip). No production Workflow was triggered or deployed.
 
+**Remediation plan Phase 10.5 — verified recovery retention and cadence,
+2026-09-14 (configuration/documentation; not deployed).** Read-only remote
+checks report production D1 at 10,833,920 bytes and successfully resolve a
+bookmark from 2026-09-04, ten days earlier, confirming this account's effective
+Paid 30-day Time Travel window. Current Cloudflare documentation says Workflows
+are available on Free and Paid, invalidating the backup Worker's old scheduling
+note. Portable policy is one D1 SQL export daily at 09:00 UTC with the newest
+35 retained in Standard R2; at current size this is well below the 10 GB-month
+free allowance and extends daily portable coverage beyond Time Travel. The
+deployed Workflow has zero instances, and `wrangler secret list` is empty:
+`D1_REST_API_TOKEN` must be created with only Account / D1 / Edit, then the
+updated Worker deployed and one manual export restored into scratch before the
+schedule is trusted.
+
 **Remediation plan Phase 9.1-9.4 — Norrath editorial public page,
 2026-09-13 (no migration; local only).** The generic stacked feature layout
 at `/` is now an asymmetric editorial composition built around the guild's

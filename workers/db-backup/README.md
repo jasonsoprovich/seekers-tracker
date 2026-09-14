@@ -6,24 +6,26 @@ Google Sheet had no backup story at all. Separate from the main
 `wrangler.jsonc`.
 
 D1 already has [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)
-(automatic point-in-time recovery — 7 days on the Free plan we're
-currently on, 30 days on Workers Paid) with zero setup. This Worker is an
+(automatic point-in-time recovery) with zero setup. This Worker is an
 *additional* hedge: real, portable, downloadable SQL dump files in R2,
-kept as the last `KEEP_COUNT` (currently 7) nightly snapshots.
+kept as the last `KEEP_COUNT` (currently 35) daily snapshots.
 
 ## Status
 
-- Deployed (`seekers-tracker-db-backup`), R2 bucket created
-  (`seekers-of-souls-db-backups`).
-- **Not scheduled yet.** Scheduled Workflows require a paid Workers plan;
-  this account is on Free. Options, in order of recommendation:
-  1. Upgrade to Workers Paid ($5/mo) — also extends D1 Time Travel from
-     7 to 30 days as a side effect. Then uncomment the `"schedules"`
-     line in `wrangler.jsonc` and redeploy.
-  2. Ask for a rework as a plain scheduled Worker (Cron Triggers work on
-     Free) instead of a Workflow — less battle-tested (manual retry/poll
-     logic instead of a Workflow's built-in step retries), but free.
-  3. Trigger backups manually for now (see below) and revisit later.
+- The Worker and R2 bucket (`seekers-of-souls-db-backups`) were created on
+  2026-08-20, but no Workflow instance has ever run.
+- Verified 2026-09-14: production D1 is 10,833,920 bytes and a bookmark from
+  2026-09-04 resolves, confirming the effective Paid 30-day Time Travel
+  window. Current Cloudflare docs also make Workflows available on both Free
+  and Paid plans, so the old "Paid required for scheduling" note was stale.
+- Chosen cadence: one export daily at 09:00 UTC, retaining 35 copies. This is
+  off-peak, gives five portable daily points beyond Time Travel, and at the
+  current database size remains comfortably below R2's 10 GB-month Standard
+  free allowance even when SQL text is several times larger than D1 storage.
+- `wrangler.jsonc` contains that schedule, but the updated Worker is **not yet
+  deployed**. `wrangler secret list` confirmed `D1_REST_API_TOKEN` is absent;
+  create it using the setup below before deploying, then trigger and validate
+  one manual backup before relying on the schedule.
 
 ## One-time setup: the API token
 
@@ -44,7 +46,7 @@ app which only ever uses D1/R2 *bindings*.
 
 ## Manually triggering a backup
 
-Once the token secret is set:
+Once the token secret is set, use this before the first scheduled run:
 
 ```
 npx wrangler workflows trigger seekers-db-backup
@@ -52,7 +54,7 @@ npx wrangler workflows trigger seekers-db-backup
 
 Check progress with `npx wrangler workflows instances list seekers-db-backup`,
 and the resulting dump lands in the `seekers-of-souls-db-backups` R2
-bucket under `seekers-of-souls/<date>-<filename>.sql`.
+bucket under `seekers-of-souls/<timestamp>-<workflow-instance>-<filename>`.
 
 ## Restoring from a backup
 
@@ -66,7 +68,7 @@ Two options depending on how far back you need to go:
 - **From an R2 dump** (further back, or if Time Travel's window has
   passed): download the `.sql` file from R2
   (`npx wrangler r2 object get seekers-of-souls-db-backups/<key> --file backup.sql`),
-  then apply it to a database with
-  `npx wrangler d1 execute seekers-of-souls --remote --file backup.sql`.
-  Test this against a scratch D1 database first if you're unsure — it's
-  a full SQL script, not a scoped restore.
+  then apply it to a disposable database first with
+  `npx wrangler d1 execute seekers-recovery-drill --remote --file backup.sql`.
+  Never paste a portable dump directly into production as a test. It is a
+  full SQL script, not a scoped restore.

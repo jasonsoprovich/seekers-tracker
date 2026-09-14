@@ -26,25 +26,20 @@
 		// D1_REST_API_TOKEN, set via `wrangler secret put` — never here.
 		"ACCOUNT_ID": "a12d86f29792323791c2fdc101759089",
 		"DATABASE_ID": "77583c9c-c654-4934-8782-ed4d1265771f",
-		// How many nightly snapshots to keep — disaster-recovery hedge
+		// How many daily snapshots to keep — disaster-recovery hedge
 		// alongside D1's own Time Travel (30-day point-in-time restore on
 		// Workers Paid, already on regardless of this Worker), not a
 		// replacement for it. These are portable, downloadable SQL dumps.
-		"KEEP_COUNT": "7"
+		"KEEP_COUNT": "35"
 	},
 	"workflows": [
 		{
 			"name": "seekers-db-backup",
 			"binding": "BACKUP_WORKFLOW",
-			"class_name": "BackupWorkflow"
-			// No "schedules" yet — scheduled Workflows require a paid Workers
-			// plan (this account is on Free) and deploy fails outright if
-			// present without one. Until upgraded, trigger a backup manually:
-			// `npx wrangler workflows trigger seekers-db-backup` from this
-			// directory (see README.md). Add back
-			// `"schedules": ["0 9 * * *"]` (09:00 UTC = 3-4am US Central,
-			// off-peak for this guild) once the plan is upgraded, then
-			// redeploy.
+			"class_name": "BackupWorkflow",
+			// Daily at 09:00 UTC, after the guild's raid window and before the
+			// main Worker's 09:17 UTC standings rebuild.
+			"schedules": ["0 9 * * *"]
 		}
 	],
 	"r2_buckets": [
