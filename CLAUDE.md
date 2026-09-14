@@ -334,6 +334,20 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Remediation plan Phase 11.1 — Better Auth 1.7.4 upgrade review,
+2026-09-14 (documentation only).** Better Auth 1.7.3 reverted the temporary
+1.7.0-1.7.2 `accounts.issuer` identity model back to the stable
+`(providerId, accountId)` key and requires SQLite cleanup in the exact order
+`DROP INDEX` then `DROP COLUMN`. The same release enables initialization-time
+schema validation in production, making a stale required issuer field a hard
+auth failure rather than harmless extra schema. Its strongly typed account
+selectors require either the local account row ID or the signed account
+cookie; this app's only `getAccessToken` call already passes `accounts.id`,
+and no application query depends on issuer. Better Auth 1.7.4 adds
+instrumentation controls and Drizzle validation fixes, with no additional core
+schema change. Upgrade all runtime packages plus the transitive core override
+together; retain `nodejs_compat` and verify the real workerd async context.
+
 **Remediation plan Phase 10 production activation, 2026-09-14.** The user
 created the scoped `D1_REST_API_TOKEN` and deployed from the repo root, putting
 the Phase 10 main application live as Worker version

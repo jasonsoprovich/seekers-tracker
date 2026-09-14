@@ -839,7 +839,19 @@ This is deliberately separate from the emergency 1.7.2 async-context fix.
 Better Auth 1.7.3 removed the temporary required `accounts.issuer` model, while
 this database already carries a non-null issuer column and compound index.
 
-- [ ] 11.1 Review Better Auth 1.7.2 through 1.7.4 release and upgrade notes.
+- [x] 11.1 Review Better Auth 1.7.2 through 1.7.4 release and upgrade notes.
+  (`Phase 11.1` — upstream 1.7.3 restores the stable 1.6 account identity key
+  `(providerId, accountId)`, removes `issuer` from new writes, and explicitly
+  requires SQLite to drop the issuer index before its column. It also enables
+  initialization-time schema validation in production, so the checked-in
+  Drizzle schema must match before auth traffic is accepted. The new strongly
+  typed account APIs require a local account-row ID or signed account cookie;
+  this app's sole `getAccessToken` caller already passes `accounts.id`, and it
+  has no custom provider, account selector, or issuer-dependent application
+  code. 1.7.4 adds instrumentation controls and Drizzle validation fixes but no
+  further core schema change. All runtime packages and the transitive
+  `@better-auth/core` override must move together; `nodejs_compat` and the
+  1.7.2 Cloudflare async-context export-order fix remain required.)
 - [ ] 11.2 Generate and hand-review the SQLite/Drizzle migration that drops the
   issuer index and column in the required order.
 - [ ] 11.3 Align every runtime Better Auth package on 1.7.4.
