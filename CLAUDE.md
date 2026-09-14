@@ -348,6 +348,17 @@ instrumentation controls and Drizzle validation fixes, with no additional core
 schema change. Upgrade all runtime packages plus the transitive core override
 together; retain `nodejs_compat` and verify the real workerd async context.
 
+**Remediation plan Phase 11.2 — remove the temporary issuer schema,
+2026-09-14 (migration 0039, local only).** `auth-schema.ts` no longer declares
+`accounts.issuer` or `accounts_issuer_account_id_idx`. Drizzle generated
+`0039_blushing_leper_queen.sql` as the exact two-statement SQLite cleanup from
+the upstream guide: drop the compound index first, then drop the column, with
+no table rebuild. Local `(provider_id, account_id)` duplicate check: zero. A
+`pre-phase11-auth` local snapshot was taken before apply; the migration applied
+cleanly and preserved the existing account/access token, 46 sessions, and API
+key, plus the account primary key, user index, and user FK. Migration 0039 is
+local only and must reach remote before the 1.7.4 runtime deploy.
+
 **Remediation plan Phase 10 production activation, 2026-09-14.** The user
 created the scoped `D1_REST_API_TOKEN` and deployed from the repo root, putting
 the Phase 10 main application live as Worker version

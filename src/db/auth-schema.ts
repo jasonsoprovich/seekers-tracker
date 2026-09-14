@@ -34,14 +34,6 @@ export const accounts = sqliteTable(
     id: text("id").primaryKey(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    // better-auth 1.7's "account identity" change: accounts are now looked
-    // up by the compound (issuer, accountId) pair instead of just
-    // providerId+accountId — see the 1.7 upgrade guide's manual-backfill
-    // callout. This app only ever creates accounts via Discord OAuth (no
-    // credential/email-password sign-in), so every row's issuer is
-    // "local:oauth:discord" — the guide's documented value for "OAuth
-    // provider without an issuer". Backfilled in migration 0013.
-    issuer: text("issuer").notNull(),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -57,7 +49,7 @@ export const accounts = sqliteTable(
       .default(sql`(unixepoch())`),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (table) => [index("accounts_user_id_idx").on(table.userId), uniqueIndex("accounts_issuer_account_id_idx").on(table.issuer, table.accountId)],
+  (table) => [index("accounts_user_id_idx").on(table.userId)],
 );
 
 export const verifications = sqliteTable(

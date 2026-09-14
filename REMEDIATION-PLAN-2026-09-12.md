@@ -852,8 +852,15 @@ this database already carries a non-null issuer column and compound index.
   further core schema change. All runtime packages and the transitive
   `@better-auth/core` override must move together; `nodejs_compat` and the
   1.7.2 Cloudflare async-context export-order fix remain required.)
-- [ ] 11.2 Generate and hand-review the SQLite/Drizzle migration that drops the
-  issuer index and column in the required order.
+- [x] 11.2 Generate and hand-review the SQLite/Drizzle migration that drops the
+  issuer index and column in the required order. (`Phase 11.2` — removed the
+  obsolete field/index from `auth-schema.ts`; Drizzle generated migration
+  `0039_blushing_leper_queen.sql` as exactly `DROP INDEX` then `ALTER TABLE ...
+  DROP COLUMN`, with no account-table rebuild. Before applying it, the local
+  `(provider_id, account_id)` duplicate check returned zero and a named local
+  snapshot was taken. The migration applied cleanly; aggregate verification
+  preserved the existing account/access token, 46 sessions, and API key, while
+  retaining `accounts_user_id_idx`, the primary key, and user foreign key.)
 - [ ] 11.3 Align every runtime Better Auth package on 1.7.4.
 - [ ] 11.4 Verify existing Discord login, first-time login, account linking,
   cookie cache, API keys, logout, and auth schema validation locally.
