@@ -13,9 +13,10 @@ kept as the last `KEEP_COUNT` (currently 35) daily snapshots.
 ## Status
 
 - The updated Worker was deployed on 2026-09-14 with the scoped
-  `D1_REST_API_TOKEN`, both R2 bindings, and 35-copy retention. No Workflow
-  instance has completed yet; validate the first scheduled run before relying
-  on the backup.
+  `D1_REST_API_TOKEN`, both R2 bindings, and 35-copy retention. The first
+  scheduled Workflow completed at 09:00 UTC and its 20,696,361-byte SQL object
+  was successfully restored into a disposable remote D1 database with zero
+  foreign-key violations. The backup is operational.
 - Verified 2026-09-14: production D1 is 10,833,920 bytes and a bookmark from
   2026-09-04 resolves, confirming the effective Paid 30-day Time Travel
   window. Current Cloudflare docs also make Workflows available on both Free
@@ -25,8 +26,7 @@ kept as the last `KEEP_COUNT` (currently 35) daily snapshots.
   current database size remains comfortably below R2's 10 GB-month Standard
   free allowance even when SQL text is several times larger than D1 storage.
 - `wrangler.jsonc` contains that schedule and it is deployed. The first
-  scheduled run is due at 09:00 UTC; validate its R2 object and a scratch-D1
-  restore before relying on the schedule.
+  scheduled R2 object and scratch-D1 restore were validated on 2026-09-14.
 
 ## One-time setup: the API token
 
@@ -47,7 +47,7 @@ app which only ever uses D1/R2 *bindings*.
 
 ## Manually triggering a backup
 
-Once the token secret is set, use this before the first scheduled run:
+To trigger an additional off-peak backup manually:
 
 ```
 npx wrangler workflows trigger seekers-db-backup

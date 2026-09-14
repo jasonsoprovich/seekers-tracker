@@ -73,8 +73,9 @@ After Time Travel:
 
 Policy: daily at 09:00 UTC, retain 35 newest SQL exports in
 `seekers-of-souls-db-backups`. The schedule and scoped `D1_REST_API_TOKEN`
-were deployed on 2026-09-14. The first export and scratch restore still need
-validation before the backup is considered operational.
+were deployed on 2026-09-14. The first 20,696,361-byte export completed and
+restored into disposable remote D1 with zero foreign-key violations the same
+day; the backup is operational.
 
 One-time activation:
 
@@ -119,7 +120,8 @@ fixtures, and a fake Wrangler restore. It proves:
 - System Health reads external metadata and records full rebuilds;
 - a local D1 SQL export imports into a fresh isolated database.
 - Cloudflare's interleaved export is reordered into a fresh-D1-safe file before
-  import (all tables, then data, then indexes/views).
+  import (all tables, dependency-ordered data with nullable cycle edges restored
+  afterward, then indexes/views).
 
 It never invokes `wrangler d1 time-travel restore` against Cloudflare.
 
@@ -138,5 +140,16 @@ corrected backup Worker was deployed at version
 `4d3883d3-e017-4b56-a33d-8ff1fc21cd2f`. The backup version exposes
 `OPS_METADATA`, `KEEP_COUNT=35`, the daily Workflow schedule, and the scoped
 secret. No Workflow instance or portable export existed immediately after
-deployment; the first 09:00 UTC run remains to be validated. No migration or
-production restore occurred.
+deployment. No migration or production restore occurred during activation.
+
+2026-09-14 first scheduled backup: Workflow instance
+`0 9 * * *-1789376400000` completed successfully and wrote a 20,696,361-byte
+SQL object to R2. Its first remote scratch import exposed that D1 enforces the
+`players`/`characters` and `loot_events`/`bids` cycles before both sides exist.
+`prepare-d1-export.ts` now dependency-orders inserts, temporarily nulls only
+the nullable cycle edges, and restores them after all rows exist. The corrected
+dump imported 51,970 statements into disposable `seekers-recovery-drill`; all
+substantive table counts matched production at the snapshot, all 304 player
+main links and 44 loot winner links were restored, and `foreign_key_check`
+returned no rows. The scratch database was deleted. No production restore was
+performed.

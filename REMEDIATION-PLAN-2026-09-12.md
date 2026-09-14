@@ -818,8 +818,9 @@ needed — this phase is tracker-only.
 - [x] 10.5 Decide and document a portable R2 backup cadence after verifying the
   actual Cloudflare plan and retention window. (`Phase 10.5` — a 10-day-old
   bookmark confirms Paid/30-day Time Travel; production D1 is 10.8 MB. Chosen
-  policy is daily 09:00 UTC with 35 R2 copies. Deployment awaits the missing
-  scoped `D1_REST_API_TOKEN` and one validated manual export.)
+  policy is daily 09:00 UTC with 35 R2 copies. The scoped token and schedule
+  are deployed; the first scheduled export restored successfully into
+  disposable remote D1 with zero foreign-key violations.)
 - [x] 10.6 Add a read-only System Health/Maintenance view for last rebuild,
   dirty standings, backup status, retention, and named restore-point metadata.
   (`Phase 10.6` — officer-visible `/admin/health`; leaders retain the separate
@@ -831,7 +832,9 @@ needed — this phase is tracker-only.
 - [x] 10.8 Exercise the operator recovery runbook without restoring production.
   (`Phase 10.8` — committed runbook plus `verify:recovery`; the drill covers
   atomic reversal/rollback, fake restore ordering, API fixtures, local health,
-  and export→prepared SQL→fresh isolated D1 import. No production restore.)
+  and export→prepared SQL→fresh isolated D1 import. The first scheduled R2
+  export was also restored into disposable remote D1 and validated without
+  restoring production.)
 
 ## Phase 11: Better Auth 1.7.4 and Issuer Cleanup
 

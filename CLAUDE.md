@@ -395,9 +395,10 @@ backup Worker was still its August build after that root deployment
 `workers/db-backup` as version `4d3883d3-e017-4b56-a33d-8ff1fc21cd2f` with
 the secret, both R2 bindings, `KEEP_COUNT=35`, and daily 09:00 UTC Workflow
 schedule. Deployment verification found no Workflow instances or backup
-status object yet. The first scheduled export and a scratch-D1 restore remain
-the activation gate; no migration, production restore, or manual export was
-performed.
+status object yet. The first scheduled Workflow subsequently completed at
+09:00 UTC and its 20,696,361-byte SQL object restored successfully into a
+disposable remote D1 database after the cycle-ordering fix documented below.
+The backup is operational; no production restore was performed.
 
 **Remediation plan Phase 10.2 — atomic raid and decay reversal, 2026-09-13
 (no migration; local only).** `reverseRaid` and `reverseDecayEvent` no
@@ -443,10 +444,8 @@ are available on Free and Paid, invalidating the backup Worker's old scheduling
 note. Portable policy is one D1 SQL export daily at 09:00 UTC with the newest
 35 retained in Standard R2; at current size this is well below the 10 GB-month
 free allowance and extends daily portable coverage beyond Time Travel. The
-deployed Workflow has zero instances, and `wrangler secret list` is empty:
-`D1_REST_API_TOKEN` must be created with only Account / D1 / Edit, then the
-updated Worker deployed and one manual export restored into scratch before the
-schedule is trusted.
+scoped token, corrected Worker, and schedule are now deployed; the first
+scheduled export and remote scratch restore were validated successfully.
 
 **Remediation plan Phase 10.1/10.6/10.7 — read-only System Health and
 off-D1 metadata, 2026-09-14 (no migration; app/backup Worker not deployed).**
@@ -473,14 +472,16 @@ current export-envelope, local D1/R2 health, and backup-Worker type checks. Its
 first run found that Cloudflare's D1 SQL export interleaves each table's rows
 before later referenced tables exist, so a fresh D1 import failed even with
 `defer_foreign_keys`. `prepare-d1-export.ts` now safely tokenizes the dump and
-reorders it as all tables → data → indexes/views. The rerun exported local D1,
-prepared it, imported it into isolated fresh Miniflare state, and verified real
-character rows. No production Time Travel restore, migration, app/backup
-Worker deployment, parser release, or actual portable export occurred. The
-only production write was uploading the existing restore-point registry to
-its canonical R2 metadata key. All Phase 10 checklist items are complete;
-backup activation remains an explicit operational gate because the scoped
-`D1_REST_API_TOKEN` does not exist yet. Final gate: Playwright 81/81;
+reorders it as all tables → dependency-ordered data → indexes/views. Its
+2026-09-14 production-snapshot follow-up found the remote importer also needs
+nullable cyclic references staged explicitly: player main/removal pointers,
+character main pointers, and loot winner pointers are restored only after all
+referenced rows exist. The first scheduled 20,696,361-byte R2 export then
+imported 51,970 statements into disposable remote D1; substantive row counts,
+304 player main links, and 44 loot winner links matched production, with zero
+foreign-key violations. The scratch database was deleted. No production Time
+Travel restore occurred. All Phase 10 checklist and backup activation gates are
+complete. Final gate: Playwright 81/81;
 `npm run verify:recovery`; webpack and OpenNext production builds; main Worker
 dry run 2821.61 KiB gzip (under 3072 KiB); backup Worker typecheck and dry run
 2.24 KiB gzip. Existing local Better Auth/base-URL, internal Durable Object,
