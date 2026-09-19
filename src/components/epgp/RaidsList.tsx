@@ -5,7 +5,7 @@ import Link from "next/link";
 import { SortableTh, useTableSort } from "@/components/ui/table-sort";
 import type { RaidListRow } from "@/lib/epgp/raids";
 
-type Col = "date" | "name" | "zones" | "attended" | "items" | "ep" | "gp";
+type Col = "date" | "name" | "leader" | "zones" | "attended" | "items" | "ep" | "gp";
 
 // Client wrapper so the Raids & Events list columns are click-to-sort
 // (LT-19). Default order is whatever listRaids returns (newest night first).
@@ -13,6 +13,7 @@ export function RaidsList({ rows }: { rows: RaidListRow[] }) {
   const { sorted, sort, toggle } = useTableSort<RaidListRow, Col>(rows, {
     date: (r) => r.raidDate,
     name: (r) => r.name,
+    leader: (r) => r.leader,
     zones: (r) => r.zones.join(", "),
     attended: (r) => r.memberCount,
     items: (r) => r.itemCount,
@@ -27,6 +28,7 @@ export function RaidsList({ rows }: { rows: RaidListRow[] }) {
           <tr>
             <SortableTh className="px-3 py-2" label="Date" sortKey="date" sort={sort} onSort={toggle} />
             <SortableTh className="px-3 py-2" label="Name" sortKey="name" sort={sort} onSort={toggle} />
+            <SortableTh className="px-3 py-2" label="Raid leader" sortKey="leader" sort={sort} onSort={toggle} />
             <SortableTh className="px-3 py-2" label="Zone(s)" sortKey="zones" sort={sort} onSort={toggle} />
             <SortableTh className="px-3 py-2 text-right" label="Attended" sortKey="attended" sort={sort} onSort={toggle} />
             <SortableTh className="px-3 py-2 text-right" label="Items" sortKey="items" sort={sort} onSort={toggle} />
@@ -43,6 +45,7 @@ export function RaidsList({ rows }: { rows: RaidListRow[] }) {
                 </Link>
               </td>
               <td className="px-3 py-2">{r.name ?? <span className="text-neutral-600">—</span>}</td>
+              <td className="px-3 py-2">{r.leader ?? <span className="text-neutral-600">—</span>}</td>
               <td className="px-3 py-2 text-neutral-400">{r.zones.length ? r.zones.join(", ") : "—"}</td>
               <td className="px-3 py-2 text-right tabular-nums">{r.memberCount}</td>
               <td className="px-3 py-2 text-right tabular-nums">{r.itemCount}</td>

@@ -1,3 +1,5 @@
+import { Card } from "@/components/ui/Card";
+
 export type RoleHolder = { username: string | null; role: string; mainCharacterName: string };
 
 // Leader request, 2026-09-05: "the dashboard page should also show a
@@ -12,20 +14,22 @@ export function GuildLeadership({ leadership, officers }: { leadership: RoleHold
   if (leadership.length === 0 && officers.length === 0) return null;
 
   return (
-    <section className="mt-10">
-      <h2 className="text-lg font-semibold">Leadership</h2>
-      <p className="mt-1 text-sm text-neutral-400">Main characters only.</p>
-      <div className="mt-3 grid gap-6 sm:grid-cols-2">
+    <Card className="px-5 py-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-lg font-semibold">Leadership</h2>
+        <p className="text-xs text-neutral-500">Main characters</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
         <RoleGroup title="Leaders" holders={leadership} />
         <RoleGroup title="Officers" holders={officers} />
       </div>
-    </section>
+    </Card>
   );
 }
 
 function RoleGroup({ title, holders }: { title: string; holders: RoleHolder[] }) {
   return (
-    <div className="rounded-lg border border-border p-4">
+    <div className="rounded-md border border-border/80 bg-neutral-900/25 px-3 py-2.5">
       <h3 className="text-sm font-semibold text-neutral-300">
         {title} <span className="font-normal text-neutral-500">({holders.length})</span>
       </h3>

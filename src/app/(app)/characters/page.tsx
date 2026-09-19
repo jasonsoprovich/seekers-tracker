@@ -13,6 +13,9 @@ import { getDb } from "@/lib/db";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
+import { ACTIVITY_WINDOWS, getOwnedAccountActivitySummaries } from "@/lib/epgp/account-activity";
+
+const CHAR_TYPE_LABEL = { main: "Main", alt: "Alt", mule: "Mule" } as const;
 
 export default async function CharactersPage() {
   const session = await getSession();
@@ -21,7 +24,7 @@ export default async function CharactersPage() {
   const showBootstrapBanner = !(await hasAnyLeader());
 
   const db = await getDb();
-  const [rows, pendingClaims] = await Promise.all([
+  const [rows, pendingClaims, activitySummaries] = await Promise.all([
     db
       .select()
       .from(characters)
@@ -33,6 +36,7 @@ export default async function CharactersPage() {
       .innerJoin(characters, eq(characterClaims.characterId, characters.id))
       .where(and(eq(characterClaims.requesterId, session.user.id), eq(characterClaims.status, "pending")))
       .orderBy(characterClaims.createdAt),
+    getOwnedAccountActivitySummaries(db, session.user.id),
   ]);
 
   const flagRows =
@@ -119,6 +123,37 @@ export default async function CharactersPage() {
         </Card>
       )}
 
+      {activitySummaries.length > 0 && (
+        <section className="mb-6" aria-labelledby="activity-summary-heading">
+          <h2 id="activity-summary-heading" className="mb-2 text-lg font-semibold">Activity summary</h2>
+          <p className="mb-3 text-sm text-neutral-500">Gross positive EP gained and GP spent, grouped by your player account.</p>
+          <div className="space-y-3">
+            {activitySummaries.map((summary) => {
+              const mainName = summary.mainCharacterId ? rows.find((character) => character.id === summary.mainCharacterId)?.name : null;
+              return (
+                <Card key={summary.playerId} className="overflow-hidden">
+                  <div className="border-b border-border px-4 py-2.5">
+                    <h3 className="font-medium">{mainName ?? summary.displayName}</h3>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-5 gap-y-2 px-4 py-3 text-sm">
+                    <span className="text-[11px] uppercase tracking-wide text-neutral-500">Window</span>
+                    <span className="text-right text-[11px] uppercase tracking-wide text-neutral-500">EP gained</span>
+                    <span className="text-right text-[11px] uppercase tracking-wide text-neutral-500">GP spent</span>
+                    {ACTIVITY_WINDOWS.map((window) => (
+                      <div key={window.key} className="contents">
+                        <span className="text-neutral-400">{window.label}</span>
+                        <span className="text-right font-mono tabular-nums text-emerald-400">{Math.round(summary.windows[window.key].epGained)}</span>
+                        <span className="text-right font-mono tabular-nums">{Math.round(summary.windows[window.key].gpSpent)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {rows.length === 0 ? (
         <p className="mt-8 text-neutral-400">You haven&apos;t added any characters yet.</p>
       ) : (
@@ -139,7 +174,7 @@ export default async function CharactersPage() {
                       {c.name}
                     </Link>{" "}
                     <span className="text-sm font-normal text-neutral-500">
-                      {c.charType === "alt" ? "(Alt)" : "(Main)"}
+                      ({CHAR_TYPE_LABEL[c.charType]})
                     </span>
                   </p>
                   <p className="text-sm text-neutral-400">

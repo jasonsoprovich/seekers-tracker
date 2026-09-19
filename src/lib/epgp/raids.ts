@@ -1,7 +1,8 @@
-import { and, eq, gte, isNull, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { bids, characters, epLedger, gpLedger, lootEvents, raids } from "@/db";
+import { bids, characters, epLedger, gpLedger, lootEvents, players, raids, users } from "@/db";
+import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { settleStandings } from "@/lib/epgp/standings";
 
@@ -31,12 +32,68 @@ export type RaidListRow = {
   itemCount: number;
   epAwarded: number;
   gpSpent: number;
+  leader: string | null;
 };
+
+type LeaderCandidate = { enteredBy: string; createdAt: Date; id: number };
+
+function isEarlierLeaderCandidate(next: LeaderCandidate, current: LeaderCandidate | null): boolean {
+  return current === null || next.createdAt < current.createdAt || (next.createdAt.getTime() === current.createdAt.getTime() && next.id < current.id);
+}
+
+async function resolveLeaderNames(
+  db: ReturnType<typeof drizzle>,
+  candidates: Iterable<LeaderCandidate | null>,
+): Promise<Map<string, string>> {
+  const userIds = [...new Set([...candidates].flatMap((candidate) => (candidate ? [candidate.enteredBy] : [])))];
+  if (userIds.length === 0) return new Map();
+
+  const [userRows, playerRows] = await Promise.all([
+    db.select({ id: users.id, username: users.username }).from(users).where(inArray(users.id, userIds)),
+    db
+      .select({ userId: players.userId, mainCharacterId: players.mainCharacterId })
+      .from(players)
+      .where(inArray(players.userId, userIds)),
+  ]);
+  const usernameByUser = new Map(userRows.map((row) => [row.id, row.username]));
+  const accountsByUser = new Map<string, typeof playerRows>();
+  for (const row of playerRows) {
+    if (!row.userId) continue;
+    const accountRows = accountsByUser.get(row.userId) ?? [];
+    accountRows.push(row);
+    accountsByUser.set(row.userId, accountRows);
+  }
+
+  const unambiguousMainIds = [...new Set(
+    [...accountsByUser.values()].flatMap((rows) => (rows.length === 1 && rows[0].mainCharacterId != null ? [rows[0].mainCharacterId] : [])),
+  )];
+  const mainRows = unambiguousMainIds.length
+    ? await db.select({ id: characters.id, name: characters.name }).from(characters).where(inArray(characters.id, unambiguousMainIds))
+    : [];
+  const mainById = new Map(mainRows.map((row) => [row.id, row.name]));
+
+  return new Map(userIds.map((userId) => {
+    const accountRows = accountsByUser.get(userId) ?? [];
+    const mainName = accountRows.length === 1 && accountRows[0].mainCharacterId != null
+      ? mainById.get(accountRows[0].mainCharacterId)
+      : null;
+    return [userId, mainName ?? usernameByUser.get(userId) ?? "Unknown"];
+  }));
+}
 
 export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidListRow[]> {
   const [attRows, lootRows, gpRows, named] = await Promise.all([
     db
-      .select({ occurredAt: epLedger.occurredAt, playerId: epLedger.playerId, points: epLedger.points, zone: epLedger.zone })
+      .select({
+        id: epLedger.id,
+        occurredAt: epLedger.occurredAt,
+        createdAt: epLedger.createdAt,
+        enteredBy: epLedger.enteredBy,
+        activity: epLedger.activity,
+        playerId: epLedger.playerId,
+        points: epLedger.points,
+        zone: epLedger.zone,
+      })
       .from(epLedger)
       .where(eq(epLedger.source, "parse")),
     db.select({ occurredAt: lootEvents.occurredAt }).from(lootEvents),
@@ -44,18 +101,24 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
     db.select().from(raids),
   ]);
 
-  type Bucket = { members: Set<number>; ep: number; zones: Set<string> };
+  type Bucket = { members: Set<number>; ep: number; zones: Set<string>; leaderCandidate: LeaderCandidate | null };
   const attByDate = new Map<string, Bucket>();
   for (const r of attRows) {
     const d = toGuildDateString(r.occurredAt);
     let b = attByDate.get(d);
     if (!b) {
-      b = { members: new Set(), ep: 0, zones: new Set() };
+      b = { members: new Set(), ep: 0, zones: new Set(), leaderCandidate: null };
       attByDate.set(d, b);
     }
-    if (r.playerId != null) b.members.add(r.playerId);
     if (r.points > 0) b.ep += r.points;
-    if (r.zone) b.zones.add(r.zone);
+    if (ATTENDANCE_GATED_ACTIVITIES.has(r.activity)) {
+      if (r.playerId != null) b.members.add(r.playerId);
+      if (r.zone) b.zones.add(r.zone);
+      if (r.enteredBy) {
+        const candidate = { enteredBy: r.enteredBy, createdAt: r.createdAt, id: r.id };
+        if (isEarlierLeaderCandidate(candidate, b.leaderCandidate)) b.leaderCandidate = candidate;
+      }
+    }
   }
 
   const lootByDate = new Map<string, number>();
@@ -71,6 +134,7 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
   }
 
   const namedByDate = new Map(named.map((r) => [r.raidDate, r]));
+  const leaderNames = await resolveLeaderNames(db, [...attByDate.values()].map((bucket) => bucket.leaderCandidate));
 
   const dates = new Set<string>([...attByDate.keys(), ...lootByDate.keys()]);
   const rows: RaidListRow[] = [];
@@ -86,6 +150,7 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
       itemCount: lootByDate.get(d) ?? 0,
       epAwarded: a?.ep ?? 0,
       gpSpent: gpByDate.get(d) ?? 0,
+      leader: a?.leaderCandidate ? leaderNames.get(a.leaderCandidate.enteredBy) ?? null : null,
     });
   }
   rows.sort((x, y) => (x.raidDate < y.raidDate ? 1 : -1));
@@ -131,6 +196,7 @@ export type RaidDetail = {
   memberCount: number;
   epAwarded: number;
   gpSpent: number;
+  leader: string | null;
   captures: RaidCapture[];
   loot: RaidLoot[];
 };
@@ -148,6 +214,9 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
         zone: epLedger.zone,
         points: epLedger.points,
         playerId: epLedger.playerId,
+        id: epLedger.id,
+        createdAt: epLedger.createdAt,
+        enteredBy: epLedger.enteredBy,
         characterName: characters.name,
       })
       .from(epLedger)
@@ -193,10 +262,16 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
   // Attendance grouped into captures by (activity, occurredAt) — one /who.
   const captureMap = new Map<string, RaidCapture>();
   const playerIds = new Set<number>();
+  let leaderCandidate: LeaderCandidate | null = null;
   let epAwarded = 0;
   for (const r of attRows) {
     if (r.points > 0) epAwarded += r.points;
+    if (!ATTENDANCE_GATED_ACTIVITIES.has(r.activity)) continue;
     if (r.playerId != null) playerIds.add(r.playerId);
+    if (r.enteredBy) {
+      const candidate = { enteredBy: r.enteredBy, createdAt: r.createdAt, id: r.id };
+      if (isEarlierLeaderCandidate(candidate, leaderCandidate)) leaderCandidate = candidate;
+    }
     const key = `${r.activity}@${r.occurredAt.getTime()}`;
     let cap = captureMap.get(key);
     if (!cap) {
@@ -260,6 +335,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
 
   const gpSpent = gpRows.reduce((n, g) => n + g.points, 0);
+  const leaderNames = await resolveLeaderNames(db, [leaderCandidate]);
 
   return {
     raidDate,
@@ -268,6 +344,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     memberCount: playerIds.size,
     epAwarded,
     gpSpent,
+    leader: leaderCandidate ? leaderNames.get(leaderCandidate.enteredBy) ?? null : null,
     captures,
     loot,
   };

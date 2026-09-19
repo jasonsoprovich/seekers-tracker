@@ -113,7 +113,7 @@ export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs
           instead). Solid bg-surface (not /95 + backdrop-blur) and a bottom
           border make the "stuck" state visually obvious rather than a
           near-invisible translucent strip once content scrolls under it. */}
-      <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:-mx-6 sm:px-6">
+      <div className="sticky top-[69px] z-10 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:top-0 sm:z-20 sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedToggle
             value={showAlts ? "all" : "mains"}

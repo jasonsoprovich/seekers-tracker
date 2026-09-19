@@ -64,6 +64,9 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
 
       <div className="mt-4 flex flex-wrap gap-4 text-sm">
         <span className="rounded-md border border-border px-3 py-1.5">
+          <span className="text-neutral-500">Raid leader</span> <span className="font-semibold">{detail.leader ?? "—"}</span>
+        </span>
+        <span className="rounded-md border border-border px-3 py-1.5">
           <span className="text-neutral-500">Attended</span> <span className="font-semibold">{detail.memberCount}</span>
         </span>
         <span className="rounded-md border border-border px-3 py-1.5">

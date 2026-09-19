@@ -44,8 +44,17 @@ export default async function DashboardPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const allCharacters = await db.select().from(characters);
-  const standings = await getStandings(db);
+  const [allCharacters, standings, flagRows, roleHolders] = await Promise.all([
+    db.select().from(characters),
+    getStandings(db),
+    db.select().from(characterPopFlags),
+    db
+      .select({ username: users.username, role: players.role, mainCharacterName: characters.name })
+      .from(players)
+      .leftJoin(users, eq(users.id, players.userId))
+      .innerJoin(characters, eq(characters.id, players.mainCharacterId))
+      .where(inArray(players.role, [...LEADERSHIP_ROLES, "officer"])),
+  ]);
 
   // Shared roster feed for RosterOverview's combined Characters/Mains/Alts
   // card, Roster-by-Class chart, and Active-by-Class list — one filter
@@ -69,7 +78,6 @@ export default async function DashboardPage() {
   // every character's ID hits D1's ~100-bound-parameter-per-statement limit
   // once the roster grows past that (surfaced by the roster seed, §9 task 20
   // follow-up). Reading the whole (small, guild-scale) table sidesteps it.
-  const flagRows = await db.select().from(characterPopFlags);
   const flagsByCharacter = new Map<number, FlagRow[]>();
   for (const r of flagRows) {
     if (!flagsByCharacter.has(r.characterId)) flagsByCharacter.set(r.characterId, []);
@@ -95,20 +103,14 @@ export default async function DashboardPage() {
   // column (2026-09-11).
   // players.role, not users.role: an officer who has never logged in
   // (Koramak, 2026-09-11) still holds the role on the account.
-  const roleHolders = await db
-    .select({ username: users.username, role: players.role, mainCharacterName: characters.name })
-    .from(players)
-    .leftJoin(users, eq(users.id, players.userId))
-    .innerJoin(characters, eq(characters.id, players.mainCharacterId))
-    .where(inArray(players.role, [...LEADERSHIP_ROLES, "officer"]));
   const leadership = roleHolders.filter((r) => r.role === "leader");
   const officers = roleHolders.filter((r) => r.role === "officer" || r.role === "admin");
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Guild Dashboard" />
-      <GuildLeadership leadership={leadership} officers={officers} />
-      <div className="mt-4">
+      <div className="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(20rem,2fr)]">
+        <GuildLeadership leadership={leadership} officers={officers} />
         <GuildPopMeter mainsOnly={{ done: pop.mainDone, total: pop.mainTotal }} all={{ done: pop.allDone, total: pop.allTotal }} />
       </div>
       <RosterOverview roster={rosterEntries} nowMs={Date.now()} />

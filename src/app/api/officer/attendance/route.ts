@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { characters, epLedger } from "@/db";
-import { checkMinAttendance } from "@/lib/epgp/attendance";
+import { checkMinAttendance, insertPreparedEventLeadAward, prepareEventLeadAward } from "@/lib/epgp/attendance";
 import { getDb } from "@/lib/db";
 import { insertEpLedgerBatch } from "@/lib/epgp/ledger-entry";
 import { nameRaidFromCapture } from "@/lib/epgp/raids";
@@ -22,6 +22,7 @@ type AttendanceRequestBody = {
   note?: unknown;
   zone?: unknown;
   raidName?: unknown;
+  awardEventLead?: unknown;
 };
 
 // Pre-submit "is this capture already in the ledger?" check for the parser
@@ -108,6 +109,10 @@ export async function POST(request: Request) {
   // submit that carries a name wins (nameRaidFromCapture never overwrites),
   // so a stale value on a later Mid/End submit is harmless.
   const raidName = typeof body.raidName === "string" && body.raidName.trim() ? body.raidName.trim().slice(0, LIMITS.raidName) : null;
+  if (body.awardEventLead !== undefined && typeof body.awardEventLead !== "boolean") {
+    return Response.json({ error: "`awardEventLead` must be a boolean." }, { status: 400 });
+  }
+  const awardEventLead = body.awardEventLead === true;
   const activity = activityCheck.value;
 
   const db = await getDb();
@@ -134,6 +139,16 @@ export async function POST(request: Request) {
       },
       { status: 422 },
     );
+  }
+
+  // Resolve every Event Lead dependency before attendance writes begin. The
+  // award belongs to the API-key owner, never a client-supplied character,
+  // and only a single unambiguous owned account/current main is accepted.
+  const eventLeadPreparation = awardEventLead
+    ? await prepareEventLeadAward(db, auth.userId, activity, occurredAt)
+    : null;
+  if (eventLeadPreparation && !eventLeadPreparation.ok) {
+    return Response.json({ error: eventLeadPreparation.error }, { status: 422 });
   }
 
   // 2026-09-10 perf rewrite. This used to loop names one at a time — name
@@ -229,7 +244,9 @@ export async function POST(request: Request) {
   }
 
   let inserted = 0;
+  let eventLeadInserted = false;
   let standings: StandingsRow[] = [];
+  const affectedPlayerIds = new Set<number>();
   if (toInsert.length > 0) {
     const result = await insertEpLedgerBatch(db, toInsert, auth.userId, "parse");
     inserted = result.inserted;
@@ -239,16 +256,27 @@ export async function POST(request: Request) {
       console.warn(`attendance: could not store "${name}": ${f.error}`);
       if (row) unmatched.push(name);
     }
-    // One recompute for every player this capture touched (instead of one
-    // per name) — and the standings upserts inside are batched too.
-    // Best-effort (task 4.6): insertEpLedgerBatch already left a durable
-    // dirty marker per player in the same chunk batch as their ledger
-    // rows, so a failure here doesn't lose the refresh, just delays it to
-    // the repair pass.
-    if (result.playerIds.length > 0) {
-      const settled = await settleStandings(db, { playerIds: result.playerIds });
-      if (settled) standings = [...(await getStandingsForPlayers(db, result.playerIds)).values()];
-    }
+    for (const playerId of result.playerIds) affectedPlayerIds.add(playerId);
+  }
+
+  if (eventLeadPreparation?.ok) {
+    eventLeadInserted = await insertPreparedEventLeadAward(
+      db,
+      eventLeadPreparation.award,
+      occurredAt,
+      auth.userId,
+      note,
+    );
+    affectedPlayerIds.add(eventLeadPreparation.award.playerId);
+  }
+
+  // One recompute for attendance and Event Lead together. Both insert paths
+  // commit their dirty markers transactionally, so a failed recompute only
+  // delays repair; it cannot leave silent standings drift.
+  if (affectedPlayerIds.size > 0) {
+    const playerIds = [...affectedPlayerIds];
+    const settled = await settleStandings(db, { playerIds });
+    if (settled) standings = [...(await getStandingsForPlayers(db, playerIds)).values()];
   }
 
   // Best-effort: a name that couldn't be stored (bad date, race) must not
@@ -262,5 +290,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return Response.json({ inserted, unmatched, duplicates, standings }, { status: 201 });
+  return Response.json({ inserted, eventLeadInserted, unmatched, duplicates, standings }, { status: 201 });
 }
