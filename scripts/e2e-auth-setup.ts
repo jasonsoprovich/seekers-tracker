@@ -111,6 +111,83 @@ async function main() {
   if (!managedCharacter) throw new Error("Could not create the E2E managed character.");
   await db.update(players).set({ mainCharacterId: managedCharacter.id }).where(eq(players.id, managedPlayer.id));
 
+  let [managedMule] = await db.select({ id: characters.id }).from(characters).where(eq(characters.name, "E2E Managed Mule"));
+  if (!managedMule) {
+    await db.insert(characters).values({
+      name: "E2E Managed Mule",
+      class: 11,
+      race: 12,
+      level: 60,
+      charType: "mule",
+      ownerId: leader.id,
+      playerId: managedPlayer.id,
+      mainCharacterId: null,
+    });
+    [managedMule] = await db.select({ id: characters.id }).from(characters).where(eq(characters.name, "E2E Managed Mule"));
+  } else {
+    await db
+      .update(characters)
+      .set({ charType: "mule", ownerId: leader.id, playerId: managedPlayer.id, mainCharacterId: null, status: "active" })
+      .where(eq(characters.id, managedMule.id));
+  }
+  if (!managedMule) throw new Error("Could not create the E2E managed mule.");
+
+  let [departedPlayer] = await db.select({ id: players.id }).from(players).where(eq(players.displayName, "E2E Departed Account"));
+  if (!departedPlayer) {
+    await db.insert(players).values({ displayName: "E2E Departed Account", status: "departed", role: "member" });
+    [departedPlayer] = await db.select({ id: players.id }).from(players).where(eq(players.displayName, "E2E Departed Account"));
+  }
+  if (!departedPlayer) throw new Error("Could not create the E2E departed account.");
+  await db.update(players).set({ status: "departed", role: "member", userId: null }).where(eq(players.id, departedPlayer.id));
+
+  let [departedCharacter] = await db.select({ id: characters.id }).from(characters).where(eq(characters.name, "E2E Departed Character"));
+  if (!departedCharacter) {
+    await db.insert(characters).values({
+      name: "E2E Departed Character",
+      class: 5,
+      race: 4,
+      level: 60,
+      charType: "main",
+      playerId: departedPlayer.id,
+    });
+    [departedCharacter] = await db.select({ id: characters.id }).from(characters).where(eq(characters.name, "E2E Departed Character"));
+  }
+  if (!departedCharacter) throw new Error("Could not create the E2E departed character.");
+  await db
+    .update(characters)
+    .set({ ownerId: null, playerId: departedPlayer.id, charType: "main", status: "active" })
+    .where(eq(characters.id, departedCharacter.id));
+  await db.update(players).set({ mainCharacterId: departedCharacter.id }).where(eq(players.id, departedPlayer.id));
+
+  // More than D1's 100-bound-parameter limit, represented as one-row
+  // statements so the browser test can safely exercise the claim page's
+  // group lookup on a clean local database.
+  const rawDb = proxy.env.DATABASE as unknown as D1Database;
+  const claimGroupNames = Array.from({ length: 101 }, (_, i) => `E2E Claim Group ${String(i + 1).padStart(3, "0")}`);
+  await rawDb.batch(
+    claimGroupNames.map((name) =>
+      rawDb.prepare("INSERT INTO players (display_name) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM players WHERE display_name = ?)").bind(name, name),
+    ),
+  );
+  await rawDb.batch(
+    claimGroupNames.map((name) =>
+      rawDb
+        .prepare(
+          "INSERT INTO characters (player_id, name, class, race, level, char_type) SELECT id, ?, 1, 1, 60, 'main' FROM players WHERE display_name = ? AND NOT EXISTS (SELECT 1 FROM characters WHERE name = ?) LIMIT 1",
+        )
+        .bind(name, name, name),
+    ),
+  );
+  await rawDb.batch(
+    claimGroupNames.map((name) =>
+      rawDb
+        .prepare(
+          "UPDATE players SET main_character_id = (SELECT id FROM characters WHERE name = ? LIMIT 1) WHERE display_name = ?",
+        )
+        .bind(name, name),
+    ),
+  );
+
   const [pendingClaim] = await db
     .select({ id: characterClaims.id })
     .from(characterClaims)
@@ -135,7 +212,16 @@ async function main() {
   writeFileSync(leaderSession.path, JSON.stringify(leaderSession.state, null, 2));
   writeFileSync(
     FIXTURES_PATH,
-    JSON.stringify({ characterId: anyCharacter?.id ?? null, managedCharacterId: managedCharacter.id }, null, 2),
+    JSON.stringify(
+      {
+        characterId: anyCharacter?.id ?? null,
+        managedCharacterId: managedCharacter.id,
+        managedMuleId: managedMule.id,
+        departedCharacterId: departedCharacter.id,
+      },
+      null,
+      2,
+    ),
   );
   console.log(`Wrote ${OUT_PATH} session states for member, officer, leader, and admin`);
 

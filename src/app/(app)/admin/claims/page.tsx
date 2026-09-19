@@ -56,13 +56,15 @@ export default async function ClaimReviewPage() {
   // group" to the officer before they approve, since approving attaches
   // all of it, not just the one character requested.
   const groupPlayerIds = [...new Set(pending.map((r) => r.characterPlayerId).filter((id): id is number => id != null))];
-  const groupMembers =
-    groupPlayerIds.length === 0
-      ? []
-      : await db
-          .select({ id: characters.id, name: characters.name, charType: characters.charType, playerId: characters.playerId })
-          .from(characters)
-          .where(inArray(characters.playerId, groupPlayerIds));
+  const groupMemberChunks = await Promise.all(
+    Array.from({ length: Math.ceil(groupPlayerIds.length / 90) }, (_, i) =>
+      db
+        .select({ id: characters.id, name: characters.name, charType: characters.charType, playerId: characters.playerId })
+        .from(characters)
+        .where(inArray(characters.playerId, groupPlayerIds.slice(i * 90, (i + 1) * 90))),
+    ),
+  );
+  const groupMembers = groupMemberChunks.flat();
   const groupsByPlayerId = new Map<number, typeof groupMembers>();
   for (const m of groupMembers) {
     if (m.playerId == null) continue;

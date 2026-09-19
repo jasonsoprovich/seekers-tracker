@@ -43,17 +43,17 @@ export async function requestClaim(characterId: number, note: string): Promise<C
   // character already in that group is the same request in spirit; block
   // a second one here rather than letting it surface as a separate,
   // duplicate review item.
-  const groupCharacterIds =
-    character.playerId != null
-      ? (await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, character.playerId))).map((c) => c.id)
-      : [characterId];
-
   const [existingPending] = await db
     .select({ id: characterClaims.id })
     .from(characterClaims)
     .where(
       and(
-        inArray(characterClaims.characterId, groupCharacterIds),
+        character.playerId === null
+          ? eq(characterClaims.characterId, characterId)
+          : inArray(
+              characterClaims.characterId,
+              db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, character.playerId)),
+            ),
         eq(characterClaims.requesterId, session.user.id),
         eq(characterClaims.status, "pending"),
       ),

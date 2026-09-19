@@ -41,13 +41,15 @@ export default async function ClaimCharacterPage() {
   // above, if any are already owned elsewhere). One batched query rather
   // than one per row.
   const groupPlayerIds = [...new Set(unclaimed.map((c) => c.playerId).filter((id): id is number => id != null))];
-  const groupMembers =
-    groupPlayerIds.length === 0
-      ? []
-      : await db
-          .select({ id: characters.id, name: characters.name, charType: characters.charType, playerId: characters.playerId })
-          .from(characters)
-          .where(inArray(characters.playerId, groupPlayerIds));
+  const groupMemberChunks = await Promise.all(
+    Array.from({ length: Math.ceil(groupPlayerIds.length / 90) }, (_, i) =>
+      db
+        .select({ id: characters.id, name: characters.name, charType: characters.charType, playerId: characters.playerId })
+        .from(characters)
+        .where(inArray(characters.playerId, groupPlayerIds.slice(i * 90, (i + 1) * 90))),
+    ),
+  );
+  const groupMembers = groupMemberChunks.flat();
   const groupsByPlayerId = new Map<number, typeof groupMembers>();
   for (const m of groupMembers) {
     if (m.playerId == null) continue;

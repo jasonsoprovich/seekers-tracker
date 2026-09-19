@@ -45,21 +45,22 @@ export default async function CharacterAccountPage({ params }: { params: Promise
   const viewerRole = await getUserRole(session.user.id);
   const isOfficer = canManageAnyCharacter(viewerRole);
   const isLeader = canManageRoles(viewerRole);
+  const canManage = await canManageCharacter(character, session.user.id);
 
-  const header = (
+  const header = (displayRole: Role | null) => (
     <CharacterHeader
       character={character}
       active="account"
       ownerUsername={ownerUsername ?? undefined}
-      ownerRole={ownerRole}
-      canManage={await canManageCharacter(character, session.user.id)}
+      ownerRole={displayRole}
+      canManage={canManage}
     />
   );
 
   if (character.playerId === null) {
     return (
       <div className="mx-auto max-w-3xl">
-        {header}
+        {header(ownerRole)}
         <Card className="mt-6 px-4 py-4 text-sm text-neutral-400">
           <p className="font-medium text-neutral-200">This character isn&apos;t on an account yet.</p>
           <p className="mt-1">
@@ -188,7 +189,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
 
   return (
     <div className="mx-auto max-w-3xl">
-      {header}
+      {header(player.status === "departed" ? null : ownerRole)}
 
       <Card className="mt-6 px-4 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -197,11 +198,12 @@ export default async function CharacterAccountPage({ params }: { params: Promise
             <p className="mt-1 text-lg font-semibold text-neutral-100">{accountName}</p>
             <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-neutral-400">
               {player.accountUsername ? <>Managed by {player.accountUsername}</> : <>Unclaimed — managed by officers until a member claims it</>}
-              {isLeader ? (
-                <PlayerRoleSelect playerId={player.id} role={player.accountRole as Role} isSelf={isAccountOwner} />
-              ) : (
-                <RoleBadge role={player.accountRole as Role} />
-              )}
+              {player.status !== "departed" &&
+                (isLeader ? (
+                  <PlayerRoleSelect playerId={player.id} role={player.accountRole as Role} isSelf={isAccountOwner} />
+                ) : (
+                  <RoleBadge role={player.accountRole as Role} />
+                ))}
               {player.status !== "active" && (
                 <span
                   className={`rounded border px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase ${

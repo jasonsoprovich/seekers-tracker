@@ -45,7 +45,7 @@ function ClaimRowItem({ row }: { row: ClaimRow }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-medium">
-            {row.name} <span className="text-sm font-normal text-neutral-500">{row.charType === "alt" ? "(Alt)" : "(Main)"}</span>
+            {row.name} <span className="text-sm font-normal text-neutral-500">({CHAR_TYPE_LABEL[row.charType]})</span>
           </p>
           <p className="text-sm text-neutral-400">
             Level {row.level} {row.className} — {row.raceName}

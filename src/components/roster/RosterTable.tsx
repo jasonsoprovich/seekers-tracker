@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
 
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
+import { Button } from "@/components/ui/Button";
 import { fieldClasses } from "@/components/ui/Field";
 import { MobileCard } from "@/components/ui/MobileCard";
 import { roleRank, RoleBadge } from "@/components/ui/RoleBadge";
@@ -38,7 +39,8 @@ export type RosterRow = {
   // The account was removed from the guild (players.status 'departed') —
   // hidden under "Active only", shown under "Removed from guild" / "All".
   departed: boolean;
-  mainCharacterId: number | null;
+  playerId: number | null;
+  playerMainId: number | null;
   // Alts share their main's EP/GP/Priority/decay — see roster/page.tsx.
   ep: number | null;
   gp: number | null;
@@ -100,12 +102,12 @@ function compare(a: RosterRow, b: RosterRow, key: SortKey): number {
   return String(av).localeCompare(String(bv));
 }
 
-type Group = { main: RosterRow; alts: RosterRow[] };
+type Group = { main: RosterRow; children: RosterRow[] };
 
 export function RosterTable({ rows }: { rows: RosterRow[] }) {
   const hasAccountActions = rows.some((row) => row.canManageAccount);
   const [search, setSearch] = useState("");
-  const [classFilter, setClassFilter] = useState<string>("all");
+  const [classFilters, setClassFilters] = useState<Set<number>>(new Set());
   const [raceFilter, setRaceFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
@@ -118,6 +120,15 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
 
   const q = search.trim().toLowerCase();
   const hasSearch = q !== "";
+  const hasFilters =
+    hasSearch ||
+    classFilters.size > 0 ||
+    raceFilter !== "all" ||
+    typeFilter !== "all" ||
+    statusFilter !== "active" ||
+    activeFilter !== DEFAULT_ACTIVE_WINDOW ||
+    minLevel !== "" ||
+    maxLevel !== "";
 
   // post-live-test-1 LT-34 — three predicates instead of one so a search
   // can override the "recently active" window and reveal a whole main+alt
@@ -133,7 +144,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     const activeCutoff = activeMs === null ? null : Date.now() - activeMs;
     return {
       matchesFilters: (r: RosterRow) => {
-        if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
+        if (classFilters.size > 0 && !classFilters.has(r.classId)) return false;
         if (raceFilter !== "all" && String(r.raceId) !== raceFilter) return false;
         if (typeFilter !== "all" && r.charType !== typeFilter) return false;
         if (statusFilter === "departed") {
@@ -150,7 +161,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       matchesActive: (r: RosterRow) =>
         activeCutoff === null || (r.lastActivityAt !== null && r.lastActivityAt >= activeCutoff),
     };
-  }, [q, classFilter, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel]);
+  }, [q, classFilters, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel]);
 
   // The full per-row predicate — used only on the NO-search path (and for
   // the auto-expand check). While searching, the active window is dropped
@@ -160,32 +171,31 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     [matchesFilters, matchesSearch, matchesActive],
   );
 
-  // Alts nest under their main so expand/collapse can show or hide them as a
-  // unit; an alt whose main went missing (or wasn't itself a "main" row)
-  // stands alone at the top level instead of vanishing.
+  // The player account and its authoritative main pointer define groups.
+  // Character-level main pointers are intentionally irrelevant here: mules
+  // belong to the account without pretending to be alts.
   const groups = useMemo(() => {
     const byId = new Map(rows.map((r) => [r.id, r]));
     const groupMap = new Map<number, Group>();
     const orphans: RosterRow[] = [];
+    const groupedIds = new Set<number>();
 
     for (const r of rows) {
-      if (r.charType === "main") groupMap.set(r.id, { main: r, alts: [] });
+      if (r.playerId === null || r.playerMainId === null) continue;
+      const main = byId.get(r.playerMainId);
+      if (main?.playerId === r.playerId && !groupMap.has(main.id)) {
+        groupMap.set(main.id, { main, children: [] });
+        groupedIds.add(main.id);
+      }
     }
     for (const r of rows) {
-      if (r.charType === "main") continue;
-      // Mules aren't nested under a main (§4c) — they stand alone, same as
-      // an alt whose main isn't in the list.
-      if (r.charType === "mule") {
-        orphans.push(r);
-        continue;
-      }
-      const main = r.mainCharacterId !== null ? byId.get(r.mainCharacterId) : undefined;
-      if (main && main.charType === "main" && groupMap.has(main.id)) {
-        groupMap.get(main.id)!.alts.push(r);
-      } else {
-        orphans.push(r);
-      }
+      if (groupedIds.has(r.id)) continue;
+      const group = r.playerMainId === null ? undefined : groupMap.get(r.playerMainId);
+      if (!group || r.playerId !== group.main.playerId) continue;
+      group.children.push(r);
+      groupedIds.add(r.id);
     }
+    for (const r of rows) if (!groupedIds.has(r.id)) orphans.push(r);
     return { groupMap, orphans };
   }, [rows]);
 
@@ -195,8 +205,8 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       if (!hasSearch) {
         // No query: per-row filtering, active window included. Group shows
         // if its main passes or any alt does.
-        const alts = group.alts.filter(matches);
-        if (matches(group.main) || alts.length > 0) result.push({ main: group.main, alts });
+        const children = group.children.filter(matches);
+        if (matches(group.main) || children.length > 0) result.push({ main: group.main, children });
         continue;
       }
       // LT-34 search mode: the active window is ignored, and a search hit
@@ -206,24 +216,46 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       // to find who it belongs to). The only thing that still hides alts
       // is "Mains only".
       const mainHit = matchesFilters(group.main) && matchesSearch(group.main);
-      const altHit = group.alts.some((a) => matchesFilters(a) && matchesSearch(a));
-      if (!mainHit && !altHit) continue;
-      const alts = typeFilter === "main" ? [] : group.alts.filter(matchesFilters);
-      result.push({ main: group.main, alts });
+      const childHit = group.children.some((child) => matchesFilters(child) && matchesSearch(child));
+      if (!mainHit && !childHit) continue;
+      const children = typeFilter === "main" ? [] : group.children.filter(matchesFilters);
+      result.push({ main: group.main, children });
     }
     for (const orphan of groups.orphans) {
       const shown = hasSearch ? matchesFilters(orphan) && matchesSearch(orphan) : matches(orphan);
-      if (shown) result.push({ main: orphan, alts: [] });
+      if (shown) result.push({ main: orphan, children: [] });
     }
 
     result.sort((a, b) => compare(a.main, b.main, sortKey) * (sortDir === "asc" ? 1 : -1));
     for (const group of result) {
-      group.alts.sort((a, b) => a.name.localeCompare(b.name));
+      group.children.sort(
+        (a, b) => (a.charType === "alt" ? 0 : a.charType === "mule" ? 1 : 2) - (b.charType === "alt" ? 0 : b.charType === "mule" ? 1 : 2) || a.name.localeCompare(b.name),
+      );
     }
     return result;
   }, [groups, matches, matchesFilters, matchesSearch, hasSearch, typeFilter, sortKey, sortDir]);
 
-  const visibleCount = visibleGroups.reduce((n, g) => n + 1 + g.alts.length, 0);
+  const visibleCount = visibleGroups.reduce((n, g) => n + 1 + g.children.length, 0);
+
+  function toggleClass(classId: number) {
+    setClassFilters((current) => {
+      const next = new Set(current);
+      if (next.has(classId)) next.delete(classId);
+      else next.add(classId);
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setClassFilters(new Set());
+    setRaceFilter("all");
+    setTypeFilter("all");
+    setStatusFilter("active");
+    setActiveFilter(DEFAULT_ACTIVE_WINDOW);
+    setMinLevel("");
+    setMaxLevel("");
+  }
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -243,27 +275,27 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     });
   }
 
-  function renderRow(r: RosterRow, opts: { toggle?: { open: boolean; onClick: () => void } } = {}) {
+  function renderRow(r: RosterRow, opts: { nested?: boolean; toggle?: { open: boolean; onClick: () => void } } = {}) {
     // Alts render as a shaded band directly under their main, with a left
     // accent rule and a deeper name indent, so a main's group of alts reads
     // as one visual unit rather than blending into the next main's row.
-    const isAlt = r.charType === "alt";
+    const isNested = opts.nested === true;
     return (
-      <tr key={r.id} className={isAlt ? "bg-neutral-900/40 hover:bg-neutral-900/60" : "hover:bg-neutral-900/40"}>
-        <td className={`py-2 font-medium ${isAlt ? "border-l-2 border-l-emerald-700/50 pr-3 pl-6" : "px-3"}`}>
+      <tr key={r.id} className={isNested ? "bg-neutral-900/40 hover:bg-neutral-900/60" : "hover:bg-neutral-900/40"}>
+        <td className={`py-2 font-medium ${isNested ? "border-l-2 border-l-emerald-700/50 pr-3 pl-6" : "px-3"}`}>
           <span className="inline-flex items-center gap-1.5">
             <span className="flex h-4 w-4 shrink-0 items-center justify-center">
               {opts.toggle ? (
                 <button
                   type="button"
                   onClick={opts.toggle.onClick}
-                  aria-label={opts.toggle.open ? "Hide alts" : "Show alts"}
+                  aria-label={opts.toggle.open ? "Hide account characters" : "Show account characters"}
                   className="flex h-4 w-4 items-center justify-center text-neutral-500 hover:text-neutral-200"
                 >
                   {opts.toggle.open ? "▾" : "▸"}
                 </button>
               ) : (
-                isAlt && (
+                isNested && (
                   <span className="text-neutral-600" aria-hidden="true">
                     ↳
                   </span>
@@ -296,22 +328,16 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           </span>
         </td>
         <td className="px-3 py-2">
-          <RoleBadge role={r.ownerRole ?? "member"} />
+          {!r.departed && <RoleBadge role={r.ownerRole ?? "member"} />}
         </td>
         <td className="px-3 py-2 text-neutral-400">{TYPE_LABEL[r.charType]}</td>
         <td className="px-3 py-2 text-neutral-400">{r.className}</td>
         <td className="px-3 py-2 text-neutral-400">{r.level}</td>
-        {/* EP/GP are already net of decay — the ready-to-use number — with the
-            upcoming decay shown small underneath for context, not as its own
-            column competing for attention. Priority stays the one clearly
-            "important" number alongside these. */}
         <td className="px-3 py-2">
           <div className="font-medium text-neutral-200">{r.ep === null ? "—" : Math.round(r.ep)}</div>
-          {!!r.epDecay && <div className="text-xs text-neutral-600">-{Math.round(r.epDecay)} next decay</div>}
         </td>
         <td className="px-3 py-2">
           <div className="font-medium text-neutral-200">{r.gp === null ? "—" : Math.round(r.gp)}</div>
-          {!!r.gpDecay && <div className="text-xs text-neutral-600">-{Math.round(r.gpDecay)} next decay</div>}
         </td>
         {/* 4 dp to match the guild sheet's Loot Priority column — the ratio
             clusters tightly, so 2 dp collapsed too many rows to the same
@@ -342,8 +368,8 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   // show/hide toggle is a separate small button in the summary, same as
   // renderRow's — expanding the card and revealing its alts are
   // independent actions, not one combined toggle.
-  function renderCard(r: RosterRow, opts: { toggle?: { open: boolean; onClick: () => void } } = {}) {
-    const isAlt = r.charType === "alt";
+  function renderCard(r: RosterRow, opts: { nested?: boolean; toggle?: { open: boolean; onClick: () => void } } = {}) {
+    const isNested = opts.nested === true;
     const summary = (
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {opts.toggle ? (
@@ -353,13 +379,13 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
               e.stopPropagation();
               opts.toggle!.onClick();
             }}
-            aria-label={opts.toggle.open ? "Hide alts" : "Show alts"}
+            aria-label={opts.toggle.open ? "Hide account characters" : "Show account characters"}
             className="flex h-8 w-8 shrink-0 items-center justify-center text-neutral-500 hover:text-neutral-200"
           >
             {opts.toggle.open ? "▾" : "▸"}
           </button>
         ) : (
-          isAlt && (
+          isNested && (
             <span className="w-8 shrink-0 text-center text-neutral-600" aria-hidden="true">
               ↳
             </span>
@@ -395,7 +421,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <div>
           <dt className="text-neutral-500">Role</dt>
           <dd className="mt-0.5">
-            <RoleBadge role={r.ownerRole ?? "member"} />
+            {!r.departed && <RoleBadge role={r.ownerRole ?? "member"} />}
           </dd>
         </div>
         <div>
@@ -435,7 +461,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       </dl>
     );
 
-    return <MobileCard key={r.id} summary={summary} detail={detail} accent={isAlt} />;
+    return <MobileCard key={r.id} summary={summary} detail={detail} accent={isNested} />;
   }
 
   return (
@@ -452,17 +478,20 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-neutral-400">Class</span>
-          <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
-            <option value="all">All classes</option>
+        <details className="relative text-sm">
+          <summary className={`${fieldClasses({ size: "sm" })} flex min-h-11 cursor-pointer list-none items-center sm:min-h-0`}>
+            {classFilters.size === 0 ? "All classes" : `${classFilters.size} ${classFilters.size === 1 ? "class" : "classes"}`}
+          </summary>
+          <fieldset className="absolute z-20 mt-1 max-h-72 w-52 overflow-y-auto rounded-lg border border-border bg-neutral-950 p-2 shadow-xl">
+            <legend className="sr-only">Class filters</legend>
             {CLASS_FILTER_OPTIONS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
+              <label key={c.id} className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-neutral-900 sm:min-h-8">
+                <input type="checkbox" checked={classFilters.has(c.id)} onChange={() => toggleClass(c.id)} />
+                <span>{c.name}</span>
+              </label>
             ))}
-          </select>
-        </label>
+          </fieldset>
+        </details>
 
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-neutral-400">Race</span>
@@ -534,6 +563,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         <span className="pb-1.5 text-sm text-neutral-500">
           {visibleCount} of {rows.length} character{rows.length === 1 ? "" : "s"}
         </span>
+        {hasFilters && (
+          <Button type="button" size="sm" variant="outline" onClick={resetFilters}>
+            Reset filters
+          </Button>
+        )}
       </div>
 
       {/* Mobile: expandable cards instead of a horizontally-scrolled table
@@ -541,14 +575,14 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           mounted and in sync with the same `visibleGroups`/`expanded` state. */}
       <div className="mt-4 flex flex-col gap-2 sm:hidden">
         {visibleGroups.map((group) => {
-          const hasAlts = group.alts.length > 0;
-          const isOpen = hasAlts && (expanded.has(group.main.id) || hasSearch || !matches(group.main));
+          const hasChildren = group.children.length > 0;
+          const isOpen = hasChildren && (expanded.has(group.main.id) || hasSearch || !matches(group.main));
           return (
             <div key={group.main.id} className="flex flex-col gap-2">
-              {renderCard(group.main, hasAlts ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
-              {hasAlts && isOpen && (
+              {renderCard(group.main, hasChildren ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
+              {hasChildren && isOpen && (
                 <div className="ml-3 flex flex-col gap-2 border-l-2 border-l-emerald-700/50 pl-2">
-                  {group.alts.map((alt) => renderCard(alt))}
+                  {group.children.map((child) => renderCard(child, { nested: true }))}
                 </div>
               )}
             </div>
@@ -557,6 +591,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         {visibleGroups.length === 0 && (
           <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
             No characters match these filters.
+            {hasFilters && (
+              <Button type="button" size="sm" variant="outline" onClick={resetFilters} className="mx-auto mt-3">
+                Reset filters
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -582,16 +621,16 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           </thead>
           <tbody className="divide-y divide-border">
             {visibleGroups.map((group) => {
-              const hasAlts = group.alts.length > 0;
+              const hasChildren = group.children.length > 0;
               // Auto-open when: the user opened it, it only surfaced via an
               // alt match (so the matching alt is visible), or a search is
               // active at all (LT-34 — the point of searching is to see the
               // whole group, alts included).
-              const isOpen = hasAlts && (expanded.has(group.main.id) || hasSearch || !matches(group.main));
+              const isOpen = hasChildren && (expanded.has(group.main.id) || hasSearch || !matches(group.main));
               return (
                 <Fragment key={group.main.id}>
-                  {renderRow(group.main, hasAlts ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
-                  {hasAlts && isOpen && group.alts.map((alt) => renderRow(alt))}
+                  {renderRow(group.main, hasChildren ? { toggle: { open: isOpen, onClick: () => toggleExpanded(group.main.id) } } : {})}
+                  {hasChildren && isOpen && group.children.map((child) => renderRow(child, { nested: true }))}
                 </Fragment>
               );
             })}
@@ -599,6 +638,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
               <tr>
                 <td colSpan={COLUMNS.length + (hasAccountActions ? 1 : 0)} className="px-3 py-6 text-center text-neutral-500">
                   No characters match these filters.
+                  {hasFilters && (
+                    <Button type="button" size="sm" variant="outline" onClick={resetFilters} className="mx-auto mt-3">
+                      Reset filters
+                    </Button>
+                  )}
                 </td>
               </tr>
             )}
