@@ -40,12 +40,13 @@ export function AddLedgerEntryForm({
     const occurredAt = String(formData.get("occurredAt") ?? "");
     const note = String(formData.get("note") ?? "");
     const zone = String(formData.get("zone") ?? "");
+    const raidDate = String(formData.get("raidDate") ?? "");
 
     setPending(true);
     setError(null);
     const result = await addLedgerEntry(
       type === "ep"
-        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone }
+        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone, raidDate }
         : { kind: "gp", characterId, tier: activityOrTier, itemName, points, occurredAt, note },
     );
     setPending(false);
@@ -122,6 +123,14 @@ export function AddLedgerEntryForm({
         <span className="text-neutral-400">Date</span>
         <input type="date" name="occurredAt" defaultValue={todayInputValue()} required className={fieldClasses({ size: "sm" })} />
       </Field>
+
+      {type === "ep" && (
+        <Field className="w-40">
+          <span className="text-neutral-400">Link to event</span>
+          <input type="date" name="raidDate" className={fieldClasses({ size: "sm" })} />
+          <span className="text-xs text-neutral-500">Attendance only</span>
+        </Field>
+      )}
 
       <Field className="w-56">
         <span className="text-neutral-400">Note</span>

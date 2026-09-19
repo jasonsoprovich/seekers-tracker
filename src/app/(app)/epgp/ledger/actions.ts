@@ -10,6 +10,8 @@ import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
 import { getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
+import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
+import { guildDayBounds } from "@/lib/guild-timezone";
 import { getSession } from "@/lib/session";
 import { boundedString } from "@/lib/validate";
 
@@ -22,7 +24,7 @@ export type LedgerActionResult = { error?: string; standing?: StandingsRow | nul
 export type AddLedgerEntryInput = InsertLedgerEntryInput;
 
 export type UpdateLedgerEntryInput =
-  | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string; zone: string }
+  | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string; zone: string; raidDate: string }
   | { kind: "gp"; id: number; tier: string; itemName: string; points: number; occurredAt: string; note: string };
 
 function parseOccurredAt(raw: string): Date | null {
@@ -66,6 +68,11 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   if (!occurredAt) return { error: "Invalid date." };
   const activityOrTier = (input.kind === "ep" ? input.activity : input.tier).trim();
   if (!activityOrTier) return { error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
+  const raidDate = input.kind === "ep" ? input.raidDate.trim() || null : null;
+  if (raidDate && !guildDayBounds(raidDate)) return { error: "Event date must be a valid date." };
+  if (raidDate && !ATTENDANCE_GATED_ACTIVITIES.has(activityOrTier)) {
+    return { error: "Only attendance entries can be linked to a raid or event." };
+  }
 
   const db = await getDb();
   // An edit never reassigns the character (that's a delete + re-add), so
@@ -88,6 +95,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
         occurredAt,
         note: input.note.trim() || null,
         zone: input.zone.trim() || null,
+        raidDate,
       })
       .where(eq(epLedger.id, input.id))
       .returning();

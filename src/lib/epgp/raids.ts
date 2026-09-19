@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, players, raids, users } from "@/db";
@@ -9,7 +9,8 @@ import { settleStandings } from "@/lib/epgp/standings";
 import { guildDayBounds, toGuildDateString } from "../guild-timezone";
 
 // A "raid" is not a stored row — it's every `source='parse'` attendance
-// award plus every loot event that share a calendar date **in the guild's
+// award plus manual attendance explicitly linked by `raid_date`, and every
+// loot event that share a calendar date **in the guild's
 // own timezone** (leader, 2026-09-05: raids are scheduled and run on
 // Eastern time; grouping by UTC date split a single Eastern evening across
 // two rows whenever it straddled UTC midnight — see guild-timezone.ts).
@@ -19,9 +20,8 @@ import { guildDayBounds, toGuildDateString } from "../guild-timezone";
 //
 // Bucketing happens in JS, not SQL — SQLite has no timezone-aware date
 // functions, and correctness (DST) matters more than the small extra
-// transfer here. Still bounded to `source='parse'` rows only (real
-// attendance/loot captures), never the full ledger — same read-budget
-// discipline as everywhere else (PLAN.md §6).
+// transfer here. Attendance reads are bounded to parser captures and the
+// small set of explicitly linked manual corrections, never the full ledger.
 
 export type RaidListRow = {
   raidDate: string; // YYYY-MM-DD, in GUILD_TIMEZONE
@@ -93,9 +93,11 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
         playerId: epLedger.playerId,
         points: epLedger.points,
         zone: epLedger.zone,
+        raidDate: epLedger.raidDate,
+        source: epLedger.source,
       })
       .from(epLedger)
-      .where(eq(epLedger.source, "parse")),
+      .where(or(eq(epLedger.source, "parse"), isNotNull(epLedger.raidDate))),
     db.select({ occurredAt: lootEvents.occurredAt }).from(lootEvents),
     db.select({ occurredAt: gpLedger.occurredAt, points: gpLedger.points }).from(gpLedger).where(eq(gpLedger.source, "parse")),
     db.select().from(raids),
@@ -104,7 +106,7 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
   type Bucket = { members: Set<number>; ep: number; zones: Set<string>; leaderCandidate: LeaderCandidate | null };
   const attByDate = new Map<string, Bucket>();
   for (const r of attRows) {
-    const d = toGuildDateString(r.occurredAt);
+    const d = r.raidDate ?? toGuildDateString(r.occurredAt);
     let b = attByDate.get(d);
     if (!b) {
       b = { members: new Set(), ep: 0, zones: new Set(), leaderCandidate: null };
@@ -114,7 +116,7 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
     if (ATTENDANCE_GATED_ACTIVITIES.has(r.activity)) {
       if (r.playerId != null) b.members.add(r.playerId);
       if (r.zone) b.zones.add(r.zone);
-      if (r.enteredBy) {
+      if (r.source === "parse" && r.enteredBy) {
         const candidate = { enteredBy: r.enteredBy, createdAt: r.createdAt, id: r.id };
         if (isEarlierLeaderCandidate(candidate, b.leaderCandidate)) b.leaderCandidate = candidate;
       }
@@ -161,6 +163,7 @@ export type RaidCapture = {
   activity: string;
   occurredAt: Date;
   zone: string | null;
+  manualLink: boolean;
   // `ep` is what this specific capture awarded that member (their own
   // ep_ledger row's points) — not their standing priority, which doesn't
   // say anything about tonight's attendance and used to be shown here by
@@ -217,11 +220,13 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
         id: epLedger.id,
         createdAt: epLedger.createdAt,
         enteredBy: epLedger.enteredBy,
+        source: epLedger.source,
+        raidDate: epLedger.raidDate,
         characterName: characters.name,
       })
       .from(epLedger)
       .leftJoin(characters, eq(characters.id, epLedger.characterId))
-      .where(and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end))),
+      .where(or(and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end)), eq(epLedger.raidDate, raidDate))),
     db
       .select({
         id: lootEvents.id,
@@ -268,14 +273,20 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     if (r.points > 0) epAwarded += r.points;
     if (!ATTENDANCE_GATED_ACTIVITIES.has(r.activity)) continue;
     if (r.playerId != null) playerIds.add(r.playerId);
-    if (r.enteredBy) {
+    if (r.source === "parse" && r.enteredBy) {
       const candidate = { enteredBy: r.enteredBy, createdAt: r.createdAt, id: r.id };
       if (isEarlierLeaderCandidate(candidate, leaderCandidate)) leaderCandidate = candidate;
     }
-    const key = `${r.activity}@${r.occurredAt.getTime()}`;
+    const key = `${r.activity}@${r.occurredAt.getTime()}@${r.source}`;
     let cap = captureMap.get(key);
     if (!cap) {
-      cap = { activity: r.activity, occurredAt: r.occurredAt, zone: r.zone, members: [] };
+      cap = {
+        activity: r.activity,
+        occurredAt: r.occurredAt,
+        zone: r.zone,
+        manualLink: r.source === "manual" && r.raidDate === raidDate,
+        members: [],
+      };
       captureMap.set(key, cap);
     }
     cap.members.push({ name: r.characterName ?? "(unknown)", ep: r.points });

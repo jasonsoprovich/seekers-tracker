@@ -12,6 +12,7 @@ export type EpLedgerRow = {
   points: number;
   note: string | null;
   zone: string | null;
+  raidDate: string | null;
   source: "import" | "manual" | "parse";
   enteredByName: string | null;
 };
@@ -74,6 +75,7 @@ export async function listLedgerRows(
         points: epLedger.points,
         note: epLedger.note,
         zone: epLedger.zone,
+        raidDate: epLedger.raidDate,
         source: epLedger.source,
         enteredByName: enteredByDisplayName,
       })

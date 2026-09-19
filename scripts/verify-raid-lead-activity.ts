@@ -9,8 +9,10 @@ import * as schema from "../src/db";
 import { characters, epLedger, gpLedger, players, standingsDirty, users } from "../src/db";
 import { getOwnedAccountActivitySummaries } from "../src/lib/epgp/account-activity";
 import { insertPreparedEventLeadAward, prepareEventLeadAward } from "../src/lib/epgp/attendance";
+import { insertLedgerEntry } from "../src/lib/epgp/ledger-entry";
 import { getRaidDetail, listRaids, reverseRaid } from "../src/lib/epgp/raids";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
+import { toGuildDateString } from "../src/lib/guild-timezone";
 
 const SNAPSHOT = "raid-lead-activity-test";
 type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -54,6 +56,7 @@ async function main() {
   try {
     const lead = await addAccount(db, `verify-raid-lead-${randomUUID()}`, "Fallback Leader");
     const other = await addAccount(db, `verify-raid-other-${randomUUID()}`, "Other Officer");
+    const corrected = await addAccount(db, `verify-raid-correction-${randomUUID()}`, "Correction Officer");
     const occurredAt = new Date("2037-01-15T02:00:00Z");
 
     console.log("Event Lead validation and idempotency");
@@ -111,17 +114,63 @@ async function main() {
       .returning({ id: characters.id, name: characters.name });
     await db.update(players).set({ mainCharacterId: newMain.id }).where(eq(players.id, lead.playerId));
 
+    await db.insert(epLedger).values({
+      characterId: corrected.characterId,
+      playerId: corrected.playerId,
+      occurredAt: new Date("2037-01-16T02:00:00Z"),
+      activity: "Raid - End",
+      points: 50,
+      note: "missed parse",
+      enteredBy: corrected.userId,
+      source: "manual",
+      raidDate: "2037-01-14",
+    });
+
+    const currentDate = toGuildDateString(new Date());
+    const linkedCorrection = await insertLedgerEntry(
+      db,
+      {
+        kind: "ep",
+        characterId: corrected.characterId,
+        activity: "Raid - End",
+        points: 50,
+        occurredAt: new Date().toISOString(),
+        note: "validation check",
+        raidDate: currentDate,
+      },
+      corrected.userId,
+    );
+    const invalidLink = await insertLedgerEntry(
+      db,
+      {
+        kind: "ep",
+        characterId: corrected.characterId,
+        activity: "Guild Meeting",
+        points: 5,
+        occurredAt: new Date().toISOString(),
+        note: "",
+        raidDate: currentDate,
+      },
+      corrected.userId,
+    );
+
     console.log("Raid aggregation");
     const detail = await getRaidDetail(db, "2037-01-14");
     check(failures, detail?.leader === newMain.name, "displays the first attendance submitter using their current main");
-    check(failures, detail?.memberCount === 2 && detail.captures.length === 1 && detail.captures[0].members.length === 2, "excludes Event Lead from captures and attended counts");
-    check(failures, detail?.epAwarded === 110, "includes Event Lead points in raid EP awarded");
+    check(
+      failures,
+      linkedCorrection.ok && !invalidLink.ok,
+      `accepts an attendance correction link and rejects non-attendance links (${linkedCorrection.ok ? "linked" : linkedCorrection.error}; ${invalidLink.ok ? "invalid accepted" : invalidLink.error})`,
+    );
+    check(failures, detail?.memberCount === 3 && detail.captures.length === 2 && detail.captures.some((capture) => capture.manualLink && capture.members.length === 1), "includes a linked manual correction as distinct event attendance");
+    check(failures, detail?.epAwarded === 160, "includes linked manual attendance in raid EP awarded");
     const listed = (await listRaids(db)).find((raid) => raid.raidDate === "2037-01-14");
-    check(failures, listed?.leader === newMain.name && listed.memberCount === 2 && listed.epAwarded === 110, "raid list matches detail leader and aggregate semantics");
+    check(failures, listed?.leader === newMain.name && listed.memberCount === 3 && listed.epAwarded === 160, "raid list includes linked manual attendance without changing the parsed raid leader");
 
     const reversed = await reverseRaid(db, "2037-01-14", lead.userId);
     const leadAfterReverse = await db.select().from(epLedger).where(eq(epLedger.sourceKey, prepared.award.sourceKey));
-    check(failures, "ok" in reversed && reversed.epRows === 3 && leadAfterReverse.length === 0, "raid reversal removes the parse-sourced Event Lead row");
+    const correctionAfterReverse = await db.select().from(epLedger).where(eq(epLedger.raidDate, "2037-01-14"));
+    check(failures, "ok" in reversed && reversed.epRows === 3 && leadAfterReverse.length === 0 && correctionAfterReverse.length === 1, "raid reversal removes parsed rows but preserves linked manual corrections");
 
     console.log("Owned-account activity summaries");
     const secondPlayer = await db.insert(players).values({ userId: lead.userId, displayName: "Second owned account" }).returning({ id: players.id });

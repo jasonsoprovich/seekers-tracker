@@ -3,6 +3,8 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
+import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
+import { guildDayBounds } from "@/lib/guild-timezone";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
 import { dirtyMarkerStatements, getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
@@ -25,7 +27,7 @@ import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/l
 export type LedgerEntrySource = "manual" | "parse";
 
 export type InsertLedgerEntryInput =
-  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null }
+  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null; raidDate?: string | null }
   | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string };
 
 // `playerId` is the account this row landed on (an alt's row is redirected
@@ -75,6 +77,11 @@ export async function insertLedgerEntry(
   if (input.kind === "ep") {
     const zoneCheck = optionalText(input.zone, LIMITS.zone, "zone");
     if (!zoneCheck.ok) return { ok: false, error: zoneCheck.error };
+  }
+  const raidDate = input.kind === "ep" ? input.raidDate?.trim() || null : null;
+  if (raidDate && !guildDayBounds(raidDate)) return { ok: false, error: "Event date must be a valid date." };
+  if (raidDate && !ATTENDANCE_GATED_ACTIVITIES.has(activityOrTier)) {
+    return { ok: false, error: "Only attendance entries can be linked to a raid or event." };
   }
 
   const [character] = await db
@@ -131,6 +138,7 @@ export async function insertLedgerEntry(
         capAtEntry: capAtEntryRaw !== null ? Number(capAtEntryRaw) : null,
         note: input.note.trim() || null,
         zone: input.zone?.trim() || null,
+        raidDate,
         enteredBy,
         source,
       })

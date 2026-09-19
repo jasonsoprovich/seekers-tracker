@@ -19,7 +19,7 @@ function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string };
+type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; raidDate: string };
 
 export function LedgerTable(props: Props) {
   const router = useRouter();
@@ -27,7 +27,7 @@ export function LedgerTable(props: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "" });
+  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", raidDate: "" });
 
   // Click-to-sort columns (LT-19). Default order (as fetched: occurredAt
   // desc) is kept until the officer picks a column. `activityOrItem` /
@@ -58,6 +58,7 @@ export function LedgerTable(props: Props) {
       occurredAt: toDateInputValue(row.occurredAt),
       note: row.note ?? "",
       zone: props.type === "ep" ? ((row as EpRow).zone ?? "") : "",
+      raidDate: props.type === "ep" ? ((row as EpRow).raidDate ?? "") : "",
     });
   }
 
@@ -80,7 +81,7 @@ export function LedgerTable(props: Props) {
     setError(null);
     const result =
       props.type === "ep"
-        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone })
+        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone, raidDate: draft.raidDate })
         : await updateLedgerEntry({
             kind: "gp",
             id,
@@ -155,6 +156,15 @@ export function LedgerTable(props: Props) {
                   onChange={(e) => setDraft((d) => ({ ...d, zone: e.target.value }))}
                   className={fieldClasses()}
                   placeholder="Zone"
+                />
+              </Field>
+              <Field>
+                <span className="text-neutral-400">Link to event</span>
+                <input
+                  type="date"
+                  value={draft.raidDate}
+                  onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
+                  className={fieldClasses()}
                 />
               </Field>
             </>
@@ -237,6 +247,12 @@ export function LedgerTable(props: Props) {
           <dt className="text-neutral-500">Source</dt>
           <dd className="text-neutral-300">{r.source}</dd>
         </div>
+        {props.type === "ep" && (r as EpRow).raidDate && (
+          <div>
+            <dt className="text-neutral-500">Linked event</dt>
+            <dd className="text-neutral-300">{(r as EpRow).raidDate}</dd>
+          </div>
+        )}
         <div>
           <dt className="text-neutral-500">Recorded by</dt>
           <dd className="text-neutral-300">{r.enteredByName ?? "—"}</dd>
@@ -317,6 +333,13 @@ export function LedgerTable(props: Props) {
                           value={draft.occurredAt}
                           onChange={(e) => setDraft((d) => ({ ...d, occurredAt: e.target.value }))}
                           className={fieldClasses({ size: "sm" })}
+                        />
+                        <input
+                          type="date"
+                          value={draft.raidDate}
+                          onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
+                          aria-label="Link to event"
+                          className={`${fieldClasses({ size: "sm" })} mt-1`}
                         />
                       </td>
                       <td className="px-3 py-2 font-medium text-neutral-400">{r.characterName}</td>

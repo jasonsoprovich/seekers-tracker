@@ -105,7 +105,7 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
                     )}
                   </span>
                   <span className="text-neutral-500">
-                    {timeLocal(c.occurredAt)}
+                    {c.manualLink ? "Manually linked attendance" : timeLocal(c.occurredAt)}
                     {c.zone ? ` · ${c.zone}` : ""} · {c.members.length} member{c.members.length === 1 ? "" : "s"}
                   </span>
                 </div>

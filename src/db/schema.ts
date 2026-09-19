@@ -418,6 +418,11 @@ export const epLedger = sqliteTable(
     // NULL on manual entries, decay rows, imported rows, and anything
     // written before this column existed.
     zone: text("zone"),
+    // Optional guild-local event date for a manual attendance correction.
+    // Raids & Events are date-based (not a separate capture table), so this
+    // lets a correction entered later appear on the right event without
+    // rewriting the ledger row's actual entry date.
+    raidDate: text("raid_date"),
     enteredBy: text("entered_by").references(() => users.id),
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
@@ -444,6 +449,7 @@ export const epLedger = sqliteTable(
     index("ep_ledger_character_id_idx").on(table.characterId),
     index("ep_ledger_player_id_idx").on(table.playerId),
     index("ep_ledger_occurred_at_idx").on(table.occurredAt),
+    index("ep_ledger_raid_date_idx").on(table.raidDate),
     index("ep_ledger_decay_event_id_idx").on(table.decayEventId),
     uniqueIndex("ep_ledger_source_key_unique").on(table.sourceKey),
   ],
