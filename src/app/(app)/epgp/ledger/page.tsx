@@ -119,10 +119,16 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
     // join characters through it so the name is both displayable and
     // searchable without a second round-trip.
     const auditCharId = sql<number | null>`coalesce(json_extract(${ledgerAuditLog.before}, '$.characterId'), json_extract(${ledgerAuditLog.after}, '$.characterId'))`;
+    // Match the ledger's "Recorded by" display: officers are known in-game
+    // by their account's main character, not their Discord username.
+    const auditChangedByName = sql<string | null>`coalesce(
+      (select c.name from players p join characters c on c.id = p.main_character_id where p.user_id = ${users.id} limit 1),
+      ${users.username}
+    )`;
     const auditWhere = term
       ? or(
           like(sql`lower(${characters.name})`, `%${term.toLowerCase()}%`),
-          like(sql`lower(coalesce(${users.username}, ''))`, `%${term.toLowerCase()}%`),
+          like(sql`lower(coalesce(${auditChangedByName}, ''))`, `%${term.toLowerCase()}%`),
           like(sql`lower(${ledgerAuditLog.action})`, `%${term.toLowerCase()}%`),
           like(sql`lower(${ledgerAuditLog.ledgerType})`, `%${term.toLowerCase()}%`),
         )
@@ -135,7 +141,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         ledgerId: ledgerAuditLog.ledgerId,
         action: ledgerAuditLog.action,
         changedAt: ledgerAuditLog.changedAt,
-        changedByName: users.username,
+        changedByName: auditChangedByName,
         characterName: characters.name,
         before: ledgerAuditLog.before,
         after: ledgerAuditLog.after,
