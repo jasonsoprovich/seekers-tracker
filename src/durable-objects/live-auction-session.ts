@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
+import { visibleLiveBidRounds } from "../lib/live-bids/protocol";
+
 // PLAN.md §15 / Phase 12 task 12.1, extended by Phase 16. One guild-wide
 // live-auction DO tracking MULTIPLE concurrent rounds — during a raid, 1-10
 // officers each run their own parser app on their own API key and collect
@@ -78,9 +80,10 @@ type RoundView = {
   winners: LiveBidTell[];
   status: LiveStatus;
   lastSeenAt: number;
+  startedAt: number;
 };
 
-type ServerMessage = { type: "state"; rounds: RoundView[] };
+type ServerMessage = { type: "state"; rounds: RoundView[]; showCollecting: boolean };
 
 type PushBody = {
   itemName?: unknown;
@@ -141,6 +144,8 @@ const RESOLVED_STORAGE_PREFIX = "resolved:";
 // officer clear), so keys don't accumulate and a same-named future drop
 // starts un-dismissed for everyone.
 const DISMISS_STORAGE_PREFIX = "dismiss:";
+const CONFIG_STORAGE_KEY = "config";
+type LiveBidConfig = { showCollecting: boolean };
 
 export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   private rounds = new Map<string, Round>();
@@ -149,6 +154,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   // constructor and kept in step on every write so broadcast() can filter
   // without touching storage on the hot path.
   private dismissals = new Map<string, Set<string>>();
+  private showCollecting = true;
   // The alarm time currently scheduled, so markSeen can skip re-arming for
   // small forward moves. Resets to null on DO eviction — the next markSeen
   // just re-arms once, which is fine.
@@ -172,9 +178,14 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     // The parser now also pushes its full bid list each tick (see /push's
     // snapshot handling) so the board self-heals even if a write is lost.
     ctx.blockConcurrencyWhile(async () => {
-      const stored = await ctx.storage.list<Round>({ prefix: ROUND_STORAGE_PREFIX });
+      const [stored, config] = await Promise.all([
+        ctx.storage.list<Round>({ prefix: ROUND_STORAGE_PREFIX }),
+        ctx.storage.get<LiveBidConfig>(CONFIG_STORAGE_KEY),
+      ]);
+      this.showCollecting = config?.showCollecting ?? true;
       for (const [storageKey, round] of stored) {
         if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
+        if (typeof round.startedAt !== "number") round.startedAt = round.lastBidAt;
         this.rounds.set(storageKey.slice(ROUND_STORAGE_PREFIX.length), round);
       }
       // Legacy `resolved:` rows from before this deploy — adopt, then move
@@ -183,6 +194,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       for (const [storageKey, round] of legacy) {
         const k = storageKey.slice(RESOLVED_STORAGE_PREFIX.length);
         if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
+        if (typeof round.startedAt !== "number") round.startedAt = round.lastBidAt;
         if (!this.rounds.has(k)) {
           this.rounds.set(k, round);
           await ctx.storage.put(ROUND_STORAGE_PREFIX + k, round);
@@ -229,6 +241,27 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       await this.purgeRounds(this.sweep());
       const userId = url.searchParams.get("userId") ?? undefined;
       return Response.json(this.stateMessageFor(userId));
+    }
+
+    if (url.pathname === "/config" && request.method === "GET") {
+      return Response.json({ showCollecting: this.showCollecting });
+    }
+
+    if (url.pathname === "/config" && request.method === "POST") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+      }
+      const showCollecting = (body as { showCollecting?: unknown })?.showCollecting;
+      if (typeof showCollecting !== "boolean") {
+        return Response.json({ error: "showCollecting must be a boolean." }, { status: 400 });
+      }
+      this.showCollecting = showCollecting;
+      await this.ctx.storage.put(CONFIG_STORAGE_KEY, { showCollecting });
+      this.broadcast();
+      return Response.json({ showCollecting });
     }
 
     if (request.method === "POST" && url.pathname === "/push") {
@@ -675,13 +708,14 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   // filtered out. `userId` undefined ⇒ no filtering (an un-attributed
   // socket, or a direct call without ?userId=).
   private stateMessageFor(userId: string | undefined): ServerMessage {
-    // collecting rounds (live then idle) before resolved, each group by
-    // start order — the dashboard reads top-left = most active.
-    const rank = (r: Round) => (r.state === "resolved" ? 2 : this.statusOf(r) === "live" ? 0 : 1);
-    const rounds: RoundView[] = [...this.rounds.entries()]
+    // Collecting rounds precede resolved rounds; each group keeps immutable
+    // creation order. Heartbeats and bid updates never move a card.
+    const rounds: RoundView[] = visibleLiveBidRounds(
+      [...this.rounds.entries()]
       .filter(([k]) => !this.isDismissedBy(userId, k))
-      .map(([, r]) => r)
-      .sort((a, b) => rank(a) - rank(b) || a.startedAt - b.startedAt)
+      .map(([, r]) => r),
+      this.showCollecting,
+    )
       .map((r) => ({
         itemName: r.itemName,
         officerName: r.officerName,
@@ -689,8 +723,9 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         winners: r.winners,
         status: this.statusOf(r),
         lastSeenAt: r.state === "resolved" ? r.resolvedAt : r.lastSeenAt,
+        startedAt: r.startedAt,
       }));
-    return { type: "state", rounds };
+    return { type: "state", rounds, showCollecting: this.showCollecting };
   }
 
   private broadcast() {

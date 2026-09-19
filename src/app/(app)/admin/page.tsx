@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AccountSetupQueue } from "@/components/admin/AccountSetupQueue";
+import { LiveBidVisibilityControl } from "@/components/admin/LiveBidVisibilityControl";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterClaims, characters, players, users } from "@/db";
@@ -180,6 +181,7 @@ export default async function AdminPage() {
                 <AccountSetupQueue members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
               </div>
             )}
+            {section.title === "EPGP" && canManageEpgpConfig(role) && <LiveBidVisibilityControl />}
             {section.title === "System Health" && unresolvedClassCount > 0 && (
               <p className="mt-4 text-sm text-amber-400">
                 {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the{" "}

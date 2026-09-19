@@ -5,6 +5,9 @@ import { cache } from "react";
 import { users } from "@/db";
 
 import { getDb } from "./db";
+import { isViewAsRole, VIEW_AS_COOKIE, VIEW_AS_ROLES } from "./view-as";
+
+export { VIEW_AS_COOKIE, VIEW_AS_ROLES } from "./view-as";
 
 export type Role = "member" | "officer" | "leader" | "admin";
 export const ROLES: Role[] = ["member", "officer", "leader", "admin"];
@@ -12,9 +15,6 @@ export const ROLES: Role[] = ["member", "officer", "leader", "admin"];
 // Admin "view as" preview (see admin/view-as-actions.ts). An admin can
 // preview the site as a lower role to verify nav/UI/permissions without a
 // second test account. Deliberately excludes "admin" — nothing to preview.
-export const VIEW_AS_COOKIE = "seekers_view_as_role";
-export const VIEW_AS_ROLES: readonly Role[] = ["member", "officer", "leader"];
-
 // The literal DB value, never overridden by a view-as preview. Used to gate
 // who may enter/inspect preview mode (admin/view-as-actions.ts,
 // (app)/layout.tsx's banner, admin/page.tsx's controls) — must not itself
@@ -31,7 +31,7 @@ export const getRealUserRole = cache(async function getRealUserRole(userId: stri
 export async function getViewAsRole(): Promise<Role | null> {
   const store = await cookies();
   const value = store.get(VIEW_AS_COOKIE)?.value;
-  return value && (VIEW_AS_ROLES as readonly string[]).includes(value) ? (value as Role) : null;
+  return isViewAsRole(value) ? value : null;
 }
 
 // Always re-read from D1 rather than trusting session.user.role — a role

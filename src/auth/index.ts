@@ -55,6 +55,7 @@ function buildAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?: 
 
   return betterAuth({
     baseURL,
+    secret: env?.BETTER_AUTH_SECRET,
     // Origins allowed to POST to the auth handler and to be used as an
     // OAuth callback origin. In production the app is served only from
     // seekersofsouls.com (www + the old seekers.fetchinglogic.com host

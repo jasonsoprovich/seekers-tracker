@@ -33,9 +33,10 @@ type RoundView = {
   winners: LiveBidTell[];
   status: LiveStatus;
   lastSeenAt: number;
+  startedAt: number;
 };
 
-type ServerMessage = { type: "state"; rounds: RoundView[] };
+type ServerMessage = { type: "state"; rounds: RoundView[]; showCollecting: boolean };
 
 type ConnectionStatus = "connecting" | "open" | "closed";
 
@@ -97,6 +98,7 @@ function StatusPill({ status }: { status: LiveStatus }) {
 export function LiveBidsView() {
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
   const [rounds, setRounds] = useState<RoundView[]>([]);
+  const [showCollecting, setShowCollecting] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   // Resolved cards this viewer just dismissed — optimistic hide until the
@@ -129,7 +131,10 @@ export function LiveBidsView() {
       .then((r) => (r.ok ? r.json() : null))
       .then((raw) => {
         const msg = raw as ServerMessage | null;
-        if (!cancelled && msg?.type === "state") setRounds((cur) => (cur.length === 0 ? msg.rounds : cur));
+        if (!cancelled && msg?.type === "state") {
+          setRounds((cur) => (cur.length === 0 ? msg.rounds : cur));
+          setShowCollecting(msg.showCollecting !== false);
+        }
       })
       .catch(() => {});
     return () => {
@@ -155,7 +160,10 @@ export function LiveBidsView() {
       socket.addEventListener("message", (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
-          if (msg.type === "state") setRounds(msg.rounds);
+          if (msg.type === "state") {
+            setRounds(msg.rounds);
+            setShowCollecting(msg.showCollecting !== false);
+          }
         } catch {
           // ignore a malformed frame rather than tearing down the socket
         }
@@ -187,7 +195,10 @@ export function LiveBidsView() {
       const resp = await fetch("/api/live-bids/state");
       if (resp.ok) {
         const msg = (await resp.json()) as ServerMessage;
-        if (msg.type === "state") setRounds(msg.rounds);
+        if (msg.type === "state") {
+          setRounds(msg.rounds);
+          setShowCollecting(msg.showCollecting !== false);
+        }
       }
     } catch {
       // leave the current view as-is on a failed refresh
@@ -262,18 +273,13 @@ export function LiveBidsView() {
     });
   }, [rounds]);
 
-  // Active rounds (still collecting) sit above resolved ones; within each
-  // group the most-recently-updated round comes first. (post-live-test-1:
-  // resolved rounds were sorting to the top and pushing the live ones down.)
+  // The DO owns stable order: collecting first, then resolved, each by the
+  // round's immutable startedAt. Local hiding only filters that DOM order;
+  // heartbeat and bid updates cannot move cards around.
   const visibleRounds = useMemo(() => {
-    const shown = rounds.filter((r) =>
+    return rounds.filter((r) =>
       r.status === "resolved" ? !pendingDismiss.has(r.itemName) : !hiddenCollecting.has(r.itemName),
     );
-    const statusOrder = (s: LiveStatus) => (s === "resolved" ? 1 : 0);
-    return shown.sort((a, b) => {
-      const group = statusOrder(a.status) - statusOrder(b.status);
-      return group !== 0 ? group : b.lastSeenAt - a.lastSeenAt;
-    });
   }, [rounds, pendingDismiss, hiddenCollecting]);
 
   const liveCount = visibleRounds.filter((r) => r.status === "live").length;
@@ -321,19 +327,22 @@ export function LiveBidsView() {
         </div>
       </div>
 
+      {!showCollecting && (
+        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200" role="status">
+          Live collecting rounds are temporarily hidden by leadership. Officers can keep collecting bids, and finalized results will appear here.
+        </div>
+      )}
+
       {visibleRounds.length === 0 ? (
         <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
-          No live bid rounds right now — this fills in the moment an officer starts collecting tells.
+          {showCollecting
+            ? "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
+            : "No finalized bid rounds are on the board right now."}
         </div>
       ) : (
-        // items-start: a card only grows to its own content. Without it the
-        // grid stretches every card in a row to match the tallest, so
-        // expanding one resolved card's bid list visually inflated its
-        // neighbours (post-live-test-1 LT-01).
-        <div
-          className="grid items-start justify-start gap-4"
-          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 480px))" }}
-        >
+        // CSS columns preserve source/keyboard order while allowing each
+        // natural-height card to pack independently of its neighbours.
+        <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
           {visibleRounds.map((round) => {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";
@@ -344,7 +353,7 @@ export function LiveBidsView() {
             return (
               <article
                 key={round.itemName}
-                className={`flex flex-col rounded-xl border ${
+                className={`mb-4 inline-flex w-full break-inside-avoid flex-col rounded-xl border align-top ${
                   resolved ? "border-sky-500/25 bg-sky-500/[0.03]" : "border-border bg-neutral-900/30"
                 }`}
               >
