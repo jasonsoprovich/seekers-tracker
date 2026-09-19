@@ -4,98 +4,15 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characters, players, users } from "@/db";
-import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
+import { isUniqueConstraintError, parseCharacterForm, validateMainCharacterId } from "@/lib/character-form";
 import { isValidCharacterStatus } from "@/lib/character-status";
 import { getDb } from "@/lib/db";
 import { settleStandings } from "@/lib/epgp/standings";
-import { isValidCharClass, isValidCharRace, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 import { assignCharacterToUser, attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
+import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type CharacterFormState = { error?: string };
-
-type ParsedCharacter = {
-  name: string;
-  class: number;
-  race: number;
-  level: number;
-  charType: "main" | "alt" | "mule";
-  mainCharacterId: number | null;
-  quarmyUrl: string | null;
-};
-
-function parseCharacterForm(
-  formData: FormData,
-  selfId?: number,
-): { data: ParsedCharacter } | { error: string } {
-  const name = String(formData.get("name") ?? "").trim();
-  const charClass = Number(formData.get("class"));
-  const race = Number(formData.get("race"));
-  const level = Number(formData.get("level"));
-  const charType = String(formData.get("charType") ?? "main");
-  const mainCharacterIdRaw = String(formData.get("mainCharacterId") ?? "").trim();
-  const quarmyUrlRaw = String(formData.get("quarmyUrl") ?? "").trim();
-
-  if (!name) return { error: "Name is required." };
-  if (name.length > 64) return { error: "Name must be 64 characters or fewer." };
-  if (!isValidCharClass(charClass)) return { error: "Invalid class." };
-  if (!isValidCharRace(race)) return { error: "Invalid race." };
-  if (!Number.isInteger(level) || level < 1 || level > MAX_CHAR_LEVEL) {
-    return { error: `Level must be between 1 and ${MAX_CHAR_LEVEL}.` };
-  }
-  if (charType !== "main" && charType !== "alt" && charType !== "mule") return { error: "Invalid character type." };
-
-  // Only alts carry a main-character link — a main or mule silently drops
-  // any stale link rather than erroring.
-  let mainCharacterId: number | null = null;
-  if (charType === "alt" && mainCharacterIdRaw) {
-    mainCharacterId = Number(mainCharacterIdRaw);
-    if (!Number.isInteger(mainCharacterId) || mainCharacterId <= 0) {
-      return { error: "Invalid main character selection." };
-    }
-    if (selfId !== undefined && mainCharacterId === selfId) {
-      return { error: "A character can't be its own main." };
-    }
-  }
-
-  let quarmyUrl: string | null = null;
-  if (quarmyUrlRaw) {
-    if (quarmyUrlRaw.length > 300) return { error: "Quarmy profile URL is too long." };
-    try {
-      const parsed = new URL(quarmyUrlRaw);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
-      quarmyUrl = parsed.toString();
-    } catch {
-      return { error: "Quarmy profile URL must be a valid http(s) link." };
-    }
-  }
-
-  return { data: { name, class: charClass, race, level, charType, mainCharacterId, quarmyUrl } };
-}
-
-// Drizzle's D1 driver wraps the underlying SQLite error in
-// DrizzleQueryError.cause rather than surfacing it as a typed exception or
-// on .message directly, so walk the cause chain matching on message text.
-function isUniqueConstraintError(err: unknown): boolean {
-  for (let cause = err; cause instanceof Error; cause = cause.cause) {
-    if (/UNIQUE constraint failed/i.test(cause.message)) return true;
-  }
-  return false;
-}
-
-// A submitted mainCharacterId must point at an actual "main"-typed
-// character, or the link is silently meaningless (e.g. pointing at another
-// alt, or a deleted row). Returns an error string, or undefined if fine.
-async function validateMainCharacterId(
-  db: Awaited<ReturnType<typeof getDb>>,
-  mainCharacterId: number | null,
-): Promise<string | undefined> {
-  if (mainCharacterId === null) return undefined;
-  const [target] = await db.select({ charType: characters.charType }).from(characters).where(eq(characters.id, mainCharacterId));
-  if (!target) return "Selected main character no longer exists.";
-  if (target.charType !== "main") return "Selected main character must itself be a main.";
-  return undefined;
-}
 
 export async function createCharacter(
   _prevState: CharacterFormState,
@@ -156,11 +73,11 @@ export async function updateCharacter(
   const mainError = await validateMainCharacterId(db, parsed.data.mainCharacterId);
   if (mainError) return { error: mainError };
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("characters.manageAny")) {
     // Self-service alt linking (post-live-test-1 LT-15): a member linking
     // one of their own alts may only point it at a main they also own.
-    // Officers (canManageAnyCharacter) keep the guild-wide picker.
+    // Officers ("characters.manageAny") keep the guild-wide picker.
     if (parsed.data.charType === "alt" && parsed.data.mainCharacterId !== null) {
       const [target] = await db
         .select({ ownerId: characters.ownerId })
@@ -193,7 +110,7 @@ export async function updateCharacter(
 
   if (existing.id === playerMainId && parsed.data.charType !== "main") {
     return {
-      error: canManageAnyCharacter(role)
+      error: perms.can("characters.manageAny")
         ? "This is the account's main — use “Make main” on the Account tab to swap it to another character first."
         : "Only an officer or leader can change which character is your main — ask a leader to swap it.",
     };
@@ -201,7 +118,7 @@ export async function updateCharacter(
   if (parsed.data.charType === "main" && existing.id !== playerMainId) {
     if (playerMainId !== null) {
       return {
-        error: canManageAnyCharacter(role)
+        error: perms.can("characters.manageAny")
           ? "This account already has a main — use “Make main” on the Account tab to swap (500 GP, waivable)."
           : "Only an officer or leader can promote a character to main.",
       };

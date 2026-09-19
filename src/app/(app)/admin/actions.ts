@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { players, users } from "@/db";
 import { revokeApiKeysForUser } from "@/lib/api-key-auth";
-import { canManageAnyCharacter, canManageEpgp, canManageRoles, getUserRole, LEADERSHIP_ROLES, type Role } from "@/lib/authz";
+import { getRealUserRole, LEADERSHIP_ROLES, roleRank, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { settleStandings } from "@/lib/epgp/standings";
 import {
@@ -18,13 +18,12 @@ import {
   type GuildStatusResult,
   type SwapMainResult,
 } from "@/lib/players";
+import { getPermissionMatrix, getPermissions, roleCan } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type SetRoleResult = { error?: string };
 
 export type MemberGuildStatusResult = GuildStatusResult;
-
-export type { SwapMainResult };
 
 // Hard character deletion was removed 2026-09-04 — the leader's call: there
 // should always be a record and an audit trail. Removing a person now goes
@@ -37,12 +36,26 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const actingRole = await getUserRole(session.user.id);
-  if (!canManageRoles(actingRole)) {
+  const [perms, actingReal, matrix] = await Promise.all([
+    getPermissions(session.user.id),
+    getRealUserRole(session.user.id),
+    getPermissionMatrix(),
+  ]);
+  if (!perms.can("members.role.manage")) {
     return { error: "Only leaders can change roles." };
   }
   if (!ROLES.includes(role as Role)) {
     return { error: "Invalid role." };
+  }
+
+  // Rank ceiling: nobody may grant a role above their own — closes the
+  // escalation hole where an officer granted "members.role.manage" (a
+  // matrix-tunable capability, unlike the old hardcoded leader-only gate)
+  // could otherwise mint themselves admin and rewrite the whole matrix.
+  // Checked against the REAL role (not a view-as preview), so an admin
+  // previewing "leader" is never the one this restricts.
+  if (roleRank(role as Role) > roleRank(actingReal)) {
+    return { error: "You can't grant a role above your own." };
   }
 
   const db = await getDb();
@@ -55,7 +68,7 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
   // leadership tier and never trips this, only a drop to member/officer
   // does. This used to check `role !== "leader"` literally, which wrongly
   // treated leader->admin as the demotion it's actually guarding against.
-  if (!canManageRoles(role as Role)) {
+  if (!LEADERSHIP_ROLES.includes(role as Role)) {
     const [target] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
     if (target && LEADERSHIP_ROLES.includes(target.role as Role)) {
       const leaders = await db.select({ id: users.id }).from(users).where(inArray(users.role, LEADERSHIP_ROLES));
@@ -76,13 +89,12 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
     .set({ role: role as Role, updatedAt: new Date() })
     .where(eq(players.userId, userId));
 
-  // Losing officer-tier access (dropping to "member" — leader/admin/officer
-  // all still pass canManageEpgp) means any app key they hold should stop
-  // existing, not just stop working on its next live check (leader,
-  // 2026-09-05: "if an officer ever loses their officer status... their
-  // api keys need to be revoked automatically"). A no-op if they never had
-  // a key.
-  if (!canManageEpgp(role as Role)) {
+  // Losing officer-API access (dropping to a role that no longer carries
+  // "epgp.officerApi") means any app key they hold should stop existing,
+  // not just stop working on its next live check (leader, 2026-09-05: "if
+  // an officer ever loses their officer status... their api keys need to
+  // be revoked automatically"). A no-op if they never had a key.
+  if (!roleCan(matrix, role, "epgp.officerApi")) {
     await revokeApiKeysForUser(db, userId);
   }
 
@@ -90,12 +102,13 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
 }
 
 // PLAN.md §11 Phase 10 task 10.3 — "leader-approved main swap." Leader/admin
-// only (canManageRoles — same bar as role promotion/demotion, §4c/§10's
-// "leader-approved"), unlike claim approval (canManageAnyCharacter, includes
-// officers) — a main swap changes who a player's roster/priority identity
-// is, a bigger call than approving an ownership claim. post-live-test-1
-// LT-30: officers are explicitly excluded, and every swap charges the new
-// main MAIN_SWAP_FEE_GP unless `waiveFee` is set on the confirm dialog.
+// only ("members.main.swap" — same default tier as role promotion/demotion,
+// §4c/§10's "leader-approved"), unlike claim approval ("claims.review",
+// includes officers) — a main swap changes who a player's roster/priority
+// identity is, a bigger call than approving an ownership claim.
+// post-live-test-1 LT-30: officers are excluded by default, and every swap
+// charges the new main MAIN_SWAP_FEE_GP unless `waiveFee` is set on the
+// confirm dialog.
 export async function setPlayerMainCharacter(
   playerId: number,
   characterId: number,
@@ -104,8 +117,8 @@ export async function setPlayerMainCharacter(
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageRoles(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.main.swap")) {
     return { error: "Only leaders and admins can change a player's main character." };
   }
 
@@ -114,14 +127,13 @@ export async function setPlayerMainCharacter(
 }
 
 // post-live-test-1 LT-30 — reverse a recorded main swap (restore the
-// char-type grouping + refund the exact GP fee). Same GL/admin bar; no
-// time limit.
+// char-type grouping + refund the exact GP fee). Same bar; no time limit.
 export async function reverseMainSwapAction(eventId: number): Promise<SwapMainResult> {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageRoles(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.main.swap")) {
     return { error: "Only leaders and admins can reverse a main swap." };
   }
 
@@ -131,18 +143,18 @@ export async function reverseMainSwapAction(eventId: number): Promise<SwapMainRe
 
 export type AssignCharacterResult = { error?: string };
 
-// Officer/leader/admin (canManageAnyCharacter — the same bar as approving a
-// claim) attaching an unclaimed roster character straight to a member's
-// account, for when an officer knows whose character it is and the member
-// hasn't filed a claim. Shares approveClaim's core (assignCharacterToUser:
-// re-check unclaimed → set owner → resolve player → attach + carry ledger
-// history), then recomputes that player's standings.
+// Officer/leader/admin ("members.assignCharacter" — the same default tier
+// as approving a claim) attaching an unclaimed roster character straight to
+// a member's account, for when an officer knows whose character it is and
+// the member hasn't filed a claim. Shares approveClaim's core
+// (assignCharacterToUser: re-check unclaimed → set owner → resolve player →
+// attach + carry ledger history), then recomputes that player's standings.
 export async function assignCharacterToMember(userId: string, characterId: number): Promise<AssignCharacterResult> {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const actingRole = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(actingRole)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.assignCharacter")) {
     return { error: "Only officers, leaders, and admins can assign characters." };
   }
   if (!Number.isInteger(characterId) || characterId <= 0) {
@@ -156,11 +168,12 @@ export async function assignCharacterToMember(userId: string, characterId: numbe
   return {};
 }
 
-// Leader/admin action (canManageRoles). "Removed from the guild" is a
-// player-level state, deliberately distinct from a character's own
-// `removed` status (in-game/roster housekeeping, never affects access on
-// its own — confirmed with the leader 2026-08-29). It does three things,
-// all reversible by reinstateMember:
+// Officer/leader/admin action ("members.remove" — opened to officers
+// 2026-09-19 at the guild leader's request; previously leader/admin only).
+// "Removed from the guild" is a player-level state, deliberately distinct
+// from a character's own `removed` status (in-game/roster housekeeping,
+// never affects access on its own — confirmed with the leader 2026-08-29).
+// It does three things, all reversible by reinstateMember:
 //   1. drops the person's role to `member` (both users.role and
 //      players.role — see removePlayerFromGuildCore's own comment)
 //   2. flips players.status to `departed` — (app)/layout.tsx's gate treats
@@ -171,16 +184,16 @@ export async function assignCharacterToMember(userId: string, characterId: numbe
 //      decay_events batch — §1e: GP is never touched). The event id is
 //      stashed on players.removalDecayEventId so reinstate can reverse it.
 // Character records and GP history stay as-is. The role is NOT auto-restored
-// on reinstate — a leader re-grants it deliberately. The actual mutation
-// lives in src/lib/players.ts (removePlayerFromGuildCore) — this wrapper's
-// only job is the session/role gate, same division as setPlayerMainCharacter
-// above.
+// on reinstate — an officer/leader re-grants it deliberately. The actual
+// mutation lives in src/lib/players.ts (removePlayerFromGuildCore) — this
+// wrapper's only job is the session/permission gate, same division as
+// setPlayerMainCharacter above.
 export async function removeMemberFromGuild(userId: string): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const actingRole = await getUserRole(session.user.id);
-  if (!canManageRoles(actingRole)) {
-    return { error: "Only leaders can remove a member from the guild." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.remove")) {
+    return { error: "Only officers, leaders, and admins can remove a member from the guild." };
   }
   const db = await getDb();
   const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
@@ -198,24 +211,24 @@ export async function removeMemberFromGuild(userId: string): Promise<MemberGuild
 export async function removePlayerFromGuild(playerId: number): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const actingRole = await getUserRole(session.user.id);
-  if (!canManageRoles(actingRole)) {
-    return { error: "Only leaders can remove a member from the guild." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.remove")) {
+    return { error: "Only officers, leaders, and admins can remove a member from the guild." };
   }
   const db = await getDb();
   return removePlayerFromGuildCore(db, session.user.id, playerId);
 }
 
 // Full reverse of removeMemberFromGuild's EP wipe + status, but NOT the
-// role (a leader re-grants that). Safe if the departure event was already
-// reversed by hand on /epgp/decay — that just clears the pointer. The
-// mutation lives in src/lib/players.ts (reinstatePlayerFromGuildCore).
+// role (an officer/leader re-grants that). Safe if the departure event was
+// already reversed by hand on /epgp/decay — that just clears the pointer.
+// The mutation lives in src/lib/players.ts (reinstatePlayerFromGuildCore).
 export async function reinstateMember(userId: string): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const actingRole = await getUserRole(session.user.id);
-  if (!canManageRoles(actingRole)) {
-    return { error: "Only leaders can reinstate a member." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.remove")) {
+    return { error: "Only officers, leaders, and admins can reinstate a member." };
   }
   const db = await getDb();
   const [player] = await db.select({ id: players.id }).from(players).where(eq(players.userId, userId));
@@ -226,9 +239,9 @@ export async function reinstateMember(userId: string): Promise<MemberGuildStatus
 export async function reinstatePlayer(playerId: number): Promise<MemberGuildStatusResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const actingRole = await getUserRole(session.user.id);
-  if (!canManageRoles(actingRole)) {
-    return { error: "Only leaders can reinstate a member." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.remove")) {
+    return { error: "Only officers, leaders, and admins can reinstate a member." };
   }
   const db = await getDb();
   return reinstatePlayerFromGuildCore(db, session.user.id, playerId);

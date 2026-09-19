@@ -1,5 +1,5 @@
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
-import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
+import { getPermissions } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
 import { commitRateDecay, type RateDecayKind } from "@/lib/epgp/decay";
 
@@ -36,8 +36,8 @@ export async function POST(request: Request) {
   if ("error" in auth) {
     return Response.json({ error: auth.error }, { status: auth.status });
   }
-  const role = await getUserRole(auth.userId);
-  if (!canManageEpgpConfig(role)) {
+  const perms = await getPermissions(auth.userId);
+  if (!perms.can("epgp.decay")) {
     return Response.json({ error: "Only leaders can run EPGP decay." }, { status: 403 });
   }
 

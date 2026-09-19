@@ -6,11 +6,11 @@ import { RaidLootTable } from "@/components/epgp/RaidLootTable";
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
 import { ReverseRaidButton } from "@/components/epgp/ReverseRaidButton";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { canManageEpgp, canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { users } from "@/db";
 import { getDb } from "@/lib/db";
 import { getRaidDetail } from "@/lib/epgp/raids";
 import { GUILD_TIMEZONE } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // The page groups by guild-local (Eastern) calendar date (raids.ts) —
@@ -40,9 +40,9 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
   ]);
   if (!detail) notFound();
 
-  const role = await getUserRole(session.user.id);
-  const canManage = canManageEpgp(role);
-  const canReverse = canManageEpgpConfig(role);
+  const perms = await getPermissions(session.user.id);
+  const canManage = perms.can("epgp.raids.manage");
+  const canReverse = perms.can("epgp.raids.reverse");
   const viewerTimeZone = me?.timezone || GUILD_TIMEZONE;
   const timeLocal = localTimeFormatterFor(viewerTimeZone);
 

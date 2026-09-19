@@ -5,7 +5,7 @@ import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { GearList } from "@/components/GearList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { characterGear, characters, users } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
+import { canManageCharacter } from "@/lib/permissions";
 import { formatItemStatLines, getItemStats } from "@/lib/eqstat";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";

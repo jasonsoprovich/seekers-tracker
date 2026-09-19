@@ -998,3 +998,25 @@ export const bankHoldings = sqliteTable(
     ),
   ],
 );
+
+// Admin-tunable overrides for src/lib/permissions/capabilities.ts's
+// CAPABILITY_GROUPS registry. Deliberately sparse: a row exists only where
+// an admin has changed a (capability, role) pair away from the registry's
+// own `defaults` — an empty table reproduces the app's shipped behavior
+// exactly, and "Reset to defaults" is just a DELETE. `role` is never
+// "admin" (admin is always a superset, enforced in code, not stored here).
+// `capability` isn't a DB enum — the registry in capabilities.ts is the
+// source of truth for valid keys, checked at write time.
+export const rolePermissions = sqliteTable(
+  "role_permissions",
+  {
+    capability: text("capability").notNull(),
+    role: text("role", { enum: ["member", "officer", "leader"] }).notNull(),
+    allowed: integer("allowed", { mode: "boolean" }).notNull(),
+    updatedBy: text("updated_by").references(() => users.id),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [primaryKey({ columns: [table.capability, table.role] })],
+);

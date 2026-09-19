@@ -11,9 +11,9 @@ import { TotalsTable } from "@/components/epgp/TotalsTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { fieldClasses } from "@/components/ui/Field";
 import { characters, epgpPointValues, gpLedger, ledgerAuditLog, users } from "@/db";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getTotalsRows, listBidHistory, listLedgerRows } from "@/lib/epgp/ledger-list";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 const PAGE_SIZE = 50;
@@ -47,8 +47,8 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  const canManage = canManageEpgp(role);
+  const perms = await getPermissions(session.user.id);
+  const canManage = perms.can("epgp.ledger.manage");
 
   const { type: typeParam, q = "", page: pageParam } = await searchParams;
   // Totals is the landing tab — it's the "where does everyone stand" view

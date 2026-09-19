@@ -5,11 +5,11 @@ import { redirect } from "next/navigation";
 import { ClaimReviewButtons } from "@/components/admin/ClaimReviewButtons";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterClaims, characters, users } from "@/db";
-import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
-import { getSession } from "@/lib/session";
 import { guildDateTime } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
+import { getSession } from "@/lib/session";
 
 const CHAR_TYPE_LABEL: Record<string, string> = { main: "Main", alt: "Alt", mule: "Mule" };
 
@@ -22,8 +22,8 @@ export default async function ClaimReviewPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) redirect("/characters");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("claims.review")) redirect("/characters");
 
   const db = await getDb();
 

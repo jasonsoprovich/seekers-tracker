@@ -1,17 +1,17 @@
 "use server";
 
-import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { createManualHolding, deleteManualHolding, updateHolding, type HoldingMutationResult } from "@/lib/bank/holdings";
 import { getDb } from "@/lib/db";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
-// Same officer/leader/admin gate as EPGP ledger entries and bids
-// (canManageEpgp) — bank content is guild-officer-managed the same way.
+// Same officer/leader/admin default as EPGP ledger entries and bids
+// ("epgp.bank.manage") — bank content is guild-officer-managed the same way.
 async function requireManager(): Promise<{ userId: string } | { error: string }> {
   const session = await getSession();
   if (!session) return { error: "Not signed in." };
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) return { error: "Only officers can manage guild bank holdings." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.bank.manage")) return { error: "Only officers can manage guild bank holdings." };
   return { userId: session.user.id };
 }
 

@@ -4,11 +4,11 @@ import { redirect } from "next/navigation";
 import { InfoSectionEditor } from "@/components/epgp/InfoSectionEditor";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { epgpPointValues } from "@/db";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getCurrentCycle } from "@/lib/epgp/cycles";
 import { ledgerDate } from "@/lib/format-date";
 import { getDb } from "@/lib/db";
 import { listInfoSections } from "@/lib/epgp/info-sections";
+import { getPermissions } from "@/lib/permissions";
 import { getSettingsAt } from "@/lib/epgp/settings";
 import { getSession } from "@/lib/session";
 
@@ -27,8 +27,8 @@ export default async function EpgpInfoPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const role = await getUserRole(session.user.id);
-  const canEdit = canManageEpgp(role);
+  const perms = await getPermissions(session.user.id);
+  const canEdit = perms.can("epgp.info.edit");
 
   const [settings, currentCycle, pointValues, sections] = await Promise.all([
     getSettingsAt(db),

@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { epLedger, gpLedger, ledgerAuditLog } from "@/db";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
@@ -12,6 +11,7 @@ import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledge
 import { getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { guildDayBounds } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { boundedString } from "@/lib/validate";
 
@@ -40,8 +40,8 @@ export async function addLedgerEntry(input: AddLedgerEntryInput): Promise<Ledger
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.ledger.manage")) {
     return { error: "Only officers, leaders, and admins can add ledger entries." };
   }
 
@@ -58,8 +58,8 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.ledger.manage")) {
     return { error: "Only officers, leaders, and admins can edit ledger entries." };
   }
 
@@ -144,8 +144,8 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.ledger.manage")) {
     return { error: "Only officers, leaders, and admins can delete ledger entries." };
   }
 
@@ -189,8 +189,8 @@ export async function setAuditNote(auditId: number, note: string): Promise<Ledge
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.ledger.manage")) {
     return { error: "Only officers, leaders, and admins can add audit notes." };
   }
   if (!Number.isInteger(auditId) || auditId <= 0) return { error: "Invalid audit entry." };

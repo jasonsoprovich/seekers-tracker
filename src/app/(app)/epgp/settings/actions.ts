@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { setSetting, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
-import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { runRecordedStandingsRebuild } from "@/lib/system-health";
@@ -22,8 +22,8 @@ export async function updateSetting(key: string, value: string, note: string): P
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgpConfig(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.config")) {
     return { error: "Only leaders can change EPGP settings." };
   }
 
@@ -71,8 +71,8 @@ export async function rebuildStandingsAction(): Promise<RebuildStandingsResult> 
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgpConfig(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.config")) {
     return { error: "Only leaders can rebuild standings." };
   }
 

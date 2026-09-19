@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AccountCharacterRow, type AccountCharacter } from "@/components/account/AccountCharacterRow";
+import { AddCharacterToAccountPanel } from "@/components/account/AddCharacterToAccountPanel";
 import { LinkToAccountPanel, type LinkCandidate } from "@/components/account/LinkToAccountPanel";
 import { PlayerGuildStatusButtons } from "@/components/account/PlayerGuildStatusButtons";
 import { PlayerRoleSelect } from "@/components/account/PlayerRoleSelect";
@@ -12,11 +13,12 @@ import { CharacterHeader } from "@/components/character/CharacterHeader";
 import { Card } from "@/components/ui/Card";
 import { RoleBadge } from "@/components/ui/RoleBadge";
 import { characterClaims, characters, mainSwapEvents, players, users } from "@/db";
-import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole, type Role } from "@/lib/authz";
+import { roleRank, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { getStandingsForPlayers } from "@/lib/epgp/standings";
 import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { guildDate } from "@/lib/guild-timezone";
+import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // /characters/[id]/account (2026-09-10) — the player-level view of any
@@ -42,9 +44,16 @@ export default async function CharacterAccountPage({ params }: { params: Promise
   if (!row) notFound();
   const { character, ownerUsername, ownerRole } = row;
 
-  const viewerRole = await getUserRole(session.user.id);
-  const isOfficer = canManageAnyCharacter(viewerRole);
-  const isLeader = canManageRoles(viewerRole);
+  const perms = await getPermissions(session.user.id);
+  const isOfficer = perms.can("characters.manageAny");
+  // These three used to collapse to one "isLeader" flag (canManageRoles) —
+  // split out now that each is independently tunable: role management,
+  // main-character swaps, and guild removal can each be handed to a
+  // different tier (removal is now officer+ by default, see the guild
+  // leader's 2026-09-19 request).
+  const canManageRole = perms.can("members.role.manage");
+  const canSwapMain = perms.can("members.main.swap");
+  const canRemoveMember = perms.can("members.remove");
   const canManage = await canManageCharacter(character, session.user.id);
 
   const header = (displayRole: Role | null) => (
@@ -142,7 +151,10 @@ export default async function CharacterAccountPage({ params }: { params: Promise
     }));
   // Officer tag toggles only mean something on an account whose site role
   // is officer or above — on anyone else's the badge would be MEMBER anyway.
-  const accountIsOfficer = canManageAnyCharacter((player.accountRole ?? "member") as Role);
+  // This is a role-tier check on the ACCOUNT's own role (display only), not
+  // a viewer permission gate, so it stays a plain rank comparison rather
+  // than a capability lookup.
+  const accountIsOfficer = roleRank((player.accountRole ?? "member") as Role) >= roleRank("officer");
   const nameById = new Map(members.map((m) => [m.id, m.name]));
   const mainName = player.mainCharacterId ? (nameById.get(player.mainCharacterId) ?? null) : null;
   const accountName = mainName ?? player.displayName;
@@ -153,6 +165,10 @@ export default async function CharacterAccountPage({ params }: { params: Promise
   // standalone player). Officer+ and the account's owner see this panel.
   let candidates: LinkCandidate[] = [];
   const canLink = isOfficer || isAccountOwner;
+  // Separate capability from canLink — "add a brand-new character" and
+  // "link an existing unclaimed one" happen to share the same default tier
+  // today but are independently tunable in the matrix.
+  const canAddCharacter = perms.can("characters.create.forOther") || isAccountOwner;
   if (canLink) {
     const rows = await db
       .select({
@@ -199,7 +215,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
             <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-neutral-400">
               {player.accountUsername ? <>Managed by {player.accountUsername}</> : <>Unclaimed — managed by officers until a member claims it</>}
               {player.status !== "departed" &&
-                (isLeader ? (
+                (canManageRole ? (
                   <PlayerRoleSelect playerId={player.id} role={player.accountRole as Role} isSelf={isAccountOwner} />
                 ) : (
                   <RoleBadge role={player.accountRole as Role} />
@@ -245,7 +261,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
           playerId={player.id}
           pointerMainName={mainName}
           typedMains={typedMains.map((m) => ({ id: m.id, name: m.name }))}
-          canFix={isLeader}
+          canFix={canSwapMain}
         />
       )}
 
@@ -264,7 +280,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
                 playerId={player.id}
                 currentId={character.id}
                 canRetype={isOfficer || ownsThis || isAccountOwner}
-                canPromote={isLeader}
+                canPromote={canSwapMain}
                 canUnlink={isOfficer}
                 showOfficerTag={accountIsOfficer}
                 canToggleOfficerTag={isOfficer}
@@ -274,15 +290,24 @@ export default async function CharacterAccountPage({ params }: { params: Promise
         </ul>
         {!mainName && (
           <p className="mt-2 text-xs text-amber-400">
-            This account has no main set. {isLeader ? "Use “Make main” on the character that should rank." : "Ask a leader to set one."}
+            This account has no main set. {canSwapMain ? "Use “Make main” on the character that should rank." : "Ask a leader to set one."}
           </p>
         )}
-        {!isLeader && list.length > 1 && (
+        {!canSwapMain && list.length > 1 && (
           <p className="mt-2 text-xs text-neutral-500">Changing which character is the main is a leader decision (500 GP, waivable).</p>
         )}
       </section>
 
       {canLink && <LinkToAccountPanel playerId={player.id} accountName={accountName} rows={candidates} />}
+
+      {canAddCharacter && (
+        <AddCharacterToAccountPanel
+          playerId={player.id}
+          accountName={accountName}
+          mainCharacterId={player.mainCharacterId}
+          mainCharacterName={mainName}
+        />
+      )}
 
       {swaps.length > 0 && (
         <section className="mt-6">
@@ -296,7 +321,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
                   {e.feeGp > 0 ? ` (${e.feeGp} GP fee)` : " (fee waived)"}
                   {e.reversedAt ? ` — reversed ${guildDate(e.reversedAt)}` : ""}
                 </span>
-                {isLeader && latestSwap?.id === e.id && (
+                {canSwapMain && latestSwap?.id === e.id && (
                   <ReverseMainSwapButton
                     eventId={e.id}
                     prevMainName={e.prevMainCharacterId ? (nameById.get(e.prevMainCharacterId) ?? null) : null}
@@ -310,7 +335,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
         </section>
       )}
 
-      {isLeader && (
+      {canRemoveMember && (
         <section className="mt-8 rounded-lg border border-red-900/50 px-4 py-4">
           <h2 className="text-sm font-medium tracking-wider text-red-400 uppercase">Guild membership</h2>
           <p className="mt-1 text-sm text-neutral-400">

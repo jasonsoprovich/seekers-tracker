@@ -6,16 +6,16 @@ import { createAuth } from "@/auth";
 import { GenerateAppKeyForm } from "@/components/epgp/GenerateAppKeyForm";
 import { RevokeAppKeyButton } from "@/components/epgp/RevokeAppKeyButton";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
-import { getSession } from "@/lib/session";
 import { guildDate } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
+import { getSession } from "@/lib/session";
 
 export default async function AppKeyPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) redirect("/roster");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.appKey")) redirect("/roster");
 
   const { env, cf } = await getCloudflareContext({ async: true });
   const auth = createAuth(env, cf);

@@ -4,9 +4,9 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
-import { canManageAnyCharacter, canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { guildDateTime } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { getSystemHealth, isWithinTimeTravelWindow } from "@/lib/system-health";
 
@@ -22,8 +22,8 @@ function abbreviated(bookmark: string): string {
 export default async function SystemHealthPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) redirect("/characters");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("admin.health.view")) redirect("/characters");
 
   const [{ env }, db] = await Promise.all([getCloudflareContext({ async: true }), getDb()]);
   const health = await getSystemHealth(db, env.IMPORT_ARCHIVE);
@@ -45,7 +45,7 @@ export default async function SystemHealthPage() {
           </dl>
           {health.dirty.malformed > 0 && <p className="mt-4 text-sm text-red-400">{health.dirty.malformed} malformed dirty scope{health.dirty.malformed === 1 ? "" : "s"} require investigation.</p>}
           {health.rebuild?.latestAttempt.status === "failed" && <p className="mt-4 text-sm text-red-400">Latest rebuild failed: {health.rebuild.latestAttempt.error ?? "unknown error"}</p>}
-          {canManageEpgpConfig(role) && <Link href="/epgp/settings" className="mt-4 inline-block text-sm text-emerald-400 hover:text-emerald-300">Maintenance controls</Link>}
+          {perms.can("epgp.config") && <Link href="/epgp/settings" className="mt-4 inline-block text-sm text-emerald-400 hover:text-emerald-300">Maintenance controls</Link>}
         </Card>
 
         <Card className="p-5">

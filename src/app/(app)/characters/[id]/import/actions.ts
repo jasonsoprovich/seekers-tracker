@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characterGear, characterPopFlags, characters, characterStats, importLog } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
+import { canManageCharacter } from "@/lib/permissions";
 import { computeDerivedStats } from "@/lib/eqstat";
 import { getDb } from "@/lib/db";
 import { getItemIcon, gearSlotLabel, parseQuarmyGear, parseQuarmyStats } from "@/lib/gear";

@@ -2,28 +2,32 @@ import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 
 import { characterClaims } from "@/db";
+import type { Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { canManageAnyCharacter, type Role } from "@/lib/authz";
+import { type Capability, type PermissionMatrix, roleCan } from "@/lib/permissions";
 
 import { Sidebar } from "./Sidebar";
 
-// roles: undefined means every role sees the link; otherwise the current
-// role must be in the list. Filtered server-side below, so a member's
-// client bundle never even receives an officer-only href.
-type NavLinkDef = { href: string; label: string; badge?: number; roles?: Role[] };
+// capability: undefined means every role sees the link; otherwise the
+// current role must pass that capability against `matrix`. Filtered
+// server-side below, so a member's client bundle never even receives an
+// officer-only href.
+type NavLinkDef = { href: string; label: string; badge?: number; capability?: Capability };
 
 export async function AppShell({
   username,
   avatarUrl,
   role,
+  matrix,
   children,
 }: {
   username: string;
   avatarUrl: string | null;
   role: Role | null;
+  matrix: PermissionMatrix;
   children: ReactNode;
 }) {
-  const isManager = canManageAnyCharacter(role);
+  const isManager = roleCan(matrix, role, "admin.view");
   let pendingClaimCount = 0;
   if (isManager) {
     const db = await getDb();
@@ -41,9 +45,9 @@ export async function AppShell({
     { href: "/progression", label: "Pop Progression" },
     { href: "/live-bids", label: "Live Bids" },
     { href: "/dashboard", label: "Dashboard" },
-    { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, roles: ["officer", "leader", "admin"] },
+    { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, capability: "admin.view" },
   ];
-  const links = allLinks.filter((l) => !l.roles || l.roles.includes(role as Role));
+  const links = allLinks.filter((l) => !l.capability || roleCan(matrix, role, l.capability));
 
   return (
     // Column on mobile (the top bar sits above <main> in normal document

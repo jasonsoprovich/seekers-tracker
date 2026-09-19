@@ -7,10 +7,12 @@ import { reinstatePlayer, removePlayerFromGuild } from "@/app/(app)/admin/action
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
-// Leader/admin: remove this player from the guild (EP zeroed as a
+// Officer/leader/admin by default ("members.remove", opened to officers
+// 2026-09-19): remove this player from the guild (EP zeroed as a
 // reversible departure event, GP kept, site access off) or reinstate them.
 // Keyed by players.id so it works for accounts that never claimed a site
-// login too.
+// login too. Rendered only when the viewer's account/page.tsx already
+// checked "members.remove" — this component has no gate of its own.
 export function PlayerGuildStatusButtons({
   playerId,
   displayName,

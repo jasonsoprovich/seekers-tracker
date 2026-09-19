@@ -3,11 +3,11 @@ import { notFound, redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, importLog, users } from "@/db";
-import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { readImportPayload } from "@/lib/import-archive";
-import { getSession } from "@/lib/session";
 import { guildDateTime } from "@/lib/guild-timezone";
+import { readImportPayload } from "@/lib/import-archive";
+import { getPermissions } from "@/lib/permissions";
+import { getSession } from "@/lib/session";
 
 const KIND_LABELS: Record<string, string> = {
   seer_text: "Seer Text",
@@ -23,8 +23,8 @@ export default async function ImportPayloadPage({ params }: { params: Promise<{ 
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) redirect("/characters");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("admin.imports.view")) redirect("/characters");
 
   const db = await getDb();
   const [row] = await db

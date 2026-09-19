@@ -8,23 +8,31 @@ import { LiveBidVisibilityControl } from "@/components/admin/LiveBidVisibilityCo
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterClaims, characters, players, users } from "@/db";
-import {
-  canManageAnyCharacter,
-  canManageEpgp,
-  canManageEpgpConfig,
-  getRealUserRole,
-  getUserRole,
-  type Role,
-} from "@/lib/authz";
+import { getRealUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
+import { type Capability, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // Latest published officer-app build — the release page always redirects to
 // the newest tag, so this never goes stale.
 const OFFICER_APP_RELEASE_URL = "https://github.com/jasonsoprovich/seekers-epgp-parser/releases/latest";
 
-type AdminLink = { href: string; label: string; description: string; external?: boolean; badgeKey?: "pendingClaims"; show: (r: Role | null) => boolean };
+// A link with no `capability` always shows (e.g. Claim Requests' own page
+// has its own gate; System Health/Import Audit links are themselves
+// gated by their target pages). `adminOnly` is for links that must never
+// be tunable through the permissions matrix — the Permissions editor
+// itself is the one such case (see CAPABILITY_GROUPS' comment on why it's
+// deliberately excluded from the registry).
+type AdminLink = {
+  href: string;
+  label: string;
+  description: string;
+  external?: boolean;
+  badgeKey?: "pendingClaims";
+  capability?: Capability;
+  adminOnly?: boolean;
+};
 
 const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }[] = [
   {
@@ -36,7 +44,6 @@ const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }
         label: "Claim Requests",
         description: "Review members requesting roster characters.",
         badgeKey: "pendingClaims",
-        show: () => true,
       },
     ],
   },
@@ -44,25 +51,32 @@ const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }
     title: "Operations",
     description: "Officer tools for capture, API access, and read-only data investigation.",
     links: [
-      { href: OFFICER_APP_RELEASE_URL, label: "Officer App", description: "Download the current desktop capture app.", external: true, show: canManageEpgp },
-      { href: "/epgp/app-key", label: "App Key", description: "Manage your parser API key.", show: canManageEpgp },
-      { href: "/epgp/sql", label: "SQL Sandbox", description: "Run read-only EPGP queries.", show: canManageEpgp },
+      { href: OFFICER_APP_RELEASE_URL, label: "Officer App", description: "Download the current desktop capture app.", external: true, capability: "epgp.officerApi" },
+      { href: "/epgp/app-key", label: "App Key", description: "Manage your parser API key.", capability: "epgp.appKey" },
+      { href: "/epgp/sql", label: "SQL Sandbox", description: "Run read-only EPGP queries.", capability: "epgp.sql" },
     ],
   },
   {
     title: "EPGP",
     description: "Leader-level configuration and controlled ledger-wide changes.",
     links: [
-      { href: "/epgp/settings", label: "EPGP Settings", description: "Change effective-dated guild settings.", show: canManageEpgpConfig },
-      { href: "/epgp/decay", label: "EPGP Decay", description: "Preview, commit, or reverse decay events.", show: canManageEpgpConfig },
+      { href: "/epgp/settings", label: "EPGP Settings", description: "Change effective-dated guild settings.", capability: "epgp.config" },
+      { href: "/epgp/decay", label: "EPGP Decay", description: "Preview, commit, or reverse decay events.", capability: "epgp.decay" },
     ],
   },
   {
     title: "System Health",
     description: "Audit recent imports and inspect read-only recovery status.",
     links: [
-      { href: "/admin/health", label: "System Health / Maintenance", description: "Review standings, backups, retention, and restore points.", show: () => true },
-      { href: "/admin/imports", label: "Import Audit Trail", description: "Review processed import history.", show: () => true },
+      { href: "/admin/health", label: "System Health / Maintenance", description: "Review standings, backups, retention, and restore points.", capability: "admin.health.view" },
+      { href: "/admin/imports", label: "Import Audit Trail", description: "Review processed import history.", capability: "admin.imports.view" },
+    ],
+  },
+  {
+    title: "Access Control",
+    description: "Who can do what, per role.",
+    links: [
+      { href: "/admin/permissions", label: "Permissions", description: "Toggle capabilities for members, officers, and leaders.", adminOnly: true },
     ],
   },
 ];
@@ -71,12 +85,13 @@ export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) redirect("/characters");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("admin.view")) redirect("/characters");
 
-  // Real (non-preview) role, so the "Preview as" controls stay reachable
-  // regardless of which role an admin currently has previewed, but never
-  // show to a real officer/leader.
+  // Real (non-preview) role, so the "Preview as" controls — and the
+  // admin-only Access Control section — stay reachable regardless of which
+  // role an admin currently has previewed, but never show to a real
+  // officer/leader or to an admin currently previewing one.
   const realRole = await getRealUserRole(session.user.id);
 
   const db = await getDb();
@@ -142,7 +157,11 @@ export default async function AdminPage() {
       )}
 
       {ADMIN_SECTIONS.map((section, index) => {
-        const links = section.links.filter((link) => link.show(role));
+        const links = section.links.filter((link) => {
+          if (link.adminOnly) return realRole === "admin";
+          if (link.capability) return perms.can(link.capability);
+          return true;
+        });
         return (
           <section key={section.title} className={index === 0 ? "mt-8" : "mt-10"}>
             <h2 className="text-lg font-semibold">{section.title}</h2>
@@ -181,7 +200,7 @@ export default async function AdminPage() {
                 <AccountSetupQueue members={needsSetup} unclaimedCharacters={unclaimedCharacters} />
               </div>
             )}
-            {section.title === "EPGP" && canManageEpgpConfig(role) && <LiveBidVisibilityControl />}
+            {section.title === "EPGP" && perms.can("epgp.liveBids.visibility") && <LiveBidVisibilityControl />}
             {section.title === "System Health" && unresolvedClassCount > 0 && (
               <p className="mt-4 text-sm text-amber-400">
                 {unresolvedClassCount} character{unresolvedClassCount === 1 ? "" : "s"} still have an unknown class — filter the{" "}

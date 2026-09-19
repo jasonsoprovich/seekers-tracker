@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characters } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
+import { canManageCharacter } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { ImportPqExportForm } from "@/components/ImportPqExportForm";

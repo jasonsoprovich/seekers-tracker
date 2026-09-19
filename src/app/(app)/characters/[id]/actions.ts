@@ -4,8 +4,8 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characterPopFlags, characters } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { canManageCharacter } from "@/lib/permissions";
 import { getFlagById, resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 

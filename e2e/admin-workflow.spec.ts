@@ -36,7 +36,11 @@ test.describe("officer workflow", () => {
     await page.goto(accountPath);
     await expect(page.getByRole("link", { name: "Review claims" })).toBeVisible();
     await expect(page.getByText("Link a character to E2E Managed Character")).toBeVisible();
-    await expect(page.getByText("Guild membership", { exact: true })).toHaveCount(0);
+    // 2026-09-19 guild leader request: officers now get the same guild-
+    // removal power leader/admin already had ("members.remove" defaults to
+    // officer+ in the permissions matrix) — this used to assert the
+    // opposite (leader-only).
+    await expect(page.getByText("Guild membership", { exact: true })).toBeVisible();
 
     await page.getByRole("link", { name: "Review claims" }).click();
     await expect(page).toHaveURL(/\/admin\/claims$/);

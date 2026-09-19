@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createAuth } from "@/auth";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type AppKeyActionResult = { error?: string; key?: string };
@@ -28,8 +28,8 @@ export async function generateAppKey(name: string): Promise<AppKeyActionResult> 
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.appKey")) {
     return { error: "Only officers, leaders, and admins can generate app keys." };
   }
 
@@ -53,8 +53,8 @@ export async function revokeAppKey(keyId: string): Promise<AppKeyActionResult> {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.appKey")) {
     return { error: "Only officers, leaders, and admins can manage app keys." };
   }
 

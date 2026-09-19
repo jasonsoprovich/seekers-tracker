@@ -5,12 +5,12 @@ import { RebuildStandingsButton } from "@/components/epgp/RebuildStandingsButton
 import { SettingRow, type SettingHistoryEntry } from "@/components/epgp/SettingRow";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { epgpSettings, users } from "@/db";
-import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { DEFAULT_SETTINGS, getSettingsAt, SETTING_KEYS, type SettingKey } from "@/lib/epgp/settings";
-import { getSession } from "@/lib/session";
 import { ledgerDate } from "@/lib/format-date";
 import { guildDateTime } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
+import { getSession } from "@/lib/session";
 
 const SETTING_META: Record<SettingKey, { label: string; description: string }> = {
   ep_decay: {
@@ -46,8 +46,8 @@ export default async function EpgpSettingsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgpConfig(role)) redirect("/roster");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.config")) redirect("/roster");
 
   const db = await getDb();
   const current = await getSettingsAt(db, new Date());

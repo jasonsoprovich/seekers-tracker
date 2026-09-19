@@ -5,10 +5,10 @@ import { redirect } from "next/navigation";
 import { RosterTable, type RosterRow } from "@/components/roster/RosterTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterClaims, characters, players, users } from "@/db";
-import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getStandings } from "@/lib/epgp/standings";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // Visible to every role (member/officer/leader) — this is a read-only view
@@ -20,15 +20,15 @@ import { getSession } from "@/lib/session";
 // used to live in this page's PageHeader actions slot, visible on a page
 // every member can reach — App Key in particular let anyone who found this
 // link get to the officer API-key page, even though that page's own gate
-// (canManageEpgp) blocked non-officers once there. Ledger moves to the main
+// ("epgp.appKey") blocked non-officers once there. Ledger moves to the main
 // nav; SQL Sandbox and App Key move to /admin, which already requires
 // officer+ to reach at all.
 export default async function RosterPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [db, viewerRole] = await Promise.all([getDb(), getUserRole(session.user.id)]);
-  const canManageAccounts = canManageAnyCharacter(viewerRole);
+  const [db, perms] = await Promise.all([getDb(), getPermissions(session.user.id)]);
+  const canManageAccounts = perms.can("characters.manageAny");
   // The account's site login (players.user_id), distinct from the
   // character's own claim link (characters.owner_id): an alt linked to an
   // officer's account by a leader has no owner_id of its own, and used to

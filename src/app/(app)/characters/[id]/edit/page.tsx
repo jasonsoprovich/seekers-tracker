@@ -6,8 +6,8 @@ import { CharacterForm } from "@/components/CharacterForm";
 import { ClaimThisCharacterButton } from "@/components/characters/ClaimThisCharacterButton";
 import { Card } from "@/components/ui/Card";
 import { characterClaims, characters, users } from "@/db";
-import { canManageAnyCharacter, canManageCharacter, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 import { updateCharacter } from "../../actions";
@@ -30,11 +30,11 @@ export default async function EditCharacterPage({ params }: { params: Promise<{ 
   const { character, ownerUsername, ownerRole } = row;
 
   const isUnclaimed = character.ownerId === null;
-  const [canManage, viewerRole] = await Promise.all([
+  const [canManage, perms] = await Promise.all([
     canManageCharacter(character, session.user.id),
-    getUserRole(session.user.id),
+    getPermissions(session.user.id),
   ]);
-  const isOfficer = canManageAnyCharacter(viewerRole);
+  const isOfficer = perms.can("characters.manageAny");
   // An unclaimed character has no owner yet, so canManageCharacter is
   // false for everyone but an officer — that used to redirect any regular
   // member straight back out before they could even see a claim prompt

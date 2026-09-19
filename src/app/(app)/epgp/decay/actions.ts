@@ -1,8 +1,7 @@
 "use server";
 
-import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
-import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { getDb } from "@/lib/db";
+import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import {
   commitDepartureWipe,
   commitRateDecay,
@@ -12,6 +11,7 @@ import {
   type DecayPreviewRow,
   type DeparturePreviewRow,
 } from "@/lib/epgp/decay";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // Flat optional-field shape (not a discriminated union) so callers can just
@@ -69,8 +69,8 @@ async function resolveCharacterNames(
 async function requireLeader(): Promise<{ userId: string } | { error: string }> {
   const session = await getSession();
   if (!session) return { error: "Not signed in." };
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgpConfig(role)) return { error: "Only leaders can run EPGP decay." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.decay")) return { error: "Only leaders can run EPGP decay." };
   return { userId: session.user.id };
 }
 

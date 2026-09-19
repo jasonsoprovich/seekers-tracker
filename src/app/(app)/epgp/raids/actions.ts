@@ -2,9 +2,9 @@
 
 import { redirect } from "next/navigation";
 
-import { canManageEpgp, canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { reverseRaid, setRaidMeta } from "@/lib/epgp/raids";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type RaidMetaResult = { error?: string };
@@ -16,8 +16,8 @@ export async function updateRaidMeta(raidDate: string, name: string, note: strin
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.raids.manage")) {
     return { error: "Only officers, leaders, and admins can name a raid." };
   }
 
@@ -30,7 +30,7 @@ export async function updateRaidMeta(raidDate: string, name: string, note: strin
   return {};
 }
 
-// Leader/admin only (canManageEpgpConfig) — a raid reverse deletes ledger
+// Leader/admin only ("epgp.raids.reverse") — a raid reverse deletes ledger
 // rows in bulk, the same destructive bar as /epgp/decay's reverse button, a
 // step above the officer-level "name this raid" action above. Wraps
 // reverseRaid; see its comment for exactly what gets deleted and kept.
@@ -38,8 +38,8 @@ export async function reverseRaidAction(raidDate: string): Promise<ReverseRaidAc
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgpConfig(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.raids.reverse")) {
     return { error: "Only leaders and admins can reverse a raid." };
   }
 

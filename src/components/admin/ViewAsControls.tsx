@@ -17,7 +17,7 @@ const PREVIEW_ROLES: Role[] = ["member", "officer", "leader"];
 // Deliberately router.push(), not router.refresh(): a plain refresh
 // re-renders /admin's own Server Component in place, and for "view as
 // member" that component immediately throws redirect("/characters")
-// (canManageAnyCharacter is false for member) — found 2026-09-05 that a
+// (member fails the "admin.view" capability by default) — found 2026-09-05 that a
 // redirect() thrown mid-refresh like that leaves the page stuck (neither
 // the old nor the new content renders, and the layout's ViewAsBanner goes
 // with it, since the whole segment tree the refresh was re-fetching never

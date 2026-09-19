@@ -3,7 +3,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { redirect } from "next/navigation";
 
-import { canManageEpgp, getUserRole } from "@/lib/authz";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type SqlQueryResult = {
@@ -194,8 +194,8 @@ function findDisallowedTableRef(body: string): string | null {
 }
 
 // Read-only SQL sandbox (officer/leader/admin — see the EPGP plan's "SQL
-// tool scope" decision, and authz.ts's canManageEpgp comment: "run
-// read-only SQL against the EPGP tables"). That scope used to be aspirational
+// tool scope" decision, and the "epgp.sql" capability's own description:
+// "run read-only SQL against the EPGP tables"). That scope used to be aspirational
 // only — this ran straight against env.DATABASE, which also holds
 // better-auth's sessions/accounts/apikeys tables (session tokens, plaintext
 // Discord OAuth tokens — see src/auth/index.ts's comment on why those aren't
@@ -239,8 +239,8 @@ export async function runEpgpQuery(_prev: SqlQueryResult, formData: FormData): P
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgp(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.sql")) {
     return { error: "Only officers, leaders, and admins can use the SQL sandbox." };
   }
 

@@ -25,14 +25,22 @@ export function CharacterForm({
   character,
   mainCandidates = [],
   submitLabel,
+  defaultCharType,
+  defaultMainCharacterId = null,
 }: {
   action: (prevState: CharacterFormState, formData: FormData) => Promise<CharacterFormState>;
   character?: Character;
   mainCandidates?: MainCandidate[];
   submitLabel: string;
+  // Used only when `character` is absent (a create form, not an edit) — for
+  // AddCharacterToAccountPanel, which opens straight to "alt" with the
+  // target account's own main pre-selected rather than the generic
+  // /characters/new default of "main" with nothing selected.
+  defaultCharType?: "main" | "alt" | "mule";
+  defaultMainCharacterId?: number | null;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
-  const [charType, setCharType] = useState<"main" | "alt" | "mule">(character?.charType ?? "main");
+  const [charType, setCharType] = useState<"main" | "alt" | "mule">(character?.charType ?? defaultCharType ?? "main");
 
   return (
     <form action={formAction} className="flex max-w-md flex-col gap-5">
@@ -125,7 +133,7 @@ export function CharacterForm({
           Main character
           <select
             name="mainCharacterId"
-            defaultValue={character?.mainCharacterId ?? ""}
+            defaultValue={character?.mainCharacterId ?? defaultMainCharacterId ?? ""}
             className={fieldClasses()}
           >
             <option value="">Not linked yet</option>

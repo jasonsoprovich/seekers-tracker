@@ -8,18 +8,18 @@ import { GlobalCycleDecayForm } from "@/components/epgp/GlobalCycleDecayForm";
 import { ReverseDecayButton } from "@/components/epgp/ReverseDecayButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { decayEvents, epLedger, gpLedger, users } from "@/db";
-import { canManageEpgpConfig, getUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { ledgerDate } from "@/lib/format-date";
 import { guildDateTime } from "@/lib/guild-timezone";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export default async function EpgpDecayPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageEpgpConfig(role)) redirect("/roster");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.decay")) redirect("/roster");
 
   const db = await getDb();
   const appliedByUsers = alias(users, "applied_by_user");

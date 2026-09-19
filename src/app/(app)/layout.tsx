@@ -11,6 +11,7 @@ import { getViewAsRole } from "@/lib/authz";
 import { isMemberAllowed } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { timed } from "@/lib/perf";
+import { getPermissionMatrix } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
@@ -59,11 +60,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const realRole = me?.role ?? null;
   const viewAsRole = realRole === "admin" ? await getViewAsRole() : null;
   const effectiveRole = viewAsRole ?? realRole;
+  const matrix = await getPermissionMatrix();
 
   return (
     <>
       {viewAsRole && <ViewAsBanner role={viewAsRole} />}
-      <AppShell username={me?.username ?? "Member"} avatarUrl={me?.avatarUrl ?? null} role={effectiveRole}>
+      <AppShell username={me?.username ?? "Member"} avatarUrl={me?.avatarUrl ?? null} role={effectiveRole} matrix={matrix}>
         {children}
       </AppShell>
     </>

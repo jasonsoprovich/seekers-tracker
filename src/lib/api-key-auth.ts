@@ -6,7 +6,7 @@ import { createAuth } from "@/auth";
 import { timed } from "@/lib/perf";
 import * as schema from "@/db";
 import { apikeys, users } from "@/db";
-import { canManageEpgp, type Role } from "@/lib/authz";
+import { loadPermissionMatrix, roleCan } from "@/lib/permissions";
 
 // Auth for /api/officer/* routes, called by the standalone EPGP parser app
 // (seekers-epgp-parser) instead of a browser session. Deliberately does its
@@ -68,8 +68,11 @@ export async function verifyOfficerApiKey(
   }
 
   const db = drizzle(env.DATABASE, { schema });
-  const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, result.key.referenceId));
-  if (!canManageEpgp((row?.role ?? null) as Role | null)) {
+  const [[row], matrix] = await Promise.all([
+    db.select({ role: users.role }).from(users).where(eq(users.id, result.key.referenceId)),
+    loadPermissionMatrix(db),
+  ]);
+  if (!roleCan(matrix, row?.role ?? null, "epgp.officerApi")) {
     return { error: "This key's owner is no longer an officer, leader, or admin.", status: 403 };
   }
 
@@ -77,10 +80,10 @@ export async function verifyOfficerApiKey(
 }
 
 // Deletes every app key belonging to a user — call this wherever a user
-// loses officer-tier access: setUserRole demoting someone away from
-// officer/leader/admin, and removeMemberFromGuild (admin/actions.ts, both
-// call sites). The live canManageEpgp re-check above already stops a
-// stale key from doing anything on its next request, but that's not the
+// loses officer-tier access: setUserRole demoting someone away from a role
+// carrying "epgp.officerApi", and removeMemberFromGuild (admin/actions.ts,
+// both call sites). The live "epgp.officerApi" re-check above already stops
+// a stale key from doing anything on its next request, but that's not the
 // same as the key ceasing to exist — a leader/admin "see everyone's keys"
 // view to revoke one by hand was tried and reverted the same day (2026-
 // 09-05: a real security surface, seeing another member's key metadata,

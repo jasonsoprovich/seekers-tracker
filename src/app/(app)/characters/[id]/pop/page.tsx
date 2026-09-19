@@ -6,7 +6,7 @@ import { PopFlagChecklist } from "@/components/PopFlagChecklist";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Card } from "@/components/ui/Card";
 import { characterPopFlags, characters, users } from "@/db";
-import { canManageCharacter } from "@/lib/authz";
+import { canManageCharacter } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";

@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 
 import { BankTabs } from "@/components/bank/BankTabs";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { canManageEpgp, getUserRole } from "@/lib/authz";
 import { listBankHoldings } from "@/lib/bank/holdings";
 import { getDb } from "@/lib/db";
+import { getPermissions } from "@/lib/permissions";
 import { listSkyBankRewards, listSkyBankStock } from "@/lib/quest-flags/list";
 import { getSession } from "@/lib/session";
 
@@ -21,7 +21,7 @@ export default async function BankPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
+  const perms = await getPermissions(session.user.id);
   const db = await getDb();
   const [holdings, skyRewards, skyStock] = await Promise.all([listBankHoldings(db), listSkyBankRewards(db), listSkyBankStock(db)]);
 
@@ -31,7 +31,7 @@ export default async function BankPage() {
         title="Guild Bank"
         subtitle="Items, spells, and currency held across the guild's mules, plus the Sky Bank quest-reward catalog. Imported from in-game inventory exports (PLAN.md §11 Phase 8) and the guild's sheet, plus anything an officer's added by hand."
       />
-      <BankTabs holdings={holdings} canManage={canManageEpgp(role)} skyRewards={skyRewards} skyStock={skyStock} />
+      <BankTabs holdings={holdings} canManage={perms.can("epgp.bank.manage")} skyRewards={skyRewards} skyStock={skyStock} />
     </div>
   );
 }

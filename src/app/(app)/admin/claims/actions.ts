@@ -4,11 +4,11 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { characterClaims, characters } from "@/db";
-import { canManageAnyCharacter, getUserRole } from "@/lib/authz";
 import { resolveOtherPendingClaimsForGroup } from "@/lib/claims";
 import { getDb } from "@/lib/db";
 import { settleStandings } from "@/lib/epgp/standings";
 import { assignCharacterToUser } from "@/lib/players";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type ClaimReviewResult = { error?: string };
@@ -17,8 +17,8 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("claims.review")) {
     return { error: "Only officers and leaders can review claims." };
   }
 
@@ -97,8 +97,8 @@ export async function denyClaim(claimId: number, decisionNote: string): Promise<
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("claims.review")) {
     return { error: "Only officers and leaders can review claims." };
   }
 

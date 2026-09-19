@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 
 import { createAuth } from "@/auth";
 import { accounts, users } from "@/db";
-import { hasAnyLeader } from "@/lib/authz";
+import { hasAnyLeader, LEADERSHIP_ROLES } from "@/lib/authz";
 import { checkAndStampGuildMembership } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -36,7 +36,11 @@ export async function claimLeaderRole(): Promise<ClaimLeaderResult> {
     .from(users)
     .where(eq(users.id, session.user.id));
   if (!me) return { error: "User record not found." };
-  if (me.role === "leader") redirect("/admin");
+  // LEADERSHIP_ROLES, not a literal "leader" check — an admin (who already
+  // outranks leader, see authz.ts) satisfies "the guild has leadership"
+  // just as well; this used to miss that case, the same class of bug
+  // LEADERSHIP_ROLES was introduced to kill elsewhere in this flow.
+  if (LEADERSHIP_ROLES.includes(me.role)) redirect("/admin");
 
   let verified = me.discordVerified;
   if (!verified) {

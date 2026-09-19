@@ -4,22 +4,26 @@ import { and, eq, ne } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { setUserRole } from "@/app/(app)/admin/actions";
-import { claimAlt } from "@/app/(app)/characters/actions";
+import { claimAlt, type CharacterFormState } from "@/app/(app)/characters/actions";
 import { characters, players } from "@/db";
-import { canManageAnyCharacter, canManageCharacter, canManageRoles, getUserRole, ROLES, type Role } from "@/lib/authz";
+import { getRealUserRole, ROLES, roleRank, type Role } from "@/lib/authz";
+import { isUniqueConstraintError, parseCharacterForm } from "@/lib/character-form";
 import { getDb } from "@/lib/db";
 import { settleStandings } from "@/lib/epgp/standings";
 import { attachCharacterToPlayer, createStandalonePlayer } from "@/lib/players";
+import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // Server actions behind /characters/[id]/account — the one place a
 // player's whole group of characters (main + alts + mules) is managed
-// (2026-09-10 leader request). Permission tiers, matching the rest of the
-// app: the character's owner or any officer+ may re-type alt <-> mule;
-// officer+ may link/unlink characters; the account's owner may link an
-// UNCLAIMED character to their own account (the LT-31 self-service path,
-// delegated to claimAlt); leader/admin only for the main swap and guild
-// removal (those live in admin/actions.ts).
+// (2026-09-10 leader request). Permission tiers are matrix-tunable
+// (src/lib/permissions) — defaults match the pre-registry behavior: the
+// character's owner or any officer+ may re-type alt <-> mule
+// ("characters.manageAny", checked via canManageCharacter); officer+ may
+// link/unlink characters ("characters.link"); the account's owner may link
+// an UNCLAIMED character to their own account (the LT-31 self-service path,
+// delegated to claimAlt); leader/admin only by default for the main swap
+// ("members.main.swap") and guild removal (those live in admin/actions.ts).
 
 export type AccountActionResult = { error?: string };
 
@@ -76,8 +80,8 @@ export async function linkCharacterToAccount(playerId: number, characterId: numb
     return result.error ? { error: result.error } : {};
   }
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("characters.link")) {
     return { error: "Only officers, leaders, and admins can link characters to another member's account." };
   }
 
@@ -116,6 +120,94 @@ export async function linkCharacterToAccount(playerId: number, characterId: numb
   return {};
 }
 
+// Create a brand-new alt or mule directly on this account — for when the
+// character has never appeared on the roster at all (no import row, no
+// prior claim), unlike linkCharacterToAccount above, which only attaches an
+// EXISTING unclaimed character. "characters.create.forOther" (2026-09-19
+// guild leader request: an easy way for admin/officer/leader to add a new
+// alt and link it to an account in one step). Deliberately refuses
+// charType "main" — promoting a character to main is the 500 GP
+// swapMainCharacter path (admin/actions.ts), not a create; this only grows
+// an existing account's alt/mule roster. The account's owner may always add
+// to their own account, same self-service carve-out linkCharacterToAccount
+// gives claimAlt.
+export async function createCharacterForAccount(
+  playerId: number,
+  _prevState: CharacterFormState,
+  formData: FormData,
+): Promise<CharacterFormState> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const db = await getDb();
+  const [player] = await db
+    .select({ id: players.id, userId: players.userId, mainCharacterId: players.mainCharacterId })
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!player) return { error: "Account not found." };
+
+  if (player.userId !== session.user.id) {
+    const perms = await getPermissions(session.user.id);
+    if (!perms.can("characters.create.forOther")) {
+      return { error: "Only officers, leaders, and admins can add a character to another member's account." };
+    }
+  }
+
+  const parsed = parseCharacterForm(formData);
+  if ("error" in parsed) return { error: parsed.error };
+  if (parsed.data.charType === "main") {
+    return {
+      error:
+        "This adds an alt or mule to an existing account. To make a character the account's main, use “Make main” instead; a brand-new account starts from Your Characters → Add Character.",
+    };
+  }
+
+  // The main link is this account's own main, never the client-submitted
+  // value — mirrors linkCharacterToAccount's own "display grouping" comment
+  // above. A mule is never nested under a main (schema.ts); an alt on an
+  // account with no main yet is left with mainCharacterId null, same
+  // tolerance linkCharacterToAccount already has.
+  const mainCharacterId = parsed.data.charType === "alt" ? player.mainCharacterId : null;
+  // Mirrors the bot's display-order convention (schema.ts's charPriority
+  // comment): main 0, alt 1, mule 2.
+  const charPriority = parsed.data.charType === "alt" ? 1 : 2;
+
+  let created: { id: number };
+  try {
+    [created] = await db
+      .insert(characters)
+      .values({
+        ownerId: player.userId,
+        playerId,
+        charType: parsed.data.charType,
+        mainCharacterId,
+        charPriority,
+        name: parsed.data.name,
+        class: parsed.data.class,
+        race: parsed.data.race,
+        level: parsed.data.level,
+        quarmyUrl: parsed.data.quarmyUrl,
+      })
+      .returning({ id: characters.id });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      return { error: "A character with that name already exists. If it's yours, claim it from /characters/claim instead." };
+    }
+    throw err;
+  }
+
+  // Belt-and-suspenders: the insert above already set playerId/ownerId
+  // directly, but routing through attachCharacterToPlayer keeps this on the
+  // same centralized path every other attach goes through (real-identity
+  // refusal, ownership sync) rather than duplicating that logic here — a
+  // no-op in the normal case since the character already points at this
+  // player.
+  const attach = await attachCharacterToPlayer(db, created.id, playerId);
+  if (attach.error) return { error: attach.error };
+
+  redirect(`/characters/${created.id}/account`);
+}
+
 // Detach a non-main character from its account. It becomes its own
 // standalone, unclaimed character again (claimable later); its EP/GP rows
 // stay with the account they were earned on — EP/GP attaches to the
@@ -124,8 +216,8 @@ export async function detachCharacterFromAccount(characterId: number): Promise<A
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) {
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("characters.link")) {
     return { error: "Only officers, leaders, and admins can unlink a character from an account." };
   }
 
@@ -159,8 +251,8 @@ export async function detachCharacterFromAccount(characterId: number): Promise<A
 export async function reconcilePlayerMain(playerId: number, characterId: number): Promise<AccountActionResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const role = await getUserRole(session.user.id);
-  if (!canManageRoles(role)) return { error: "Only leaders and admins can repair an account's main." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.main.swap")) return { error: "Only leaders and admins can repair an account's main." };
 
   const db = await getDb();
   const [target] = await db
@@ -190,8 +282,8 @@ export async function reconcilePlayerMain(playerId: number, characterId: number)
 export async function setCharacterOfficerTag(characterId: number, tagged: boolean): Promise<AccountActionResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const role = await getUserRole(session.user.id);
-  if (!canManageAnyCharacter(role)) return { error: "Only officers, leaders, and admins can change a character's officer tag." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("characters.officerTag")) return { error: "Only officers, leaders, and admins can change a character's officer tag." };
 
   const db = await getDb();
   const [character] = await db.select({ id: characters.id }).from(characters).where(eq(characters.id, characterId));
@@ -209,8 +301,8 @@ export async function setCharacterOfficerTag(characterId: number, tagged: boolea
 export async function setPlayerRole(playerId: number, role: string): Promise<AccountActionResult> {
   const session = await getSession();
   if (!session) redirect("/login");
-  const acting = await getUserRole(session.user.id);
-  if (!canManageRoles(acting)) return { error: "Only leaders and admins can change an account's role." };
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.role.manage")) return { error: "Only leaders and admins can change an account's role." };
   if (!ROLES.includes(role as Role)) return { error: "Invalid role." };
 
   const db = await getDb();
@@ -220,6 +312,15 @@ export async function setPlayerRole(playerId: number, role: string): Promise<Acc
     const result = await setUserRole(player.userId, role);
     return result.error ? { error: result.error } : {};
   }
+
+  // Same rank ceiling as setUserRole (admin/actions.ts) for the linked-login
+  // branch above — an unclaimed account has no login to route through, so
+  // it's enforced directly here instead.
+  const actingReal = await getRealUserRole(session.user.id);
+  if (roleRank(role as Role) > roleRank(actingReal)) {
+    return { error: "You can't grant a role above your own." };
+  }
+
   await db.update(players).set({ role: role as Role, updatedAt: new Date() }).where(eq(players.id, playerId));
   return {};
 }
