@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
-import { characters, epLedger, gpLedger, players, standingsDirty, users } from "../src/db";
+import { characters, epLedger, epgpPointValues, gpLedger, players, standingsDirty, users } from "../src/db";
 import { getOwnedAccountActivitySummaries } from "../src/lib/epgp/account-activity";
 import { insertPreparedEventLeadAward, prepareEventLeadAward } from "../src/lib/epgp/attendance";
 import { insertLedgerEntry } from "../src/lib/epgp/ledger-entry";
@@ -125,6 +125,18 @@ async function main() {
       source: "manual",
       raidDate: "2037-01-14",
     });
+    await db.insert(gpLedger).values({
+      characterId: corrected.characterId,
+      playerId: corrected.playerId,
+      occurredAt: new Date("2037-01-16T02:00:00Z"),
+      itemName: "Rotten Example Item",
+      tier: "Rot (No-Drop)",
+      points: 10,
+      note: "missed bid window",
+      enteredBy: corrected.userId,
+      source: "manual",
+      raidDate: "2037-01-14",
+    });
 
     const currentDate = toGuildDateString(new Date());
     const linkedCorrection = await insertLedgerEntry(
@@ -155,8 +167,13 @@ async function main() {
     );
 
     console.log("Raid aggregation");
+    const [level65] = await db
+      .select({ points: epgpPointValues.points, retired: epgpPointValues.retired })
+      .from(epgpPointValues)
+      .where(and(eq(epgpPointValues.kind, "ep"), eq(epgpPointValues.activity, "Hitting lvl 65")));
     const detail = await getRaidDetail(db, "2037-01-14");
     check(failures, detail?.leader === newMain.name, "displays the first attendance submitter using their current main");
+    check(failures, level65?.points === 100 && !level65.retired, "makes the active Hitting lvl 65 activity worth 100 EP");
     check(
       failures,
       linkedCorrection.ok && !invalidLink.ok,
@@ -164,13 +181,15 @@ async function main() {
     );
     check(failures, detail?.memberCount === 3 && detail.captures.length === 2 && detail.captures.some((capture) => capture.manualLink && capture.members.length === 1), "includes a linked manual correction as distinct event attendance");
     check(failures, detail?.epAwarded === 160, "includes linked manual attendance in raid EP awarded");
+    check(failures, detail?.gpSpent === 10 && detail.loot.some((loot) => loot.itemName === "Rotten Example Item" && loot.note?.startsWith("Rot loot")), "includes linked manual rot loot in event GP and loot history");
     const listed = (await listRaids(db)).find((raid) => raid.raidDate === "2037-01-14");
-    check(failures, listed?.leader === newMain.name && listed.memberCount === 3 && listed.epAwarded === 160, "raid list includes linked manual attendance without changing the parsed raid leader");
+    check(failures, listed?.leader === newMain.name && listed.memberCount === 3 && listed.epAwarded === 160 && listed.gpSpent === 10 && listed.itemCount === 1, "raid list includes linked manual attendance and rot loot without changing the parsed raid leader");
 
     const reversed = await reverseRaid(db, "2037-01-14", lead.userId);
     const leadAfterReverse = await db.select().from(epLedger).where(eq(epLedger.sourceKey, prepared.award.sourceKey));
     const correctionAfterReverse = await db.select().from(epLedger).where(eq(epLedger.raidDate, "2037-01-14"));
-    check(failures, "ok" in reversed && reversed.epRows === 3 && leadAfterReverse.length === 0 && correctionAfterReverse.length === 1, "raid reversal removes parsed rows but preserves linked manual corrections");
+    const rotAfterReverse = await db.select().from(gpLedger).where(eq(gpLedger.raidDate, "2037-01-14"));
+    check(failures, "ok" in reversed && reversed.epRows === 3 && leadAfterReverse.length === 0 && correctionAfterReverse.length === 1 && rotAfterReverse.length === 1, "raid reversal removes parsed rows but preserves linked manual corrections and rot loot");
 
     console.log("Owned-account activity summaries");
     const secondPlayer = await db.insert(players).values({ userId: lead.userId, displayName: "Second owned account" }).returning({ id: players.id });

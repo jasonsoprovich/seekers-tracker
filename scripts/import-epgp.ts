@@ -230,6 +230,7 @@ const POINT_VALUES: { kind: "ep" | "gp"; activity: string; points: number; retir
   { kind: "ep", activity: "Hitting lvl 50", points: 60 },
   { kind: "ep", activity: "Hitting lvl 55", points: 80 },
   { kind: "ep", activity: "Hitting lvl 60", points: 100 },
+  { kind: "ep", activity: "Hitting lvl 65", points: 100 },
   { kind: "ep", activity: "Guild Meeting", points: 50 },
   { kind: "ep", activity: "Epic Completion", points: 100 },
   { kind: "ep", activity: "Meeting (Retired)", points: 5, retired: true },

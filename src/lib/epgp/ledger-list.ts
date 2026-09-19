@@ -25,6 +25,7 @@ export type GpLedgerRow = {
   tier: string;
   points: number;
   note: string | null;
+  raidDate: string | null;
   source: "import" | "manual" | "parse";
   enteredByName: string | null;
 };
@@ -98,6 +99,7 @@ export async function listLedgerRows(
       tier: gpLedger.tier,
       points: gpLedger.points,
       note: gpLedger.note,
+      raidDate: gpLedger.raidDate,
       source: gpLedger.source,
       enteredByName: enteredByDisplayName,
     })

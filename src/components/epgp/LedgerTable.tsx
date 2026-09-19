@@ -58,7 +58,7 @@ export function LedgerTable(props: Props) {
       occurredAt: toDateInputValue(row.occurredAt),
       note: row.note ?? "",
       zone: props.type === "ep" ? ((row as EpRow).zone ?? "") : "",
-      raidDate: props.type === "ep" ? ((row as EpRow).raidDate ?? "") : "",
+      raidDate: props.type === "ep" ? ((row as EpRow).raidDate ?? "") : ((row as GpRow).raidDate ?? ""),
     });
   }
 
@@ -90,6 +90,7 @@ export function LedgerTable(props: Props) {
             points,
             occurredAt: draft.occurredAt,
             note: draft.note,
+            raidDate: draft.raidDate,
           });
     setPending(false);
     if (result.error) {
@@ -188,6 +189,15 @@ export function LedgerTable(props: Props) {
                   placeholder="Bid"
                 />
               </Field>
+              <Field>
+                <span className="text-neutral-400">Link to event</span>
+                <input
+                  type="date"
+                  value={draft.raidDate}
+                  onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
+                  className={fieldClasses()}
+                />
+              </Field>
             </>
           )}
           <Field>
@@ -247,10 +257,10 @@ export function LedgerTable(props: Props) {
           <dt className="text-neutral-500">Source</dt>
           <dd className="text-neutral-300">{r.source}</dd>
         </div>
-        {props.type === "ep" && (r as EpRow).raidDate && (
+        {(props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate) && (
           <div>
             <dt className="text-neutral-500">Linked event</dt>
-            <dd className="text-neutral-300">{(r as EpRow).raidDate}</dd>
+            <dd className="text-neutral-300">{props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate}</dd>
           </div>
         )}
         <div>
@@ -307,8 +317,8 @@ export function LedgerTable(props: Props) {
                   <SortableTh className="px-3 py-2" label="Activity" sortKey="activityOrItem" sort={sort} onSort={toggle} />
                   <SortableTh className="px-3 py-2" label="Zone" sortKey="zoneOrBid" sort={sort} onSort={toggle} />
                 </>
-              ) : (
-                <>
+                       ) : (
+                         <>
                   <SortableTh className="px-3 py-2" label="Item" sortKey="activityOrItem" sort={sort} onSort={toggle} />
                   <SortableTh className="px-3 py-2" label="Bid" sortKey="zoneOrBid" sort={sort} onSort={toggle} />
                 </>
@@ -334,14 +344,7 @@ export function LedgerTable(props: Props) {
                           onChange={(e) => setDraft((d) => ({ ...d, occurredAt: e.target.value }))}
                           className={fieldClasses({ size: "sm" })}
                         />
-                        <input
-                          type="date"
-                          value={draft.raidDate}
-                          onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
-                          aria-label="Link to event"
-                          className={`${fieldClasses({ size: "sm" })} mt-1`}
-                        />
-                      </td>
+                            </td>
                       <td className="px-3 py-2 font-medium text-neutral-400">{r.characterName}</td>
                       {props.type === "ep" ? (
                         <>
@@ -376,9 +379,16 @@ export function LedgerTable(props: Props) {
                               value={draft.activityOrTier}
                               onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
                               className={fieldClasses({ size: "sm" })}
-                              placeholder="Bid"
-                            />
-                          </td>
+                               placeholder="Bid"
+                             />
+                             <input
+                               type="date"
+                               value={draft.raidDate}
+                               onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
+                               aria-label="Link to event"
+                               className={`${fieldClasses({ size: "sm" })} mt-1`}
+                             />
+                           </td>
                         </>
                       )}
                       <td className="px-3 py-2">

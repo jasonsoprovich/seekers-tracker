@@ -99,7 +99,10 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
       .from(epLedger)
       .where(or(eq(epLedger.source, "parse"), isNotNull(epLedger.raidDate))),
     db.select({ occurredAt: lootEvents.occurredAt }).from(lootEvents),
-    db.select({ occurredAt: gpLedger.occurredAt, points: gpLedger.points }).from(gpLedger).where(eq(gpLedger.source, "parse")),
+    db
+      .select({ occurredAt: gpLedger.occurredAt, points: gpLedger.points, raidDate: gpLedger.raidDate, source: gpLedger.source, itemName: gpLedger.itemName })
+      .from(gpLedger)
+      .where(or(eq(gpLedger.source, "parse"), isNotNull(gpLedger.raidDate))),
     db.select().from(raids),
   ]);
 
@@ -131,14 +134,17 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
 
   const gpByDate = new Map<string, number>();
   for (const r of gpRows) {
-    const d = toGuildDateString(r.occurredAt);
+    const d = r.raidDate ?? toGuildDateString(r.occurredAt);
     gpByDate.set(d, (gpByDate.get(d) ?? 0) + r.points);
+    if (r.source === "manual" && r.raidDate && r.itemName) {
+      lootByDate.set(d, (lootByDate.get(d) ?? 0) + 1);
+    }
   }
 
   const namedByDate = new Map(named.map((r) => [r.raidDate, r]));
   const leaderNames = await resolveLeaderNames(db, [...attByDate.values()].map((bucket) => bucket.leaderCandidate));
 
-  const dates = new Set<string>([...attByDate.keys(), ...lootByDate.keys()]);
+  const dates = new Set<string>([...attByDate.keys(), ...lootByDate.keys(), ...gpByDate.keys()]);
   const rows: RaidListRow[] = [];
   for (const d of dates) {
     const a = attByDate.get(d);
@@ -256,13 +262,26 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       .leftJoin(characters, eq(characters.id, bids.characterId))
       .where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
     db
-      .select({ itemName: gpLedger.itemName, characterId: gpLedger.characterId, playerId: gpLedger.playerId, points: gpLedger.points })
+      .select({
+        id: gpLedger.id,
+        itemName: gpLedger.itemName,
+        characterId: gpLedger.characterId,
+        playerId: gpLedger.playerId,
+        points: gpLedger.points,
+        occurredAt: gpLedger.occurredAt,
+        tier: gpLedger.tier,
+        note: gpLedger.note,
+        source: gpLedger.source,
+        raidDate: gpLedger.raidDate,
+        characterName: characters.name,
+      })
       .from(gpLedger)
-      .where(and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end))),
+      .leftJoin(characters, eq(characters.id, gpLedger.characterId))
+      .where(or(and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end)), eq(gpLedger.raidDate, raidDate))),
     db.select().from(raids).where(eq(raids.raidDate, raidDate)),
   ]);
 
-  if (attRows.length === 0 && lootRows.length === 0 && meta.length === 0) return null;
+  if (attRows.length === 0 && lootRows.length === 0 && gpRows.length === 0 && meta.length === 0) return null;
 
   // Attendance grouped into captures by (activity, occurredAt) — one /who.
   const captureMap = new Map<string, RaidCapture>();
@@ -343,6 +362,22 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       gp: gpFor(r.itemName, r.winnerPlayerId ?? null, r.winnerCharacterId ?? null),
       bids: bidsByLootEvent.get(r.id) ?? [],
     }))
+    .concat(
+      gpRows
+        .filter((g) => g.source === "manual" && g.raidDate === raidDate)
+        .map((g) => ({
+          // Manual rows do not have a loot_events record. A negative id keeps
+          // their expandable-row key distinct from real positive event ids.
+          lootEventId: -g.id,
+          itemName: g.itemName ?? "(unnamed item)",
+          occurredAt: g.occurredAt,
+          winnerName: g.characterName,
+          tier: g.tier,
+          gp: g.points,
+          note: [g.tier === "Rot (No-Drop)" ? "Rot loot" : "Manual entry", g.note].filter(Boolean).join(" - "),
+          bids: [],
+        })),
+    )
     .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
 
   const gpSpent = gpRows.reduce((n, g) => n + g.points, 0);

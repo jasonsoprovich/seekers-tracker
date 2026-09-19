@@ -487,6 +487,9 @@ export const gpLedger = sqliteTable(
     orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
     note: text("note"),
     duplicateFlag: integer("duplicate_flag", { mode: "boolean" }).notNull().default(false),
+    // Optional guild-local event date for a manual loot charge such as rot
+    // loot. Ordinary manual GP adjustments intentionally leave this NULL.
+    raidDate: text("raid_date"),
     enteredBy: text("entered_by").references(() => users.id),
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
@@ -504,6 +507,7 @@ export const gpLedger = sqliteTable(
     index("gp_ledger_character_id_idx").on(table.characterId),
     index("gp_ledger_player_id_idx").on(table.playerId),
     index("gp_ledger_occurred_at_idx").on(table.occurredAt),
+    index("gp_ledger_raid_date_idx").on(table.raidDate),
     index("gp_ledger_decay_event_id_idx").on(table.decayEventId),
     uniqueIndex("gp_ledger_source_key_unique").on(table.sourceKey),
     // Backs GET /api/officer/items (the officer app's item-name

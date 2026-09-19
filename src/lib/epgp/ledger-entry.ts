@@ -28,7 +28,7 @@ export type LedgerEntrySource = "manual" | "parse";
 
 export type InsertLedgerEntryInput =
   | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null; raidDate?: string | null }
-  | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string };
+  | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate?: string | null };
 
 // `playerId` is the account this row landed on (an alt's row is redirected
 // to its main's character but keeps the shared player_id) — returned so a
@@ -78,7 +78,7 @@ export async function insertLedgerEntry(
     const zoneCheck = optionalText(input.zone, LIMITS.zone, "zone");
     if (!zoneCheck.ok) return { ok: false, error: zoneCheck.error };
   }
-  const raidDate = input.kind === "ep" ? input.raidDate?.trim() || null : null;
+  const raidDate = input.raidDate?.trim() || null;
   if (raidDate && !guildDayBounds(raidDate)) return { ok: false, error: "Event date must be a valid date." };
   if (raidDate && !ATTENDANCE_GATED_ACTIVITIES.has(activityOrTier)) {
     return { ok: false, error: "Only attendance entries can be linked to a raid or event." };
@@ -159,6 +159,7 @@ export async function insertLedgerEntry(
         capApplied: false,
         capAtEntry: null,
         note: input.note.trim() || null,
+        raidDate,
         enteredBy,
         source,
       })
