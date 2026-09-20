@@ -27,6 +27,7 @@ export function RaidNameEditor({
   const [nameVal, setNameVal] = useState(name ?? "");
   const [noteVal, setNoteVal] = useState(note ?? "");
   const [leaderVal, setLeaderVal] = useState(leaderPlayerId?.toString() ?? "");
+  const [updateEventLead, setUpdateEventLead] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +37,7 @@ export function RaidNameEditor({
     setError(null);
     const result = await updateRaidMeta(raidDate, nameVal, noteVal);
     if (!result.error && leaderVal && Number(leaderVal) !== leaderPlayerId) {
-      const leaderResult = await updateRaidLeader(raidDate, Number(leaderVal));
+      const leaderResult = await updateRaidLeader(raidDate, Number(leaderVal), updateEventLead);
       if (leaderResult.error) {
         setPending(false);
         setError(leaderResult.error);
@@ -81,6 +82,10 @@ export function RaidNameEditor({
           <option value="">Keep detected leader</option>
           {leaders.map((leader) => <option key={leader.playerId} value={leader.playerId}>{leader.name}</option>)}
         </select>
+      </label>
+      <label className="flex max-w-xs items-start gap-2 text-sm text-neutral-400">
+        <input type="checkbox" checked={updateEventLead} onChange={(e) => setUpdateEventLead(e.target.checked)} />
+        <span>Also move or add the Event Lead EP award</span>
       </label>
       <Button type="submit" size="sm" disabled={pending}>
         {pending ? "Saving…" : "Save"}

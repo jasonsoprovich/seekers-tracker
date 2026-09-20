@@ -578,14 +578,14 @@ export async function setRaidMeta(
 }
 
 // An attendance submitter is normally the event leader, but an officer can
-// correct exceptional nights. The correction moves recorded Event Lead EP as
-// well as overriding the displayed leader, so the event page and standings
-// remain consistent.
+// correct exceptional nights. Moving or adding Event Lead EP is explicit:
+// officers sometimes already recorded the correct award manually.
 export async function setRaidLeader(
   db: ReturnType<typeof drizzle>,
   raidDate: string,
   leaderPlayerId: number,
   changedBy: string,
+  updateEventLead = false,
 ): Promise<void> {
   const bounds = guildDayBounds(raidDate);
   if (!bounds) throw new Error("Bad raid date.");
@@ -602,6 +602,15 @@ export async function setRaidLeader(
     await db.update(raids).set({ leaderPlayerId, updatedAt: now }).where(eq(raids.id, existingMeta.id));
   } else {
     await db.insert(raids).values({ raidDate, leaderPlayerId, createdBy: changedBy, updatedAt: now });
+  }
+
+  if (!updateEventLead) {
+    await recordSystemEvent(db, await webActor(db, changedBy), {
+      action: "epgp.raid.meta", targetType: "raid", targetId: raidDate,
+      summary: `Event leader for ${raidDate} set to ${leader.name}`,
+      before: { leaderPlayerId: existingMeta?.leaderPlayerId ?? null }, after: { leaderPlayerId },
+    });
+    return;
   }
 
   const eventLeadRows = await db
