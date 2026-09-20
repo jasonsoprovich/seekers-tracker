@@ -20,6 +20,7 @@ import {
 } from "@/lib/players";
 import { getPermissionMatrix, getPermissions, roleCan } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type SetRoleResult = { error?: string };
 
@@ -78,6 +79,8 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
     }
   }
 
+  const [before] = await db.select({ role: users.role, username: users.username }).from(users).where(eq(users.id, userId));
+
   await db
     .update(users)
     .set({ role: role as Role, updatedAt: new Date() })
@@ -94,9 +97,20 @@ export async function setUserRole(userId: string, role: string): Promise<SetRole
   // not just stop working on its next live check (leader, 2026-09-05: "if
   // an officer ever loses their officer status... their api keys need to
   // be revoked automatically"). A no-op if they never had a key.
+  const actor = await webActor(db, session.user.id);
   if (!roleCan(matrix, role, "epgp.officerApi")) {
-    await revokeApiKeysForUser(db, userId);
+    await revokeApiKeysForUser(db, userId, actor);
   }
+
+  await recordSystemEvent(db, actor, {
+    action: "roles.user.change",
+    targetType: "user",
+    targetId: userId,
+    targetLabel: before?.username ?? null,
+    summary: `${before?.username ?? userId}'s site role changed ${before?.role ?? "?"} → ${role}`,
+    before: { role: before?.role ?? null },
+    after: { role },
+  });
 
   return {};
 }
@@ -162,7 +176,8 @@ export async function assignCharacterToMember(userId: string, characterId: numbe
   }
 
   const db = await getDb();
-  const assigned = await assignCharacterToUser(db, characterId, userId);
+  const actor = await webActor(db, session.user.id);
+  const assigned = await assignCharacterToUser(db, characterId, userId, actor);
   if (!assigned.ok) return { error: assigned.error };
   if (assigned.playerId != null) await settleStandings(db, { playerIds: [assigned.playerId] });
   return {};

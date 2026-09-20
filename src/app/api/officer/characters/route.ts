@@ -7,6 +7,7 @@ import { getStandings } from "@/lib/epgp/standings";
 import { characterName } from "@/lib/validate";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
 import { createStandalonePlayer } from "@/lib/players";
+import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 
 // Roster snapshot for the EPGP parser app's local name-matching/validation
 // (attendance and bid rows reference characters by name — see the app's
@@ -139,12 +140,21 @@ export async function POST(request: Request) {
     // sheet-only character. Defensive fallback: every character has
     // player_id today, but if the selected main somehow doesn't, give it
     // one first rather than silently leaving the new alt player_id-less.
+    const actor = await officerApiActor(db, auth.userId);
     if (mainCharacterId && target) {
-      const mainPlayerId = target.playerId ?? (await createStandalonePlayer(db, mainCharacterId, target.name));
+      const mainPlayerId = target.playerId ?? (await createStandalonePlayer(db, mainCharacterId, target.name, actor));
       await db.update(characters).set({ playerId: mainPlayerId }).where(eq(characters.id, created.id));
     } else {
-      await createStandalonePlayer(db, created.id, name);
+      await createStandalonePlayer(db, created.id, name, actor);
     }
+    await recordSystemEvent(db, actor, {
+      action: "characters.create",
+      targetType: "character",
+      targetId: created.id,
+      targetLabel: name,
+      summary: `${name} created from parser capture (${mainCharacterId ? `alt of ${mainCharacterName}` : "new main"})`,
+      after: { charType: created.charType, mainCharacterId },
+    });
 
     return Response.json(
       {

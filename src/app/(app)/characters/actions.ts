@@ -11,6 +11,7 @@ import { settleStandings } from "@/lib/epgp/standings";
 import { assignCharacterToUser, attachCharacterToPlayer, resolvePlayerForUser } from "@/lib/players";
 import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type CharacterFormState = { error?: string };
 
@@ -41,13 +42,23 @@ export async function createCharacter(
     throw err;
   }
 
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "characters.create",
+    targetType: "character",
+    targetId: created.id,
+    targetLabel: parsed.data.name,
+    summary: `${parsed.data.name} created`,
+    after: { charType: parsed.data.charType },
+  });
+
   // PLAN.md §11 Phase 10 task 10.2 / §16 gap — a character created straight
   // through this form (not claimed from the pre-seeded roster) previously
   // never got player_id set at all, making it invisible to computeEpgpTotals.
   const [me] = await db.select({ id: users.id, discordId: users.discordId, username: users.username }).from(users).where(eq(users.id, session.user.id));
   if (me) {
     const playerId = await resolvePlayerForUser(db, me);
-    if (playerId) await attachCharacterToPlayer(db, created.id, playerId);
+    if (playerId) await attachCharacterToPlayer(db, created.id, playerId, actor);
   }
 
   redirect("/characters");
@@ -147,6 +158,17 @@ export async function updateCharacter(
     throw err;
   }
 
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "characters.update",
+    targetType: "character",
+    targetId: characterId,
+    targetLabel: parsed.data.name,
+    summary: `${parsed.data.name} edited`,
+    before: { name: existing.name, class: existing.class, race: existing.race, level: existing.level, charType: existing.charType, status: existing.status },
+    after: { ...parsed.data, status },
+  });
+
   redirect("/characters");
 }
 
@@ -210,11 +232,12 @@ export async function claimAlt(characterId: number): Promise<ClaimAltState> {
   // on a DIFFERENT real identity's player (has a user_id or a discord_id)
   // is refused here by attachCharacterToPlayer's own centralized check
   // (Remediation plan Phase 5 task 5.6) — no need to duplicate that lookup.
+  const actor = await webActor(db, session.user.id);
   if (target.ownerId === null) {
-    const assigned = await assignCharacterToUser(db, characterId, session.user.id);
+    const assigned = await assignCharacterToUser(db, characterId, session.user.id, actor);
     if (!assigned.ok) return { error: assigned.error };
   } else {
-    const attached = await attachCharacterToPlayer(db, characterId, callerPlayerId);
+    const attached = await attachCharacterToPlayer(db, characterId, callerPlayerId, actor);
     if (attached.error) return { error: attached.error };
   }
 

@@ -55,6 +55,7 @@ import {
   settleStandings,
 } from "../src/lib/epgp/standings";
 import { attachCharacterToPlayer, reverseMainSwap, swapMainCharacter } from "../src/lib/players";
+import { scriptActor } from "../src/lib/system-log";
 
 const SNAPSHOT_NAME = "phase4-standings-resilience-test";
 
@@ -242,7 +243,7 @@ async function main() {
     const [fromChar] = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, fromPlayer));
     const toPlayer = await makePlayerWithEp(db, 25);
     const [toChar] = await db.select({ id: characters.id }).from(characters).where(eq(characters.playerId, toPlayer));
-    const attachResult = await attachCharacterToPlayer(db, fromChar.id, toPlayer);
+    const attachResult = await attachCharacterToPlayer(db, fromChar.id, toPlayer, scriptActor("verify-standings-resilience"));
     check(failures, !attachResult.error, `attachCharacterToPlayer succeeds (${attachResult.error ?? "ok"})`);
     check(failures, (await db.select().from(players).where(eq(players.id, fromPlayer))).length === 0, "the absorbed standalone player row was deleted");
     check(failures, (await dirtyScopes(db)).includes(`player:${toPlayer}`), "absorbing a standalone player's ledger history marks the target player dirty");

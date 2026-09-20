@@ -8,6 +8,7 @@ import { LEADERSHIP_ROLES, roleRank, type Role } from "@/lib/authz";
 import { commitDepartureWipe, reverseDecayEvent } from "@/lib/epgp/decay";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
+import { recordSystemEvent, webActor, type SystemActor } from "@/lib/system-log";
 
 // PLAN.md §11 Phase 10 — character claiming rework, built on the `players`
 // table Phase 3 introduced. Four entry points:
@@ -138,7 +139,7 @@ export async function syncAccountRole(db: Db, playerId: number): Promise<void> {
 // If the old player has a user_id or a discord_id it's a real account —
 // never merged silently here (a genuine character transfer between two
 // people is a leader decision, not a side effect of a claim).
-async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: number): Promise<boolean> {
+async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: number, actor: SystemActor): Promise<boolean> {
   if (fromPlayerId === toPlayerId) return false;
   const [from] = await db
     .select({ userId: players.userId, discordId: players.discordId })
@@ -164,6 +165,13 @@ async function absorbStandalonePlayer(db: Db, fromPlayerId: number, toPlayerId: 
   // known for certain).
   await db.delete(playerEpgpTotals).where(eq(playerEpgpTotals.playerId, fromPlayerId));
   await db.delete(players).where(eq(players.id, fromPlayerId));
+  await recordSystemEvent(db, actor, {
+    action: "characters.absorb",
+    targetType: "player",
+    targetId: toPlayerId,
+    summary: `Standalone player #${fromPlayerId} absorbed into player #${toPlayerId} (characters + EP/GP history moved)`,
+    before: { fromPlayerId, toPlayerId },
+  });
   return true;
 }
 
@@ -204,8 +212,8 @@ export async function syncCharacterOwnership(db: Db, playerId: number): Promise<
 // duplicated per caller), nothing moves. The caller's claim/link flow
 // surfaces this as a rejection; an officer has to resolve it by hand,
 // there's no override.
-export async function attachCharacterToPlayer(db: Db, characterId: number, playerId: number): Promise<AttachResult> {
-  const [character] = await db.select({ playerId: characters.playerId }).from(characters).where(eq(characters.id, characterId));
+export async function attachCharacterToPlayer(db: Db, characterId: number, playerId: number, actor: SystemActor): Promise<AttachResult> {
+  const [character] = await db.select({ name: characters.name, playerId: characters.playerId }).from(characters).where(eq(characters.id, characterId));
   if (!character) return { error: "Character not found." };
 
   if (character.playerId !== null && character.playerId !== playerId) {
@@ -215,10 +223,26 @@ export async function attachCharacterToPlayer(db: Db, characterId: number, playe
     }
     // A defunct standalone player (no user, no discord_id) — pull its
     // whole group's characters + ledger history across before repointing.
-    await absorbStandalonePlayer(db, character.playerId, playerId);
+    await absorbStandalonePlayer(db, character.playerId, playerId, actor);
   }
 
+  const alreadyLinked = character.playerId === playerId;
   await db.update(characters).set({ playerId, updatedAt: new Date() }).where(eq(characters.id, characterId));
+  // Several callers route a character that's already on the right player
+  // through here as belt-and-suspenders (createCharacterForAccount, the
+  // parser's officer/characters route) — skip the log entry when nothing
+  // actually moved, or every one of those turns into a redundant row.
+  if (!alreadyLinked) {
+    await recordSystemEvent(db, actor, {
+      action: "characters.link",
+      targetType: "character",
+      targetId: characterId,
+      targetLabel: character.name,
+      summary: `${character.name} linked to player #${playerId}`,
+      before: { playerId: character.playerId },
+      after: { playerId },
+    });
+  }
 
   // Bootstrap the player's main pointer from whichever character in the
   // RESULTING group is typed "main" — not just the one character this call
@@ -263,8 +287,8 @@ export type AssignResult = { ok: true; playerId: number | null } | { ok: false; 
 // to attach through at all. The caller does the follow-up
 // refreshStandings({ playerIds: [result.playerId] }); kept out of here so
 // this module doesn't take a dependency on the standings layer.
-export async function assignCharacterToUser(db: Db, characterId: number, userId: string): Promise<AssignResult> {
-  const [character] = await db.select({ ownerId: characters.ownerId }).from(characters).where(eq(characters.id, characterId));
+export async function assignCharacterToUser(db: Db, characterId: number, userId: string, actor: SystemActor): Promise<AssignResult> {
+  const [character] = await db.select({ name: characters.name, ownerId: characters.ownerId }).from(characters).where(eq(characters.id, characterId));
   if (!character) return { ok: false, error: "That character no longer exists." };
   if (character.ownerId !== null) return { ok: false, error: "That character has already been claimed by someone else." };
 
@@ -274,16 +298,32 @@ export async function assignCharacterToUser(db: Db, characterId: number, userId:
     .where(eq(users.id, userId));
   if (!user) {
     await db.update(characters).set({ ownerId: userId, updatedAt: new Date() }).where(eq(characters.id, characterId));
+    await recordSystemEvent(db, actor, {
+      action: "characters.link",
+      targetType: "character",
+      targetId: characterId,
+      targetLabel: character.name,
+      summary: `${character.name} assigned to user ${userId} (no players row yet)`,
+      after: { ownerId: userId },
+    });
     return { ok: true, playerId: null };
   }
 
   const playerId = await resolvePlayerForUser(db, user);
   if (!playerId) {
     await db.update(characters).set({ ownerId: userId, updatedAt: new Date() }).where(eq(characters.id, characterId));
+    await recordSystemEvent(db, actor, {
+      action: "characters.link",
+      targetType: "character",
+      targetId: characterId,
+      targetLabel: character.name,
+      summary: `${character.name} assigned to ${user.username} (no players row resolved)`,
+      after: { ownerId: userId },
+    });
     return { ok: true, playerId: null };
   }
 
-  const attached = await attachCharacterToPlayer(db, characterId, playerId);
+  const attached = await attachCharacterToPlayer(db, characterId, playerId, actor);
   if (attached.error) return { ok: false, error: attached.error };
   return { ok: true, playerId };
 }
@@ -404,6 +444,17 @@ export async function swapMainCharacter(
   // Only the fee moved a number; refresh that one player's standings.
   await settleStandings(db, { playerIds: [playerId] });
 
+  const actor = await webActor(db, approvedBy);
+  await recordSystemEvent(db, actor, {
+    action: "members.main.swap",
+    targetType: "player",
+    targetId: playerId,
+    targetLabel: target.name,
+    summary: `Player #${playerId}'s main swapped ${prevMainName ?? "(none)"} → ${target.name}${feeGp > 0 ? ` (${feeGp} GP fee)` : " (fee waived)"}`,
+    before: { mainCharacterId: prevMainCharacterId, mainName: prevMainName },
+    after: { mainCharacterId: newMainCharacterId, mainName: target.name, feeGp },
+  });
+
   return {};
 }
 
@@ -463,6 +514,16 @@ export async function reverseMainSwap(db: Db, eventId: number, reversedBy: strin
 
   await settleStandings(db, { playerIds: [event.playerId] });
 
+  const actor = await webActor(db, reversedBy);
+  await recordSystemEvent(db, actor, {
+    action: "members.main.swap.reverse",
+    targetType: "player",
+    targetId: event.playerId,
+    summary: `Main swap #${eventId} reversed for player #${event.playerId}`,
+    before: { mainCharacterId: event.newMainCharacterId },
+    after: { mainCharacterId: event.prevMainCharacterId },
+  });
+
   return {};
 }
 
@@ -476,10 +537,18 @@ export async function reverseMainSwap(db: Db, eventId: number, reversedBy: strin
 // are: players.main_character_id can't be set until the character row
 // exists to reference, and characters.player_id can't be set until the
 // player row exists to reference.
-export async function createStandalonePlayer(db: Db, characterId: number, displayName: string): Promise<number> {
+export async function createStandalonePlayer(db: Db, characterId: number, displayName: string, actor: SystemActor): Promise<number> {
   const [player] = await db.insert(players).values({ displayName, status: "active" }).returning({ id: players.id });
   await db.update(players).set({ mainCharacterId: characterId }).where(eq(players.id, player.id));
   await db.update(characters).set({ playerId: player.id, updatedAt: new Date() }).where(eq(characters.id, characterId));
+  await recordSystemEvent(db, actor, {
+    action: "characters.create",
+    targetType: "player",
+    targetId: player.id,
+    targetLabel: displayName,
+    summary: `New standalone player #${player.id} (${displayName}) created`,
+    after: { playerId: player.id, characterId, displayName },
+  });
   return player.id;
 }
 
@@ -590,7 +659,7 @@ export type GuildStatusResult = { error?: string };
 // on reinstate — a leader re-grants it deliberately.
 export async function removePlayerFromGuildCore(db: Db, actingUserId: string, playerId: number): Promise<GuildStatusResult> {
   const [player] = await db
-    .select({ id: players.id, userId: players.userId, status: players.status })
+    .select({ id: players.id, userId: players.userId, status: players.status, displayName: players.displayName })
     .from(players)
     .where(eq(players.id, playerId));
   if (!player) return { error: "Player not found." };
@@ -614,7 +683,7 @@ export async function removePlayerFromGuildCore(db: Db, actingUserId: string, pl
     // Same as setUserRole's demotion path — removal always drops role to
     // "member", so any app key they held must stop existing too (leader,
     // 2026-09-05). A no-op if they never had a key.
-    await revokeApiKeysForUser(db, player.userId);
+    await revokeApiKeysForUser(db, player.userId, await webActor(db, actingUserId));
   }
   // Unconditional — see the function comment above for why this can't be
   // gated on player.userId the way the users.role branch is.
@@ -639,6 +708,17 @@ export async function removePlayerFromGuildCore(db: Db, actingUserId: string, pl
     .set({ status: "departed", departedAt: now, removalDecayEventId, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
     .where(eq(players.id, player.id));
 
+  const actor = await webActor(db, actingUserId);
+  await recordSystemEvent(db, actor, {
+    action: "members.remove",
+    targetType: "player",
+    targetId: player.id,
+    targetLabel: player.displayName,
+    summary: `${player.displayName ?? `Player #${player.id}`} removed from the guild (EP zeroed, GP kept)`,
+    before: { status: player.status },
+    after: { status: "departed", removalDecayEventId },
+  });
+
   return {};
 }
 
@@ -648,7 +728,7 @@ export async function removePlayerFromGuildCore(db: Db, actingUserId: string, pl
 export async function reinstatePlayerFromGuildCore(db: Db, actingUserId: string, playerId: number): Promise<GuildStatusResult> {
   const now = new Date();
   const [player] = await db
-    .select({ id: players.id, removalDecayEventId: players.removalDecayEventId })
+    .select({ id: players.id, removalDecayEventId: players.removalDecayEventId, displayName: players.displayName })
     .from(players)
     .where(eq(players.id, playerId));
   if (!player) return { error: "Player not found." };
@@ -664,6 +744,17 @@ export async function reinstatePlayerFromGuildCore(db: Db, actingUserId: string,
     .update(players)
     .set({ status: "active", departedAt: null, removalDecayEventId: null, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
     .where(eq(players.id, player.id));
+
+  const actor = await webActor(db, actingUserId);
+  await recordSystemEvent(db, actor, {
+    action: "members.reinstate",
+    targetType: "player",
+    targetId: player.id,
+    targetLabel: player.displayName,
+    summary: `${player.displayName ?? `Player #${player.id}`} reinstated (EP restored)`,
+    before: { status: "departed" },
+    after: { status: "active" },
+  });
 
   return {};
 }

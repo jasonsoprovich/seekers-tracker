@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { characterClaims, characters } from "@/db";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type ClaimActionState = { error?: string };
 
@@ -32,7 +33,7 @@ export async function requestClaim(characterId: number, note: string): Promise<C
 
   const db = await getDb();
   const [character] = await db
-    .select({ ownerId: characters.ownerId, playerId: characters.playerId })
+    .select({ name: characters.name, ownerId: characters.ownerId, playerId: characters.playerId })
     .from(characters)
     .where(eq(characters.id, characterId));
   if (!character) return { error: "That character no longer exists." };
@@ -66,6 +67,16 @@ export async function requestClaim(characterId: number, note: string): Promise<C
     if (isUniqueConstraintError(err)) return { error: "You already have a pending claim for this character." };
     throw err;
   }
+
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "claims.request",
+    targetType: "character",
+    targetId: characterId,
+    targetLabel: character.name,
+    summary: `Claim requested for ${character.name}`,
+    after: { note: trimmedNote },
+  });
 
   return {};
 }

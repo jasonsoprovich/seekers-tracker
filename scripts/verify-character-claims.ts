@@ -43,6 +43,7 @@ import { characterClaims, characters, players, users } from "../src/db";
 import { resolveOtherPendingClaimsForGroup } from "../src/lib/claims";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
 import { assignCharacterToUser, listPlayerGroupCharacters } from "../src/lib/players";
+import { scriptActor } from "../src/lib/system-log";
 
 const SNAPSHOT_NAME = "phase5-character-claims-test";
 
@@ -130,7 +131,7 @@ async function main() {
     const group1Before = await listPlayerGroupCharacters(db, sp1);
     check(failures, group1Before.length === 3 && group1Before[0].charType === "main", "group lists main first, then alt/mule, before any claim");
 
-    const assigned1 = await assignCharacterToUser(db, alt1, requester1);
+    const assigned1 = await assignCharacterToUser(db, alt1, requester1, scriptActor("verify-character-claims"));
     check(failures, assigned1.ok, `claiming the alt succeeds (${!assigned1.ok ? assigned1.error : "ok"})`);
 
     const groupRows1 = await db.select({ id: characters.id, ownerId: characters.ownerId }).from(characters).where(inArray(characters.id, [main1, alt1, mule1]));
@@ -153,7 +154,7 @@ async function main() {
     const realChar2 = await makeCharacter(db, { playerId: realPlayer2, charType: "main" });
     const requester2 = await makeUser(db);
 
-    const assigned2 = await assignCharacterToUser(db, realChar2, requester2);
+    const assigned2 = await assignCharacterToUser(db, realChar2, requester2, scriptActor("verify-character-claims"));
     check(failures, !assigned2.ok && /linked to another member's account/i.test(assigned2.ok ? "" : assigned2.error), "task 5.6: claiming a pre-seeded real identity's character is refused");
 
     const [realCharAfter2] = await db.select({ ownerId: characters.ownerId, playerId: characters.playerId }).from(characters).where(eq(characters.id, realChar2));
@@ -175,7 +176,7 @@ async function main() {
     const claimA3 = await makeClaim(db, main3, requesterA3);
     const claimB3 = await makeClaim(db, alt3, requesterB3);
 
-    const assigned3 = await assignCharacterToUser(db, main3, requesterA3);
+    const assigned3 = await assignCharacterToUser(db, main3, requesterA3, scriptActor("verify-character-claims"));
     check(failures, assigned3.ok, `approving requester A's claim on the main succeeds (${!assigned3.ok ? assigned3.error : "ok"})`);
     await db.update(characterClaims).set({ status: "approved", reviewedBy: actingOfficerId, reviewedAt: new Date() }).where(eq(characterClaims.id, claimA3));
     await resolveOtherPendingClaimsForGroup(db, assigned3.ok ? assigned3.playerId : null, main3, requesterA3, claimA3, actingOfficerId, new Date());
@@ -215,7 +216,7 @@ async function main() {
       .where(inArray(characterClaims.characterId, group4CharacterIds));
     check(failures, existingPending4 !== undefined, "task 5.2: the group-wide pending-claim lookup requestClaim uses finds an existing sibling claim");
 
-    const assigned4 = await assignCharacterToUser(db, main4, requester4);
+    const assigned4 = await assignCharacterToUser(db, main4, requester4, scriptActor("verify-character-claims"));
     check(failures, assigned4.ok, `approving the main's claim succeeds (${!assigned4.ok ? assigned4.error : "ok"})`);
     await db.update(characterClaims).set({ status: "approved", reviewedBy: actingOfficerId, reviewedAt: new Date() }).where(eq(characterClaims.id, claimMain4));
     await resolveOtherPendingClaimsForGroup(db, assigned4.ok ? assigned4.playerId : null, main4, requester4, claimMain4, actingOfficerId, new Date());
@@ -239,7 +240,7 @@ async function main() {
     const group5Before = await listPlayerGroupCharacters(db, sp5);
     check(failures, group5Before.length === 1, "a genuinely standalone character has a group of exactly one");
 
-    const assigned5 = await assignCharacterToUser(db, solo5, requester5);
+    const assigned5 = await assignCharacterToUser(db, solo5, requester5, scriptActor("verify-character-claims"));
     check(failures, assigned5.ok, `claiming a standalone single character succeeds (${!assigned5.ok ? assigned5.error : "ok"})`);
     const [solo5After] = await db.select({ ownerId: characters.ownerId }).from(characters).where(eq(characters.id, solo5));
     check(failures, solo5After?.ownerId === requester5, "the standalone character's owner_id was set");

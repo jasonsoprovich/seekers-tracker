@@ -13,6 +13,7 @@ import { settleStandings } from "@/lib/epgp/standings";
 import { attachCharacterToPlayer, createStandalonePlayer } from "@/lib/players";
 import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 // Server actions behind /characters/[id]/account — the one place a
 // player's whole group of characters (main + alts + mules) is managed
@@ -53,6 +54,16 @@ export async function setCharacterType(characterId: number, type: "alt" | "mule"
     .update(characters)
     .set({ charType: type, mainCharacterId, updatedAt: new Date() })
     .where(eq(characters.id, characterId));
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "characters.retype",
+    targetType: "character",
+    targetId: characterId,
+    targetLabel: character.name,
+    summary: `${character.name} retyped ${character.charType} → ${type}`,
+    before: { charType: character.charType },
+    after: { charType: type },
+  });
   return {};
 }
 
@@ -100,7 +111,7 @@ export async function linkCharacterToAccount(playerId: number, characterId: numb
   // discord_id) is refused by attachCharacterToPlayer's own centralized
   // check (Remediation plan Phase 5 task 5.6) — no need to duplicate that
   // lookup here.
-  const attach = await attachCharacterToPlayer(db, characterId, playerId);
+  const attach = await attachCharacterToPlayer(db, characterId, playerId, await webActor(db, session.user.id));
   if (attach.error) return { error: attach.error };
 
   // Display grouping: under an existing main it's an alt (unless it's a
@@ -196,13 +207,23 @@ export async function createCharacterForAccount(
     throw err;
   }
 
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "characters.create",
+    targetType: "character",
+    targetId: created.id,
+    targetLabel: parsed.data.name,
+    summary: `${parsed.data.name} created as a new ${parsed.data.charType} on player #${playerId}`,
+    after: { charType: parsed.data.charType, playerId },
+  });
+
   // Belt-and-suspenders: the insert above already set playerId/ownerId
   // directly, but routing through attachCharacterToPlayer keeps this on the
   // same centralized path every other attach goes through (real-identity
   // refusal, ownership sync) rather than duplicating that logic here — a
   // no-op in the normal case since the character already points at this
   // player.
-  const attach = await attachCharacterToPlayer(db, created.id, playerId);
+  const attach = await attachCharacterToPlayer(db, created.id, playerId, actor);
   if (attach.error) return { error: attach.error };
 
   redirect(`/characters/${created.id}/account`);
@@ -234,11 +255,21 @@ export async function detachCharacterFromAccount(characterId: number): Promise<A
     return { error: "This is the account's main — swap the main to another character first, then unlink this one." };
   }
 
-  await createStandalonePlayer(db, characterId, character.name);
+  const actor = await webActor(db, session.user.id);
+  const prevPlayerId = character.playerId;
+  await createStandalonePlayer(db, characterId, character.name, actor);
   await db
     .update(characters)
     .set({ charType: "main", mainCharacterId: null, ownerId: null, updatedAt: new Date() })
     .where(eq(characters.id, characterId));
+  await recordSystemEvent(db, actor, {
+    action: "characters.detach",
+    targetType: "character",
+    targetId: characterId,
+    targetLabel: character.name,
+    summary: `${character.name} detached from player #${prevPlayerId} (now standalone)`,
+    before: { playerId: prevPlayerId },
+  });
   return {};
 }
 
@@ -262,6 +293,8 @@ export async function reconcilePlayerMain(playerId: number, characterId: number)
   if (!target || target.playerId !== playerId) return { error: "That character isn't on this account." };
   if (target.charType === "mule") return { error: "A mule can't be an account's main." };
 
+  const [beforePlayer] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, playerId));
+
   const now = new Date();
   await db
     .update(characters)
@@ -272,6 +305,16 @@ export async function reconcilePlayerMain(playerId: number, characterId: number)
     .update(players)
     .set({ mainCharacterId: characterId, mainCharacterChangedBy: session.user.id, mainCharacterChangedAt: now, updatedAt: now })
     .where(eq(players.id, playerId));
+
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "members.main.swap",
+    targetType: "player",
+    targetId: playerId,
+    summary: `Player #${playerId}'s main pointer reconciled to character #${characterId} (data repair, no fee)`,
+    before: { mainCharacterId: beforePlayer?.mainCharacterId ?? null },
+    after: { mainCharacterId: characterId },
+  });
   return {};
 }
 
@@ -286,9 +329,19 @@ export async function setCharacterOfficerTag(characterId: number, tagged: boolea
   if (!perms.can("characters.officerTag")) return { error: "Only officers, leaders, and admins can change a character's officer tag." };
 
   const db = await getDb();
-  const [character] = await db.select({ id: characters.id }).from(characters).where(eq(characters.id, characterId));
+  const [character] = await db.select({ id: characters.id, name: characters.name, officerTagged: characters.officerTagged }).from(characters).where(eq(characters.id, characterId));
   if (!character) return { error: "Character not found." };
   await db.update(characters).set({ officerTagged: tagged, updatedAt: new Date() }).where(eq(characters.id, characterId));
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "characters.officerTag",
+    targetType: "character",
+    targetId: characterId,
+    targetLabel: character.name,
+    summary: `${character.name}'s officer tag ${tagged ? "enabled" : "disabled"}`,
+    before: { officerTagged: character.officerTagged },
+    after: { officerTagged: tagged },
+  });
   return {};
 }
 
@@ -306,7 +359,7 @@ export async function setPlayerRole(playerId: number, role: string): Promise<Acc
   if (!ROLES.includes(role as Role)) return { error: "Invalid role." };
 
   const db = await getDb();
-  const [player] = await db.select({ id: players.id, userId: players.userId }).from(players).where(eq(players.id, playerId));
+  const [player] = await db.select({ id: players.id, userId: players.userId, role: players.role, displayName: players.displayName }).from(players).where(eq(players.id, playerId));
   if (!player) return { error: "Account not found." };
   if (player.userId !== null) {
     const result = await setUserRole(player.userId, role);
@@ -322,5 +375,15 @@ export async function setPlayerRole(playerId: number, role: string): Promise<Acc
   }
 
   await db.update(players).set({ role: role as Role, updatedAt: new Date() }).where(eq(players.id, playerId));
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "roles.player.change",
+    targetType: "player",
+    targetId: playerId,
+    targetLabel: player.displayName,
+    summary: `${player.displayName ?? `Player #${playerId}`}'s account role changed ${player.role} → ${role} (unclaimed account)`,
+    before: { role: player.role },
+    after: { role },
+  });
   return {};
 }

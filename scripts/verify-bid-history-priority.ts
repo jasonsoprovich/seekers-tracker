@@ -41,6 +41,7 @@ import { finalizeBidRound } from "../src/lib/epgp/bid-finalization";
 import { listBidHistory } from "../src/lib/epgp/ledger-list";
 import { refreshStandings } from "../src/lib/epgp/standings";
 import { attachCharacterToPlayer } from "../src/lib/players";
+import { scriptActor } from "../src/lib/system-log";
 
 const SNAPSHOT_NAME = "phase7-bid-history-priority-test";
 
@@ -190,7 +191,7 @@ async function main() {
       .insert(players)
       .values({ userId: claimantUserId, discordId: `test-discord-${claimantUserId}`, displayName: "VerifyClaimant", role: "member", status: "active" })
       .returning({ id: players.id });
-    const attachResult = await attachCharacterToPlayer(db, char3, claimantPlayer.id);
+    const attachResult = await attachCharacterToPlayer(db, char3, claimantPlayer.id, scriptActor("verify-bid-history-priority"));
     check(failures, !attachResult.error, `attachCharacterToPlayer succeeds (${attachResult.error ?? "ok"})`);
 
     const [oldPlayerRow] = await db.select({ id: players.id }).from(players).where(eq(players.id, player3));

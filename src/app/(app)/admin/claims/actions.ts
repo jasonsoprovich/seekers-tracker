@@ -10,6 +10,7 @@ import { settleStandings } from "@/lib/epgp/standings";
 import { assignCharacterToUser } from "@/lib/players";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type ClaimReviewResult = { error?: string };
 
@@ -39,10 +40,12 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
   //   - owned by a DIFFERENT account     -> actionable error; Deny still works
   //   - unowned                          -> normal assignment path
   const [character] = await db
-    .select({ ownerId: characters.ownerId, playerId: characters.playerId })
+    .select({ name: characters.name, ownerId: characters.ownerId, playerId: characters.playerId })
     .from(characters)
     .where(eq(characters.id, claim.characterId));
   if (!character) return { error: "That character no longer exists." };
+
+  const actor = await webActor(db, session.user.id);
 
   if (character.ownerId === claim.requesterId) {
     await db
@@ -54,6 +57,14 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
         reviewedAt: now,
       })
       .where(eq(characterClaims.id, claimId));
+    await recordSystemEvent(db, actor, {
+      action: "claims.approve",
+      targetType: "character",
+      targetId: claim.characterId,
+      targetLabel: character.name,
+      summary: `Claim on ${character.name} approved (already assigned to requester)`,
+      after: { claimId, requesterId: claim.requesterId },
+    });
     // Remediation plan Phase 5 task 5.5 — resolve against the character's
     // whole main/alt/mule group, not just the claimed character, since any
     // sibling's own pending claim is moot the same way this one is.
@@ -73,13 +84,21 @@ export async function approveClaim(claimId: number): Promise<ClaimReviewResult> 
   // owner_id across all of it (task 5.4), or refuses outright if that group
   // belongs to a different real identity (task 5.6). Shared with the
   // "assign a character to a member" admin action so the two can't drift.
-  const assigned = await assignCharacterToUser(db, claim.characterId, claim.requesterId);
+  const assigned = await assignCharacterToUser(db, claim.characterId, claim.requesterId, actor);
   if (!assigned.ok) return { error: assigned.error };
 
   await db
     .update(characterClaims)
     .set({ status: "approved", reviewedBy: session.user.id, reviewedAt: now })
     .where(eq(characterClaims.id, claimId));
+  await recordSystemEvent(db, actor, {
+    action: "claims.approve",
+    targetType: "character",
+    targetId: claim.characterId,
+    targetLabel: character.name,
+    summary: `Claim on ${character.name} approved`,
+    after: { claimId, requesterId: claim.requesterId, playerId: assigned.playerId },
+  });
 
   // assignCharacterToUser may have absorbed a defunct standalone player
   // (its ledger history moved onto this player), so recompute standings.
@@ -103,7 +122,10 @@ export async function denyClaim(claimId: number, decisionNote: string): Promise<
   }
 
   const db = await getDb();
-  const [claim] = await db.select({ status: characterClaims.status }).from(characterClaims).where(eq(characterClaims.id, claimId));
+  const [claim] = await db
+    .select({ status: characterClaims.status, characterId: characterClaims.characterId, requesterId: characterClaims.requesterId })
+    .from(characterClaims)
+    .where(eq(characterClaims.id, claimId));
   if (!claim) return { error: "Claim not found." };
   if (claim.status !== "pending") return { error: "That claim has already been reviewed." };
 
@@ -116,6 +138,17 @@ export async function denyClaim(claimId: number, decisionNote: string): Promise<
       reviewedAt: new Date(),
     })
     .where(eq(characterClaims.id, claimId));
+
+  const [character] = await db.select({ name: characters.name }).from(characters).where(eq(characters.id, claim.characterId));
+  const actor = await webActor(db, session.user.id);
+  await recordSystemEvent(db, actor, {
+    action: "claims.deny",
+    targetType: "character",
+    targetId: claim.characterId,
+    targetLabel: character?.name ?? null,
+    summary: `Claim on ${character?.name ?? `character #${claim.characterId}`} denied`,
+    after: { claimId, requesterId: claim.requesterId, decisionNote },
+  });
 
   return {};
 }

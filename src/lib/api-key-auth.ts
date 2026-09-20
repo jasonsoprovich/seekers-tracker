@@ -7,6 +7,7 @@ import { timed } from "@/lib/perf";
 import * as schema from "@/db";
 import { apikeys, users } from "@/db";
 import { loadPermissionMatrix, roleCan } from "@/lib/permissions";
+import { recordSystemEvent, type SystemActor } from "@/lib/system-log";
 
 // Auth for /api/officer/* routes, called by the standalone EPGP parser app
 // (seekers-epgp-parser) instead of a browser session. Deliberately does its
@@ -89,7 +90,16 @@ export async function verifyOfficerApiKey(
 // 09-05: a real security surface, seeing another member's key metadata,
 // not worth opening) precisely so this automatic path is what closes the
 // gap instead, not a leader having to go find and revoke it manually.
-export async function revokeApiKeysForUser(db: ReturnType<typeof drizzle<typeof schema>>, userId: string): Promise<number> {
+export async function revokeApiKeysForUser(db: ReturnType<typeof drizzle<typeof schema>>, userId: string, actor?: SystemActor): Promise<number> {
   const deleted = await db.delete(apikeys).where(eq(apikeys.referenceId, userId)).returning({ id: apikeys.id });
+  if (deleted.length > 0 && actor) {
+    await recordSystemEvent(db, actor, {
+      action: "system.apikey.revoke",
+      targetType: "user",
+      targetId: userId,
+      summary: `${deleted.length} officer API key(s) revoked for user ${userId}`,
+      before: { count: deleted.length },
+    });
+  }
   return deleted.length;
 }
