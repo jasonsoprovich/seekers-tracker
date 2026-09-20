@@ -67,3 +67,22 @@ export function findColumn(headers: Map<string, number>, candidates: string[]): 
   }
   return undefined;
 }
+
+// --- RFC4180 CSV writer (/admin/logs Export tab) ---------------------------
+// The inverse of parseCsv above, kept in the same file rather than a new
+// one — hand-rolled rather than a library: this repo's Worker bundle sits
+// close to the Free plan's 3072 KiB gzipped cap (CLAUDE.md), and quoting
+// one field is a handful of lines.
+
+// Quote-wraps a value only when it needs it (contains a comma, quote, or
+// line break); doubles any embedded quote. null/undefined render as "".
+export function escapeCsvValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const str = typeof value === "string" ? value : typeof value === "object" ? JSON.stringify(value) : String(value);
+  if (/[",\r\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
+export function toCsvRow(values: unknown[]): string {
+  return values.map(escapeCsvValue).join(",") + "\r\n";
+}
