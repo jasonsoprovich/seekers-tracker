@@ -24,6 +24,8 @@ const ROUTES = [
   "/epgp/ledger?type=audit",
   "/admin",
   "/admin/health",
+  "/admin/logs?tab=log",
+  "/admin/logs?tab=export",
 ];
 
 const WIDTHS = [320, 375, 390, 768];
