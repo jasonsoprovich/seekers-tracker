@@ -710,6 +710,60 @@ export const ledgerAuditLog = sqliteTable(
   ],
 );
 
+// Admin+leader-only debugging log — the counterpart to ledger_audit_log
+// above, which is member-visible and scoped to EP/GP ledger rows only.
+// This covers every OTHER admin/officer mutation (roles, main swaps,
+// character link/create/retype, guild removal, permissions, decay,
+// claims, bank holdings, EPGP settings) so "who changed this and what was
+// it before" has an answer outside the ledger. Deliberately excludes
+// per-row parser attendance/bid writes — those already live on the
+// ledgers; a parser submission gets one summary row instead (see
+// src/lib/system-log/events.ts's epgp.bids.finalize/epgp.attendance.submit).
+// Never shown to members — gated at LEADERSHIP_ROLES (leader/admin), not
+// matrix-tunable (src/app/(app)/admin/logs/page.tsx), same posture as
+// /admin/permissions.
+export const systemEventLog = sqliteTable(
+  "system_event_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    occurredAt: integer("occurred_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Nullable — a cron-driven write (e.g. reconcileMainPointers) has no
+    // acting user.
+    actorUserId: text("actor_user_id").references(() => users.id),
+    // Denormalized like ledgerAuditLog's before/after: the log must still
+    // read correctly after the actor's role/name changes or the user row
+    // is gone.
+    actorLabel: text("actor_label"),
+    actorRole: text("actor_role"),
+    source: text("source", { enum: ["web", "officer_api", "cron", "script"] }).notNull(),
+    category: text("category").notNull(),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    // Text, not integer — holds both numeric ids (character/player) and
+    // string user ids.
+    targetId: text("target_id"),
+    targetLabel: text("target_label"),
+    // Pre-rendered human-readable line, not derived at read time — so the
+    // System Log tab's search is one LIKE against one column, and the row
+    // still reads correctly after whatever it describes is renamed/gone.
+    summary: text("summary").notNull(),
+    before: text("before", { mode: "json" }),
+    after: text("after", { mode: "json" }),
+    // custom-worker.ts's REQUEST_ID_HEADER / src/lib/session.ts already
+    // thread x-request-id through — carrying it here lets one page action
+    // be correlated against a `wrangler tail` capture.
+    requestId: text("request_id"),
+  },
+  (table) => [
+    index("system_event_log_occurred_idx").on(table.occurredAt),
+    index("system_event_log_category_idx").on(table.category, table.occurredAt),
+    index("system_event_log_actor_idx").on(table.actorUserId, table.occurredAt),
+    index("system_event_log_target_idx").on(table.targetType, table.targetId),
+  ],
+);
+
 // New capability the sheet never had (guild leadership asked for this
 // directly — see the EPGP plan): a loot event groups every bid placed on a
 // drop, not just the eventual winner, so retractions/last-second changes/
