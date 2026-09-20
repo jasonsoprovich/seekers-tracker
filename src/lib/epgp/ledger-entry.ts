@@ -3,6 +3,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
+import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { guildDayBounds } from "@/lib/guild-timezone";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
@@ -27,8 +28,8 @@ import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/l
 export type LedgerEntrySource = "manual" | "parse";
 
 export type InsertLedgerEntryInput =
-  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null; raidDate?: string | null }
-  | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate?: string | null };
+  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null; raidDate?: string | null; raidName?: string | null }
+  | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate?: string | null; raidName?: string | null };
 
 // `playerId` is the account this row landed on (an alt's row is redirected
 // to its main's character but keeps the shared player_id) — returned so a
@@ -79,7 +80,12 @@ export async function insertLedgerEntry(
     if (!zoneCheck.ok) return { ok: false, error: zoneCheck.error };
   }
   const raidDate = input.raidDate?.trim() || null;
+  const raidName = input.raidName?.trim() || null;
   if (raidDate && !guildDayBounds(raidDate)) return { ok: false, error: "Event date must be a valid date." };
+  if (raidName && !raidDate) return { ok: false, error: "An event name needs an event date." };
+  if (raidDate && input.kind === "ep" && input.activity !== "Event Lead" && !ATTENDANCE_GATED_ACTIVITIES.has(input.activity)) {
+    return { ok: false, error: "Only attendance awards can be linked to an event." };
+  }
   // Raids & Events are grouped by this guild-local date rather than a
   // separate event id. Any manual correction can belong to that date: missed
   // attendance, a missed bid winner, or a rot-loot charge.
@@ -139,6 +145,7 @@ export async function insertLedgerEntry(
         note: input.note.trim() || null,
         zone: input.zone?.trim() || null,
         raidDate,
+        raidName,
         enteredBy,
         source,
       })
@@ -170,6 +177,7 @@ export async function insertLedgerEntry(
         capAtEntry: null,
         note: input.note.trim() || null,
         raidDate,
+        raidName,
         enteredBy,
         source,
       })
@@ -248,6 +256,7 @@ export type BatchEpRow = {
   occurredAt: string;
   note: string;
   zone?: string | null;
+  raidName?: string | null;
 };
 export type BatchEpResult = {
   inserted: number;
@@ -270,7 +279,7 @@ export async function insertEpLedgerBatch(
   source: LedgerEntrySource,
 ): Promise<BatchEpResult> {
   const failed: BatchEpResult["failed"] = [];
-  type Valid = { characterId: number; activity: string; points: number; occurredAt: Date; note: string; zone: string | null };
+  type Valid = { characterId: number; activity: string; points: number; occurredAt: Date; note: string; zone: string | null; raidName: string | null };
   const valid: Valid[] = [];
 
   for (const r of rows) {
@@ -291,6 +300,7 @@ export async function insertEpLedgerBatch(
       occurredAt: dateCheck.value,
       note: r.note.trim(),
       zone: r.zone?.trim() || null,
+      raidName: r.raidName?.trim() || null,
     });
   }
   if (valid.length === 0) return { inserted: 0, playerIds: [], failed };
@@ -340,6 +350,7 @@ export async function insertEpLedgerBatch(
       capAtEntry: capByDate.get(v.occurredAt.getTime()) ?? null,
       note: v.note || null,
       zone: v.zone,
+      raidName: v.raidName,
       enteredBy,
       source,
     });

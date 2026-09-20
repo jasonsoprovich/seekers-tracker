@@ -24,8 +24,8 @@ export type LedgerActionResult = { error?: string; standing?: StandingsRow | nul
 export type AddLedgerEntryInput = InsertLedgerEntryInput;
 
 export type UpdateLedgerEntryInput =
-  | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string; zone: string; raidDate: string }
-  | { kind: "gp"; id: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate: string };
+  | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string; zone: string; raidDate: string; raidName: string }
+  | { kind: "gp"; id: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate: string; raidName: string };
 
 function parseOccurredAt(raw: string): Date | null {
   const d = new Date(raw);
@@ -69,7 +69,9 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   const activityOrTier = (input.kind === "ep" ? input.activity : input.tier).trim();
   if (!activityOrTier) return { error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
   const raidDate = input.raidDate.trim() || null;
+  const raidName = input.raidName.trim() || null;
   if (raidDate && !guildDayBounds(raidDate)) return { error: "Event date must be a valid date." };
+  if (raidName && !raidDate) return { error: "An event name needs an event date." };
 
   const db = await getDb();
   // An edit never reassigns the character (that's a delete + re-add), so
@@ -93,6 +95,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
         note: input.note.trim() || null,
         zone: input.zone.trim() || null,
         raidDate,
+        raidName,
       })
       .where(eq(epLedger.id, input.id))
       .returning();
@@ -122,6 +125,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
         occurredAt,
         note: input.note.trim() || null,
         raidDate,
+        raidName,
       })
       .where(eq(gpLedger.id, input.id))
       .returning();

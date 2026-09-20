@@ -20,7 +20,11 @@ function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; raidDate: string };
+function eventHref(date: string, name: string | null): string {
+  return `/epgp/raids/${date}${name ? `?name=${encodeURIComponent(name)}` : ""}`;
+}
+
+type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; raidDate: string; raidName: string };
 
 export function LedgerTable(props: Props) {
   const router = useRouter();
@@ -28,7 +32,7 @@ export function LedgerTable(props: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", raidDate: "" });
+  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", raidDate: "", raidName: "" });
 
   // Click-to-sort columns (LT-19). Default order (as fetched: occurredAt
   // desc) is kept until the officer picks a column. `activityOrItem` /
@@ -60,6 +64,7 @@ export function LedgerTable(props: Props) {
       note: row.note ?? "",
       zone: props.type === "ep" ? ((row as EpRow).zone ?? "") : "",
       raidDate: props.type === "ep" ? ((row as EpRow).raidDate ?? "") : ((row as GpRow).raidDate ?? ""),
+      raidName: props.type === "ep" ? ((row as EpRow).raidName ?? "") : ((row as GpRow).raidName ?? ""),
     });
   }
 
@@ -82,7 +87,7 @@ export function LedgerTable(props: Props) {
     setError(null);
     const result =
       props.type === "ep"
-        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone, raidDate: draft.raidDate })
+        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone, raidDate: draft.raidDate, raidName: draft.raidName })
         : await updateLedgerEntry({
             kind: "gp",
             id,
@@ -92,6 +97,7 @@ export function LedgerTable(props: Props) {
             occurredAt: draft.occurredAt,
             note: draft.note,
             raidDate: draft.raidDate,
+            raidName: draft.raidName,
           });
     setPending(false);
     if (result.error) {
@@ -169,6 +175,10 @@ export function LedgerTable(props: Props) {
                   className={fieldClasses()}
                 />
               </Field>
+              <Field>
+                <span className="text-neutral-400">Raid / event name</span>
+                <input value={draft.raidName} onChange={(e) => setDraft((d) => ({ ...d, raidName: e.target.value }))} className={fieldClasses()} />
+              </Field>
             </>
           ) : (
             <>
@@ -198,6 +208,10 @@ export function LedgerTable(props: Props) {
                   onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
                   className={fieldClasses()}
                 />
+              </Field>
+              <Field>
+                <span className="text-neutral-400">Raid / event name</span>
+                <input value={draft.raidName} onChange={(e) => setDraft((d) => ({ ...d, raidName: e.target.value }))} className={fieldClasses()} />
               </Field>
             </>
           )}
@@ -262,8 +276,8 @@ export function LedgerTable(props: Props) {
           <div>
             <dt className="text-neutral-500">Linked event</dt>
             <dd>
-              <Link href={`/epgp/raids/${props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate}`} className="text-accent hover:underline">
-                {props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate}
+              <Link href={eventHref(props.type === "ep" ? (r as EpRow).raidDate! : (r as GpRow).raidDate!, props.type === "ep" ? (r as EpRow).raidName : (r as GpRow).raidName)} className="text-accent hover:underline">
+                {props.type === "ep" ? ((r as EpRow).raidName || (r as EpRow).raidDate) : ((r as GpRow).raidName || (r as GpRow).raidDate)}
               </Link>
             </dd>
           </div>
@@ -340,6 +354,7 @@ export function LedgerTable(props: Props) {
             {sorted.map((r) => {
               const editing = editingId === r.id;
               const linkedEventDate = props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate;
+              const linkedEventName = props.type === "ep" ? (r as EpRow).raidName : (r as GpRow).raidName;
               return (
                 <tr key={r.id} className="hover:bg-neutral-900/40">
                   {editing ? (
@@ -350,6 +365,13 @@ export function LedgerTable(props: Props) {
                           value={draft.occurredAt}
                           onChange={(e) => setDraft((d) => ({ ...d, occurredAt: e.target.value }))}
                           className={fieldClasses({ size: "sm" })}
+                        />
+                        <input
+                          value={draft.raidName}
+                          onChange={(e) => setDraft((d) => ({ ...d, raidName: e.target.value }))}
+                          aria-label="Raid or event name"
+                          placeholder="Event name"
+                          className={`${fieldClasses({ size: "sm" })} mt-1`}
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -439,8 +461,8 @@ export function LedgerTable(props: Props) {
                       <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt, r.source)}</td>
                       <td className="px-3 py-2 text-neutral-500">
                         {linkedEventDate ? (
-                          <Link href={`/epgp/raids/${linkedEventDate}`} className="text-accent hover:underline">
-                            {linkedEventDate}
+                          <Link href={eventHref(linkedEventDate, linkedEventName)} className="text-accent hover:underline">
+                            {linkedEventName || linkedEventDate}
                           </Link>
                         ) : (
                           "—"

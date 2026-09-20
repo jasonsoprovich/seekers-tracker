@@ -49,6 +49,7 @@ export function RaidLootTable({ loot, timeZone }: { loot: RaidLoot[]; timeZone: 
           {loot.map((l) => {
             const isOpen = open.has(l.lootEventId);
             const hasBids = l.bids.length > 0;
+            const winners = l.winners.length ? l.winners : [{ characterName: "—", tier: "—", gp: null, note: null }];
             const ranked = [...l.bids].sort((a, b) => {
               if (a.status === "won" && b.status !== "won") return -1;
               if (b.status === "won" && a.status !== "won") return 1;
@@ -65,15 +66,23 @@ export function RaidLootTable({ loot, timeZone }: { loot: RaidLoot[]; timeZone: 
                     className={`flex w-full items-center px-3 py-2 text-left ${hasBids ? "hover:bg-neutral-900/40" : "cursor-default"}`}
                   >
                     <span className="flex-[2] font-medium">
-                      {hasBids && <span className="mr-1 text-[10px] text-neutral-500">{isOpen ? "▾" : "▸"}</span>}
+                      <span className="mr-1 text-[10px] text-neutral-500">{hasBids && isOpen ? "▾" : "▸"}</span>
                       {l.itemName}
                       {hasBids && <span className="ml-2 text-[11px] font-normal text-neutral-500">{l.bids.length} bids</span>}
                     </span>
-                    <span className="flex-[2]">{l.winnerName ?? <span className="text-neutral-600">—</span>}</span>
-                    <span className="flex-1 text-neutral-400">{l.tier ?? "—"}</span>
-                    <span className="w-14 text-right tabular-nums">{l.gp !== null ? Math.round(l.gp) : "—"}</span>
+                    <span className="flex-[2] space-y-1">
+                      {winners.map((winner, index) => <span key={index} className={winner.characterName === "—" ? "text-neutral-600" : "block"}>{winner.characterName}</span>)}
+                    </span>
+                    <span className="flex-1 space-y-1 text-neutral-400">
+                      {winners.map((winner, index) => <span key={index} className="block">{winner.tier}</span>)}
+                    </span>
+                    <span className="w-14 space-y-1 text-right tabular-nums">
+                      {winners.map((winner, index) => <span key={index} className="block">{winner.gp !== null ? Math.round(winner.gp) : "—"}</span>)}
+                    </span>
                     <span className="w-24 pl-3 tabular-nums text-neutral-400">{timeFmt.format(l.occurredAt)}</span>
-                    <span className="flex-[2] pl-3 text-neutral-500">{l.note ?? ""}</span>
+                    <span className="flex-[2] space-y-1 pl-3 text-neutral-500">
+                      {winners.map((winner, index) => <span key={index} className="block">{winner.note ?? ""}</span>)}
+                    </span>
                   </button>
 
                   {isOpen && (

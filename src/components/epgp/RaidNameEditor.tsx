@@ -3,17 +3,30 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
-import { updateRaidMeta } from "@/app/(app)/epgp/raids/actions";
+import { updateRaidLeader, updateRaidMeta } from "@/app/(app)/epgp/raids/actions";
 import { Button } from "@/components/ui/Button";
 import { fieldClasses } from "@/components/ui/Field";
 
 // Officer-only inline name/note for a raid night. Shown read-only to
 // everyone else by the parent page (this component isn't rendered).
-export function RaidNameEditor({ raidDate, name, note }: { raidDate: string; name: string | null; note: string | null }) {
+export function RaidNameEditor({
+  raidDate,
+  name,
+  note,
+  leaderPlayerId,
+  leaders,
+}: {
+  raidDate: string;
+  name: string | null;
+  note: string | null;
+  leaderPlayerId: number | null;
+  leaders: { playerId: number; name: string }[];
+}) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [nameVal, setNameVal] = useState(name ?? "");
   const [noteVal, setNoteVal] = useState(note ?? "");
+  const [leaderVal, setLeaderVal] = useState(leaderPlayerId?.toString() ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +35,14 @@ export function RaidNameEditor({ raidDate, name, note }: { raidDate: string; nam
     setPending(true);
     setError(null);
     const result = await updateRaidMeta(raidDate, nameVal, noteVal);
+    if (!result.error && leaderVal && Number(leaderVal) !== leaderPlayerId) {
+      const leaderResult = await updateRaidLeader(raidDate, Number(leaderVal));
+      if (leaderResult.error) {
+        setPending(false);
+        setError(leaderResult.error);
+        return;
+      }
+    }
     setPending(false);
     if (result.error) {
       setError(result.error);
@@ -53,6 +74,13 @@ export function RaidNameEditor({ raidDate, name, note }: { raidDate: string; nam
         <span className="text-neutral-400">Note (optional)</span>
         <input value={noteVal} onChange={(e) => setNoteVal(e.target.value)} className={fieldClasses({ size: "sm" })} />
       </label>
+      <label className="flex min-w-[180px] flex-col gap-1 text-sm">
+        <span className="text-neutral-400">Event leader</span>
+        <select value={leaderVal} onChange={(e) => setLeaderVal(e.target.value)} className={fieldClasses({ size: "sm" })}>
+          <option value="">Keep detected leader</option>
+          {leaders.map((leader) => <option key={leader.playerId} value={leader.playerId}>{leader.name}</option>)}
+        </select>
+      </label>
       <Button type="submit" size="sm" disabled={pending}>
         {pending ? "Saving…" : "Save"}
       </Button>
@@ -64,6 +92,7 @@ export function RaidNameEditor({ raidDate, name, note }: { raidDate: string; nam
           setEditing(false);
           setNameVal(name ?? "");
           setNoteVal(note ?? "");
+          setLeaderVal(leaderPlayerId?.toString() ?? "");
           setError(null);
         }}
       >

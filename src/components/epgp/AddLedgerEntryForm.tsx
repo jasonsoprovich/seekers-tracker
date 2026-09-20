@@ -41,13 +41,14 @@ export function AddLedgerEntryForm({
     const note = String(formData.get("note") ?? "");
     const zone = String(formData.get("zone") ?? "");
     const raidDate = String(formData.get("raidDate") ?? "");
+    const raidName = String(formData.get("raidName") ?? "");
 
     setPending(true);
     setError(null);
     const result = await addLedgerEntry(
       type === "ep"
-        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone, raidDate }
-        : { kind: "gp", characterId, tier: activityOrTier, itemName, points, occurredAt, note, raidDate },
+        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone, raidDate, raidName }
+        : { kind: "gp", characterId, tier: activityOrTier, itemName, points, occurredAt, note, raidDate, raidName },
     );
     setPending(false);
     if (result.error) {
@@ -125,11 +126,17 @@ export function AddLedgerEntryForm({
       </Field>
 
       {(type === "ep" || type === "gp") && (
-        <Field className="w-48">
-          <span className="text-neutral-400">Raid / event date</span>
-          <input type="date" name="raidDate" className={fieldClasses({ size: "sm" })} />
-          <span className="text-xs text-neutral-500">Optional. Shows this entry on that date's Raids & Events page.</span>
-        </Field>
+        <>
+          <Field className="w-48">
+            <span className="text-neutral-400">Raid / event date</span>
+            <input type="date" name="raidDate" className={fieldClasses({ size: "sm" })} />
+            <span className="text-xs text-neutral-500">Optional. Shows this entry on that date's Raids & Events page.</span>
+          </Field>
+          <Field className="w-48">
+            <span className="text-neutral-400">Raid / event name</span>
+            <input name="raidName" className={fieldClasses({ size: "sm" })} placeholder="Optional; distinguishes same-day events" />
+          </Field>
+        </>
       )}
 
       <Field className="w-56">

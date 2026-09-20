@@ -38,9 +38,9 @@ export function RaidsList({ rows }: { rows: RaidListRow[] }) {
         </thead>
         <tbody className="divide-y divide-border">
           {sorted.map((r) => (
-            <tr key={r.raidDate} className="hover:bg-neutral-900/40">
+            <tr key={`${r.raidDate}:${r.eventName ?? ""}`} className="hover:bg-neutral-900/40">
               <td className="px-3 py-2 whitespace-nowrap">
-                <Link href={`/epgp/raids/${r.raidDate}`} className="font-medium text-emerald-400 hover:text-emerald-300">
+                <Link href={`/epgp/raids/${r.raidDate}${r.eventName ? `?name=${encodeURIComponent(r.eventName)}` : ""}`} className="font-medium text-emerald-400 hover:text-emerald-300">
                   {r.raidDate}
                 </Link>
               </td>

@@ -13,6 +13,7 @@ export type EpLedgerRow = {
   note: string | null;
   zone: string | null;
   raidDate: string | null;
+  raidName: string | null;
   source: "import" | "manual" | "parse";
   enteredByName: string | null;
 };
@@ -26,6 +27,7 @@ export type GpLedgerRow = {
   points: number;
   note: string | null;
   raidDate: string | null;
+  raidName: string | null;
   source: "import" | "manual" | "parse";
   enteredByName: string | null;
 };
@@ -77,6 +79,7 @@ export async function listLedgerRows(
         note: epLedger.note,
         zone: epLedger.zone,
         raidDate: epLedger.raidDate,
+        raidName: epLedger.raidName,
         source: epLedger.source,
         enteredByName: enteredByDisplayName,
       })
@@ -100,6 +103,7 @@ export async function listLedgerRows(
       points: gpLedger.points,
       note: gpLedger.note,
       raidDate: gpLedger.raidDate,
+      raidName: gpLedger.raidName,
       source: gpLedger.source,
       enteredByName: enteredByDisplayName,
     })

@@ -6,9 +6,10 @@ import { RaidLootTable } from "@/components/epgp/RaidLootTable";
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
 import { ReverseRaidButton } from "@/components/epgp/ReverseRaidButton";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { users } from "@/db";
+import { characters, players, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { getRaidDetail } from "@/lib/epgp/raids";
+import { charClassLabel } from "@/lib/eq/enums";
 import { GUILD_TIMEZONE } from "@/lib/guild-timezone";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -28,15 +29,22 @@ function localTimeFormatterFor(timeZone: string) {
   };
 }
 
-export default async function RaidDetailPage({ params }: { params: Promise<{ date: string }> }) {
+export default async function RaidDetailPage({ params, searchParams }: { params: Promise<{ date: string }>; searchParams: Promise<{ name?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
   const { date } = await params;
+  const { name } = await searchParams;
+  const raidName = name?.trim() || null;
   const db = await getDb();
-  const [detail, [me]] = await Promise.all([
-    getRaidDetail(db, date),
+  const [detail, [me], leaderChoices] = await Promise.all([
+    getRaidDetail(db, date, raidName),
     db.select({ timezone: users.timezone }).from(users).where(eq(users.id, session.user.id)),
+    db
+      .select({ playerId: players.id, name: characters.name })
+      .from(players)
+      .innerJoin(characters, eq(characters.id, players.mainCharacterId))
+      .orderBy(characters.name),
   ]);
   if (!detail) notFound();
 
@@ -57,7 +65,13 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
       />
 
       {canManage ? (
-        <RaidNameEditor raidDate={detail.raidDate} name={detail.name} note={detail.note} />
+        <RaidNameEditor
+          raidDate={detail.raidDate}
+          name={detail.name}
+          note={detail.note}
+          leaderPlayerId={detail.leaderPlayerId}
+          leaders={leaderChoices}
+        />
       ) : (
         detail.note && <p className="text-sm text-neutral-500">{detail.note}</p>
       )}
@@ -81,6 +95,17 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
       </div>
 
       <h2 className="mt-8 text-lg font-semibold">Attendance</h2>
+      {detail.classAttendance.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2" aria-label="Attendance by class">
+          {detail.classAttendance
+            .sort((a, b) => charClassLabel(a.classId).localeCompare(charClassLabel(b.classId)))
+            .map(({ classId, count }) => (
+              <span key={classId} className="rounded-md border border-border bg-neutral-900/40 px-2.5 py-1 text-sm">
+                <span className="text-neutral-400">{charClassLabel(classId)}</span> <span className="font-semibold">{count}</span>
+              </span>
+            ))}
+        </div>
+      )}
       {detail.captures.length === 0 ? (
         <p className="mt-1 text-sm text-neutral-500">No attendance captures on this date.</p>
       ) : (
@@ -105,7 +130,7 @@ export default async function RaidDetailPage({ params }: { params: Promise<{ dat
                     )}
                   </span>
                   <span className="text-neutral-500">
-                    {c.manualLink ? "Manually linked attendance" : timeLocal(c.occurredAt)}
+                    {timeLocal(c.occurredAt)}
                     {c.zone ? ` · ${c.zone}` : ""} · {c.members.length} member{c.members.length === 1 ? "" : "s"}
                   </span>
                 </div>

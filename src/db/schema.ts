@@ -427,6 +427,7 @@ export const epLedger = sqliteTable(
     // lets a correction entered later appear on the right event without
     // rewriting the ledger row's actual entry date.
     raidDate: text("raid_date"),
+    raidName: text("raid_name"),
     enteredBy: text("entered_by").references(() => users.id),
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
@@ -494,6 +495,7 @@ export const gpLedger = sqliteTable(
     // Optional guild-local event date for a manual loot charge such as rot
     // loot. Ordinary manual GP adjustments intentionally leave this NULL.
     raidDate: text("raid_date"),
+    raidName: text("raid_name"),
     enteredBy: text("entered_by").references(() => users.id),
     source: text("source", { enum: ["import", "manual", "parse"] })
       .notNull()
@@ -631,7 +633,8 @@ export const mainSwapEvents = sqliteTable(
   (table) => [index("main_swap_events_player_idx").on(table.playerId, table.reversedAt)],
 );
 
-// Optional label + note for a raid night, keyed by its UTC calendar date.
+// Optional label, note, and leader override for a raid night, keyed by its
+// guild-local calendar date.
 // Raids themselves aren't a stored entity — the /epgp/raids view derives
 // them by grouping `source='parse'` ep_ledger attendance rows and
 // loot_events by `date(occurred_at)`. This table only holds the officer's
@@ -640,9 +643,12 @@ export const mainSwapEvents = sqliteTable(
 // join key.
 export const raids = sqliteTable("raids", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  raidDate: text("raid_date").notNull().unique(), // 'YYYY-MM-DD' in GUILD_TIMEZONE (src/lib/guild-timezone.ts)
+  raidDate: text("raid_date").notNull(), // 'YYYY-MM-DD' in GUILD_TIMEZONE (src/lib/guild-timezone.ts)
   name: text("name"),
   note: text("note"),
+  // Usually inferred from the first attendance submitter. An officer can
+  // correct exceptional nights where another person actually led the event.
+  leaderPlayerId: integer("leader_player_id").references(() => players.id),
   createdBy: text("created_by").references(() => users.id),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
@@ -650,7 +656,7 @@ export const raids = sqliteTable("raids", {
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
-});
+}, (table) => [uniqueIndex("raids_date_name_unique").on(table.raidDate, sql`coalesce(${table.name}, '')`)]);
 
 // Free-text sections for the member-facing Cycle/Rules info page (leader
 // request, 2026-09-05) — "Priority Formula", "How Cycles Work", etc. The

@@ -1,0 +1,1 @@
+ALTER TABLE `raids` ADD `leader_player_id` integer REFERENCES players(id);

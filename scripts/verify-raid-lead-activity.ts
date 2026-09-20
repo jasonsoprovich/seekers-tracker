@@ -6,11 +6,11 @@ import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
-import { characters, epLedger, epgpPointValues, gpLedger, players, standingsDirty, users } from "../src/db";
+import { bids, characters, epLedger, epgpPointValues, gpLedger, lootEvents, players, standingsDirty, users } from "../src/db";
 import { getOwnedAccountActivitySummaries } from "../src/lib/epgp/account-activity";
 import { insertPreparedEventLeadAward, prepareEventLeadAward } from "../src/lib/epgp/attendance";
 import { insertLedgerEntry } from "../src/lib/epgp/ledger-entry";
-import { getRaidDetail, listRaids, reverseRaid } from "../src/lib/epgp/raids";
+import { getRaidDetail, listRaids, reverseRaid, setRaidLeader } from "../src/lib/epgp/raids";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
 import { toGuildDateString } from "../src/lib/guild-timezone";
 
@@ -137,6 +137,16 @@ async function main() {
       source: "manual",
       raidDate: "2037-01-14",
     });
+    const [duplicateDrop] = await db.insert(lootEvents).values({ occurredAt, itemName: "Duplicated Example Item", status: "awarded", openedBy: lead.userId }).returning();
+    const winningBids = await db.insert(bids).values([
+      { lootEventId: duplicateDrop.id, characterId: lead.characterId, playerId: lead.playerId, tier: "High Bid", status: "won" },
+      { lootEventId: duplicateDrop.id, characterId: other.characterId, playerId: other.playerId, tier: "High Bid", status: "won" },
+    ]).returning();
+    await db.update(lootEvents).set({ winningBidId: winningBids[0].id }).where(eq(lootEvents.id, duplicateDrop.id));
+    await db.insert(gpLedger).values([
+      { characterId: lead.characterId, playerId: lead.playerId, occurredAt, itemName: duplicateDrop.itemName, tier: "High Bid", points: 10, enteredBy: lead.userId, source: "parse" },
+      { characterId: other.characterId, playerId: other.playerId, occurredAt, itemName: duplicateDrop.itemName, tier: "High Bid", points: 10, enteredBy: lead.userId, source: "parse" },
+    ]);
 
     const currentDate = toGuildDateString(new Date());
     const linkedCorrection = await insertLedgerEntry(
@@ -179,17 +189,33 @@ async function main() {
       linkedCorrection.ok && !invalidLink.ok,
       `accepts an attendance correction link and rejects non-attendance links (${linkedCorrection.ok ? "linked" : linkedCorrection.error}; ${invalidLink.ok ? "invalid accepted" : invalidLink.error})`,
     );
-    check(failures, detail?.memberCount === 3 && detail.captures.length === 2 && detail.captures.some((capture) => capture.manualLink && capture.members.length === 1), "includes a linked manual correction as distinct event attendance");
+    check(failures, detail?.memberCount === 3 && detail.captures.length === 1 && detail.captures[0]?.members.length === 3, "combines linked manual corrections with the event attendance");
+    check(failures, detail?.classAttendance.find((entry) => entry.classId === UNKNOWN_CLASS_ID)?.count === 3, "summarizes distinct attendees by class");
     check(failures, detail?.epAwarded === 160, "includes linked manual attendance in raid EP awarded");
-    check(failures, detail?.gpSpent === 10 && detail.loot.some((loot) => loot.itemName === "Rotten Example Item" && loot.note?.startsWith("Rot loot")), "includes linked manual rot loot in event GP and loot history");
+    check(failures, detail?.gpSpent === 30 && detail.loot.some((loot) => loot.itemName === "Rotten Example Item" && loot.winners[0]?.note?.startsWith("Rot loot")), "includes linked manual rot loot in event GP and loot history");
+    check(failures, detail?.loot.find((loot) => loot.itemName === duplicateDrop.itemName)?.winners.length === 2, "shows every winner of a duplicate drop with their GP charge");
     const listed = (await listRaids(db)).find((raid) => raid.raidDate === "2037-01-14");
-    check(failures, listed?.leader === newMain.name && listed.memberCount === 3 && listed.epAwarded === 160 && listed.gpSpent === 10 && listed.itemCount === 1, "raid list includes linked manual attendance and rot loot without changing the parsed raid leader");
+    check(failures, listed?.leader === newMain.name && listed.memberCount === 3 && listed.epAwarded === 160 && listed.gpSpent === 30 && listed.itemCount === 2, "raid list includes linked manual attendance and rot loot without changing the parsed raid leader");
+
+    await db.insert(epLedger).values([
+      { characterId: lead.characterId, playerId: lead.playerId, occurredAt, activity: "Raid - Start", points: 50, enteredBy: lead.userId, source: "parse", raidName: "North" },
+      { characterId: other.characterId, playerId: other.playerId, occurredAt, activity: "Raid - Start", points: 50, enteredBy: other.userId, source: "parse", raidName: "South" },
+    ]);
+    const sameDay = (await listRaids(db)).filter((raid) => raid.raidDate === "2037-01-14");
+    const north = await getRaidDetail(db, "2037-01-14", "North");
+    const south = await getRaidDetail(db, "2037-01-14", "South");
+    check(failures, sameDay.length === 3 && north?.memberCount === 1 && north.epAwarded === 50 && south?.memberCount === 1 && south.epAwarded === 50, "keeps named same-day events distinct from each other and the historical unnamed event");
+
+    await setRaidLeader(db, "2037-01-14", other.playerId, corrected.userId);
+    const correctedLeader = await getRaidDetail(db, "2037-01-14");
+    const correctedLeadAward = await db.select().from(epLedger).where(eq(epLedger.sourceKey, prepared.award.sourceKey));
+    check(failures, correctedLeader?.leader === other.mainName && correctedLeadAward[0]?.playerId === other.playerId, "corrects the displayed event leader and transfers Event Lead EP");
 
     const reversed = await reverseRaid(db, "2037-01-14", lead.userId);
     const leadAfterReverse = await db.select().from(epLedger).where(eq(epLedger.sourceKey, prepared.award.sourceKey));
     const correctionAfterReverse = await db.select().from(epLedger).where(eq(epLedger.raidDate, "2037-01-14"));
     const rotAfterReverse = await db.select().from(gpLedger).where(eq(gpLedger.raidDate, "2037-01-14"));
-    check(failures, "ok" in reversed && reversed.epRows === 3 && leadAfterReverse.length === 0 && correctionAfterReverse.length === 1 && rotAfterReverse.length === 1, "raid reversal removes parsed rows but preserves linked manual corrections and rot loot");
+    check(failures, "ok" in reversed && reversed.epRows === 5 && leadAfterReverse.length === 0 && correctionAfterReverse.length === 1 && rotAfterReverse.length === 1, "raid reversal removes every same-date parsed event but preserves linked manual corrections and rot loot");
 
     console.log("Owned-account activity summaries");
     const secondPlayer = await db.insert(players).values({ userId: lead.userId, displayName: "Second owned account" }).returning({ id: players.id });

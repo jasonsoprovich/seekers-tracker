@@ -227,7 +227,7 @@ export async function POST(request: Request) {
   }
 
   const seenPlayerKeys = new Set<number>();
-  const toInsert: { characterId: number; activity: string; points: number; occurredAt: string; note: string; zone: string | null }[] = [];
+  const toInsert: { characterId: number; activity: string; points: number; occurredAt: string; note: string; zone: string | null; raidName: string | null }[] = [];
   for (const r of resolved) {
     if (seenPlayerKeys.has(r.playerKey)) {
       duplicates.push(r.name);
@@ -241,7 +241,7 @@ export async function POST(request: Request) {
       continue;
     }
     seenPlayerKeys.add(r.playerKey);
-    toInsert.push({ characterId: r.characterId, activity, points, occurredAt: occurredAtIso, note, zone });
+    toInsert.push({ characterId: r.characterId, activity, points, occurredAt: occurredAtIso, note, zone, raidName });
   }
 
   let inserted = 0;

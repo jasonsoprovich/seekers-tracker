@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { getDb } from "@/lib/db";
-import { reverseRaid, setRaidMeta } from "@/lib/epgp/raids";
+import { reverseRaid, setRaidLeader, setRaidMeta } from "@/lib/epgp/raids";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
@@ -26,6 +26,24 @@ export async function updateRaidMeta(raidDate: string, name: string, note: strin
     await setRaidMeta(db, raidDate, name.trim() || null, note.trim() || null, session.user.id);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't save." };
+  }
+  return {};
+}
+
+export async function updateRaidLeader(raidDate: string, leaderPlayerId: number): Promise<RaidMetaResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.raids.manage")) {
+    return { error: "Only officers, leaders, and admins can correct an event leader." };
+  }
+  if (!Number.isSafeInteger(leaderPlayerId) || leaderPlayerId < 1) return { error: "Choose an event leader." };
+
+  try {
+    await setRaidLeader(await getDb(), raidDate, leaderPlayerId, session.user.id);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't update the event leader." };
   }
   return {};
 }
