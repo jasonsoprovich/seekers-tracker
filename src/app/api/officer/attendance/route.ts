@@ -9,6 +9,7 @@ import { nameRaidFromCapture } from "@/lib/epgp/raids";
 import { getStandingsForPlayers, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { toGuildDateString } from "@/lib/guild-timezone";
+import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
 
 // One `/who guild` snapshot is at most the raid cap plus stragglers; well
@@ -288,6 +289,20 @@ export async function POST(request: Request) {
     } catch (err) {
       console.warn(`attendance: could not name raid for ${occurredAtIso}: ${String(err)}`);
     }
+  }
+
+  // One System Log summary row per capture — not per attendee (those live
+  // on ep_ledger already) — so a submit that inserted nothing new is still
+  // silent here, matching the same "nothing to report" logic as the raid
+  // naming above.
+  if (inserted > 0) {
+    await recordSystemEvent(db, await officerApiActor(db, auth.userId), {
+      action: "epgp.attendance.submit",
+      targetType: "raid",
+      targetLabel: raidName || null,
+      summary: `Attendance capture submitted: ${inserted} row(s), ${activity}${zone ? `, ${zone}` : ""}${raidName ? ` — ${raidName}` : ""}`,
+      after: { activity, occurredAt: occurredAtIso, zone, inserted, duplicates: duplicates.length, unmatched: unmatched.length, eventLeadInserted },
+    });
   }
 
   return Response.json({ inserted, eventLeadInserted, unmatched, duplicates, standings }, { status: 201 });

@@ -5,6 +5,7 @@ import { bids, characters, epLedger, gpLedger, lootEvents, players, raids, users
 import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { settleStandings } from "@/lib/epgp/standings";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 import { guildDayBounds, toGuildDateString } from "../guild-timezone";
 
@@ -456,6 +457,14 @@ export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: stri
 
   await settleStandings(db, { all: true });
 
+  await recordSystemEvent(db, await webActor(db, reversedBy), {
+    action: "epgp.raid.reverse",
+    targetType: "raid",
+    targetId: raidDate,
+    summary: `Raid ${raidDate} reversed (${epRows} EP rows, ${gpRows} GP rows, ${lootCount} loot events, ${bidCount} bids)`,
+    before: { epRows, gpRows, lootEvents: lootCount, bids: bidCount },
+  });
+
   return { ok: true, epRows, gpRows, lootEvents: lootCount, bids: bidCount };
 }
 
@@ -472,6 +481,13 @@ export async function setRaidMeta(
     .insert(raids)
     .values({ raidDate, name, note, createdBy: userId, updatedAt: now })
     .onConflictDoUpdate({ target: raids.raidDate, set: { name, note, updatedAt: now } });
+  await recordSystemEvent(db, await webActor(db, userId), {
+    action: "epgp.raid.meta",
+    targetType: "raid",
+    targetId: raidDate,
+    summary: `Raid ${raidDate} renamed to "${name ?? ""}"`,
+    after: { name, note },
+  });
 }
 
 // Name a raid from an officer-app attendance submit. Unlike setRaidMeta

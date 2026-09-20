@@ -13,6 +13,7 @@ import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { guildDayBounds } from "@/lib/guild-timezone";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 import { boundedString } from "@/lib/validate";
 
 // `standing` (task 4.3) is the affected player's just-refreshed row, fetched
@@ -100,6 +101,14 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
       .where(eq(epLedger.id, input.id))
       .returning();
     await recordLedgerChange(db, "ep", input.id, "update", before, after, session.user.id);
+    await recordSystemEvent(db, await webActor(db, session.user.id), {
+      action: "epgp.entry.update",
+      targetType: "character",
+      targetId: before.characterId,
+      summary: `EP ledger row #${input.id} edited (${before.points} → ${input.points} ${activityOrTier})`,
+      before,
+      after,
+    });
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
@@ -121,6 +130,14 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
       .where(eq(gpLedger.id, input.id))
       .returning();
     await recordLedgerChange(db, "gp", input.id, "update", before, after, session.user.id);
+    await recordSystemEvent(db, await webActor(db, session.user.id), {
+      action: "epgp.entry.update",
+      targetType: "character",
+      targetId: before.characterId,
+      summary: `GP ledger row #${input.id} edited (${before.points} → ${input.points} ${activityOrTier})`,
+      before,
+      after,
+    });
   }
 
   // Keep the materialized standings in step — every other EPGP-affecting
@@ -161,6 +178,13 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
     if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
     await db.delete(epLedger).where(eq(epLedger.id, id));
     await recordLedgerChange(db, "ep", id, "delete", before, null, session.user.id);
+    await recordSystemEvent(db, await webActor(db, session.user.id), {
+      action: "epgp.entry.delete",
+      targetType: "character",
+      targetId: before.characterId,
+      summary: `EP ledger row #${id} deleted (${before.points} ${before.activity})`,
+      before,
+    });
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, id));
     if (!before) return { error: "Ledger row not found." };
@@ -169,6 +193,13 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
     if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
     await db.delete(gpLedger).where(eq(gpLedger.id, id));
     await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
+    await recordSystemEvent(db, await webActor(db, session.user.id), {
+      action: "epgp.entry.delete",
+      targetType: "character",
+      targetId: before.characterId,
+      summary: `GP ledger row #${id} deleted (${before.points} ${before.tier})`,
+      before,
+    });
   }
 
   let standing: StandingsRow | null = null;

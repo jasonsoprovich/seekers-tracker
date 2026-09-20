@@ -5,6 +5,7 @@ import { characters, decayEvents, epLedger, gpLedger } from "@/db";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 // PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
 // rows. Legacy cycle decay (§1a) stays derived at read time in totals.ts
@@ -224,6 +225,15 @@ export async function commitRateDecay(
   }
 
   await settleStandings(db, { all: true });
+
+  await recordSystemEvent(db, await webActor(db, appliedBy), {
+    action: "epgp.decay.commit",
+    targetType: "decay_event",
+    targetId: event.id,
+    summary: `${kind} decay committed at rate ${rate} for ${ledgerDate(effectiveDate)} (${epRows} EP rows, ${gpRows} GP rows)${label ? ` — ${label}` : ""}`,
+    after: { kind, rate, effectiveDate, epRows, gpRows, label },
+  });
+
   return { decayEventId: event.id, epRows, gpRows };
 }
 
@@ -334,6 +344,15 @@ export async function commitDepartureWipe(
   }
 
   await settleStandings(db, { all: true });
+
+  await recordSystemEvent(db, await webActor(db, opts.appliedBy), {
+    action: "epgp.departure.commit",
+    targetType: "decay_event",
+    targetId: event.id,
+    summary: `Departure EP wipe committed for ${preview.length} character(s)${label ? ` — ${label}` : ""}`,
+    after: { epRows: preview.length, label, characterIds: preview.map((r) => r.characterId) },
+  });
+
   return { decayEventId: event.id, epRows: preview.length };
 }
 
@@ -373,5 +392,16 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
   await settleStandings(db, { all: true });
 
   const count = (result: D1Result | undefined) => Number((result?.results[0] as { count?: number } | undefined)?.count ?? 0);
-  return { ok: true, epRows: count(results[0]), gpRows: count(results[1]) };
+  const epRows = count(results[0]);
+  const gpRows = count(results[1]);
+
+  await recordSystemEvent(db, await webActor(db, reversedBy), {
+    action: "epgp.decay.reverse",
+    targetType: "decay_event",
+    targetId: decayEventId,
+    summary: `${event.kind} decay event #${decayEventId} reversed (${epRows} EP rows, ${gpRows} GP rows restored)`,
+    before: { kind: event.kind, effectiveDate: event.effectiveDate },
+  });
+
+  return { ok: true, epRows, gpRows };
 }

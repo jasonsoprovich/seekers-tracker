@@ -44,6 +44,7 @@ import * as schema from "../src/db";
 import { epLedger, gpLedger, users } from "../src/db/schema";
 import { commitRateDecay } from "../src/lib/epgp/decay";
 import { setSetting } from "../src/lib/epgp/settings";
+import { scriptActor } from "../src/lib/system-log";
 import { computeEpgpTotals } from "../src/lib/epgp/totals";
 
 // commitRateDecay calls invalidateEpgpTotalsCache(), which reaches for the
@@ -233,7 +234,7 @@ async function main() {
     const expectedDecay = (decayBefore.get(checkPlayerId) ?? 0) + ((startingEp.get(checkPlayerId) ?? 0) - rawEp);
     let prevEp: number | null = null;
     for (const model of ["legacy", "global"] as const) {
-      await setSetting(db, "decay_model", model, appliedBy);
+      await setSetting(db, "decay_model", model, appliedBy, scriptActor("verify-global-decay"));
       const total = (await computeEpgpTotals(db)).get(checkPlayerId);
       if (!total) {
         console.log(`  FAIL computeEpgpTotals returned nothing for player ${checkPlayerId} under decay_model=${model}`);

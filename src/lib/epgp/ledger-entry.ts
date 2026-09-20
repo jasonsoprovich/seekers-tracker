@@ -8,6 +8,7 @@ import { guildDayBounds } from "@/lib/guild-timezone";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
 import { dirtyMarkerStatements, getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
+import { officerApiActor, recordSystemEvent, webActor } from "@/lib/system-log";
 import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/lib/validate";
 
 // Shared by the website's manual-entry Server Action
@@ -47,7 +48,7 @@ export async function insertLedgerEntry(
   input: InsertLedgerEntryInput,
   enteredBy: string,
   source: LedgerEntrySource = "manual",
-  opts: { deferStandingsRefresh?: boolean } = {},
+  opts: { deferStandingsRefresh?: boolean; actorSource?: "web" | "officer_api" } = {},
 ): Promise<InsertLedgerEntryResult> {
   // Range sanity on the values that reach D1 — every write path (site form,
   // officer manual-entry / attendance / bids routes) funnels through here,
@@ -143,7 +144,17 @@ export async function insertLedgerEntry(
         source,
       })
       .returning();
-    if (source === "manual") await recordLedgerChange(db, "ep", row.id, "create", null, row, enteredBy);
+    if (source === "manual") {
+      await recordLedgerChange(db, "ep", row.id, "create", null, row, enteredBy);
+      const actor = opts.actorSource === "officer_api" ? await officerApiActor(db, enteredBy) : await webActor(db, enteredBy);
+      await recordSystemEvent(db, actor, {
+        action: "epgp.entry.create",
+        targetType: "character",
+        targetId: targetCharacterId,
+        summary: `Manual EP entry: ${input.points} EP (${activityOrTier}) on character #${targetCharacterId}`,
+        after: row,
+      });
+    }
   } else {
     const [row] = await db
       .insert(gpLedger)
@@ -164,7 +175,17 @@ export async function insertLedgerEntry(
         source,
       })
       .returning();
-    if (source === "manual") await recordLedgerChange(db, "gp", row.id, "create", null, row, enteredBy);
+    if (source === "manual") {
+      await recordLedgerChange(db, "gp", row.id, "create", null, row, enteredBy);
+      const actor = opts.actorSource === "officer_api" ? await officerApiActor(db, enteredBy) : await webActor(db, enteredBy);
+      await recordSystemEvent(db, actor, {
+        action: "epgp.entry.create",
+        targetType: "character",
+        targetId: targetCharacterId,
+        summary: `Manual GP entry: ${input.points} GP (${activityOrTier}) on character #${targetCharacterId}`,
+        after: row,
+      });
+    }
   }
 
   // Keep characters.last_activity_at current for the roster/dashboard/

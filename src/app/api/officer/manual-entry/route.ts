@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   }
 
   const db = await getDb();
-  const result = await insertLedgerEntry(db, body, auth.userId, "manual");
+  const result = await insertLedgerEntry(db, body, auth.userId, "manual", { actorSource: "officer_api" });
   if (!result.ok) {
     return Response.json({ error: result.error }, { status: 422 });
   }

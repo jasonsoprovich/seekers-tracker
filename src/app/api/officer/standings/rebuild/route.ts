@@ -2,6 +2,7 @@ import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getPermissions } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
 import { runRecordedStandingsRebuild } from "@/lib/system-health";
+import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 
 // Recomputes the whole player_epgp_totals materialized table from the
 // ledgers, in-Worker against the live DATABASE binding — the remote-safe
@@ -24,6 +25,10 @@ export async function POST(request: Request) {
   const db = await getDb();
   const { env } = await getCloudflareContext({ async: true });
   const result = await runRecordedStandingsRebuild(db, env.IMPORT_ARCHIVE, "officer-api");
+  await recordSystemEvent(db, await officerApiActor(db, auth.userId), {
+    action: "epgp.standings.rebuild",
+    summary: `Standings rebuilt for ${result.players} players (from officer API)`,
+  });
   return Response.json({ ok: true, ...result });
 }
 import { getCloudflareContext } from "@opennextjs/cloudflare";

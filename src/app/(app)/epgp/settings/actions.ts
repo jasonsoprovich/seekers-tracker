@@ -9,6 +9,7 @@ import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { runRecordedStandingsRebuild } from "@/lib/system-health";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type UpdateSettingResult = { error?: string };
 export type RebuildStandingsResult = { players?: number; error?: string };
@@ -49,7 +50,7 @@ export async function updateSetting(key: string, value: string, note: string): P
   // ledger row to fail after), so the marker just needs to land before the
   // settleStandings recompute below, which is the part that can fail.
   await markStandingsDirty(db, { all: true });
-  await setSetting(db, key, trimmed, session.user.id, { note: note.trim() || undefined });
+  await setSetting(db, key, trimmed, session.user.id, await webActor(db, session.user.id), { note: note.trim() || undefined });
 
   // base_ep/base_gp/ep_decay/gp_decay/decay_model all feed
   // computeEpgpTotals, so a change here moves every player's priority (and,
@@ -79,5 +80,9 @@ export async function rebuildStandingsAction(): Promise<RebuildStandingsResult> 
   const db = await getDb();
   const { env } = await getCloudflareContext({ async: true });
   const result = await runRecordedStandingsRebuild(db, env.IMPORT_ARCHIVE, "settings-action");
+  await recordSystemEvent(db, await webActor(db, session.user.id), {
+    action: "epgp.standings.rebuild",
+    summary: `Standings rebuilt for ${result.players} players (from /epgp/settings)`,
+  });
   return { players: result.players };
 }

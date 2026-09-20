@@ -2,9 +2,10 @@ import { and, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { bids as bidsTable, characters, epgpPointValues, gpLedger, lootEvents } from "@/db";
+import { bids as bidsTable, characters, epgpPointValues, gpLedger, lootEvents, systemEventLog } from "@/db";
 import { guildDateTime } from "@/lib/guild-timezone";
 import { dirtyMarkerStatements, getStandings, getStandingsForPlayers, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
+import { officerApiActor, systemEventDef } from "@/lib/system-log";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
 
 // PLAN.md §11 Phase 3 (atomic and idempotent bid finalization). Pulled out
@@ -372,6 +373,28 @@ export async function finalizeBidRound(
   // request), there's a durable record that these players' totals need a
   // refresh, picked up by the 2-minute repair pass or the nightly rebuild.
   statements.push(...dirtyMarkerStatements(db, { playerIds: [...chargedPlayerIds] }));
+
+  // One System Log summary row per submission (not per bid/GP charge — the
+  // per-row detail already lives in `bids`/`gp_ledger`), committed in the
+  // SAME batch as everything else so it's atomic with the round it
+  // describes: never orphaned by a rolled-back batch, never missing from a
+  // committed one.
+  const bidActor = await officerApiActor(db, enteredBy);
+  statements.push(
+    db.insert(systemEventLog).values({
+      actorUserId: bidActor.userId,
+      actorLabel: bidActor.label,
+      actorRole: bidActor.role,
+      source: bidActor.source,
+      category: systemEventDef("epgp.bids.finalize").category,
+      action: "epgp.bids.finalize",
+      targetType: "loot_event",
+      targetLabel: itemCheck.value,
+      summary: `Bid round recorded: ${itemCheck.value} (${bidValues.length} bids, ${winners.length} winner(s))`,
+      after: { itemName: itemCheck.value, bids: bidValues.length, winners: winners.length, chargedPlayerIds: [...chargedPlayerIds] },
+      requestId: bidActor.requestId ?? null,
+    }),
+  );
 
   // Task 3.4: the loot event, every bid row, the winner pointer, every
   // winner's GP charge, and now their dirty marker(s) all commit as ONE D1

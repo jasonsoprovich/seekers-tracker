@@ -2,6 +2,7 @@ import { and, desc, eq, lte } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { epgpSettings } from "@/db";
+import { recordSystemEvent, type SystemActor } from "@/lib/system-log";
 
 // The full set of leader-tunable EPGP constants (PLAN.md §4i). All of them
 // live in this one effective-dated table from Phase 1 on, so the leader
@@ -91,13 +92,23 @@ export async function setSetting(
   key: string,
   value: string,
   changedBy: string,
+  actor: SystemActor,
   opts?: { effectiveFrom?: Date; note?: string },
 ): Promise<void> {
+  const previous = await getSettingAt(db, key, opts?.effectiveFrom ?? new Date());
   await db.insert(epgpSettings).values({
     settingKey: key,
     value,
     effectiveFrom: opts?.effectiveFrom ?? new Date(),
     changedBy,
     note: opts?.note,
+  });
+  await recordSystemEvent(db, actor, {
+    action: "epgp.setting.change",
+    targetType: "setting",
+    targetId: key,
+    summary: `EPGP setting ${key} changed ${previous ?? "(unset)"} → ${value}`,
+    before: { value: previous },
+    after: { value, effectiveFrom: opts?.effectiveFrom ?? new Date(), note: opts?.note },
   });
 }
