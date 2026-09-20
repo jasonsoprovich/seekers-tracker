@@ -120,8 +120,11 @@ export async function computeEpgpTotals(
 
   const totals = new Map<number, EpgpTotal>();
   for (const playerId of playerIds) {
-    const ep = epAll.get(playerId) ?? 0;
-    const gp = gpAll.get(playerId) ?? 0;
+    // EPGP balances never carry debt. The ledger-repair migration corrects
+    // historical underflows; this guard also keeps a malformed old row from
+    // surfacing a negative balance before it can be repaired.
+    const ep = Math.max(0, epAll.get(playerId) ?? 0);
+    const gp = Math.max(0, gpAll.get(playerId) ?? 0);
     // decay rows are stored negative; report the haircut as a positive number.
     const epDecay = -(epDec.get(playerId) ?? 0);
     const gpDecay = -(gpDec.get(playerId) ?? 0);

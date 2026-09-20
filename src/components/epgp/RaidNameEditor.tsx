@@ -57,7 +57,7 @@ export function RaidNameEditor({
       <div className="flex items-center gap-3">
         <span className="text-lg font-semibold">{name || <span className="text-neutral-500">Unnamed raid</span>}</span>
         <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-          {name ? "Rename" : "Name this raid"}
+          Edit event details
         </Button>
         {note && <span className="text-sm text-neutral-500">— {note}</span>}
       </div>
@@ -76,6 +76,7 @@ export function RaidNameEditor({
       </label>
       <label className="flex min-w-[180px] flex-col gap-1 text-sm">
         <span className="text-neutral-400">Event leader</span>
+        <span className="text-xs text-neutral-500">Corrects both the displayed leader and Event Lead EP.</span>
         <select value={leaderVal} onChange={(e) => setLeaderVal(e.target.value)} className={fieldClasses({ size: "sm" })}>
           <option value="">Keep detected leader</option>
           {leaders.map((leader) => <option key={leader.playerId} value={leader.playerId}>{leader.name}</option>)}

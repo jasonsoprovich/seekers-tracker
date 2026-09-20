@@ -337,6 +337,13 @@
       "when": 1790000000000,
       "tag": "0047_named_same_day_events",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1790001000000,
+      "tag": "0048_floor_negative_epgp_balances",
+      "breakpoints": true
     }
   ]
 }

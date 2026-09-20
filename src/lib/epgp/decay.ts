@@ -117,9 +117,11 @@ export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: num
       characterName: names.get(characterId) ?? `#${characterId}`,
       playerId: playerIds.get(characterId) ?? null,
       epBalance,
-      epDecay: epBalance > 0 ? round2(epBalance * rate) : 0,
+      // A rate may be rounded up to the nearest cent. Never let that (or an
+      // accidentally excessive rate) take more than the available balance.
+      epDecay: epBalance > 0 ? Math.min(round2(epBalance * rate), epBalance) : 0,
       gpBalance,
-      gpDecay: gpBalance > 0 ? round2(gpBalance * rate) : 0,
+      gpDecay: gpBalance > 0 ? Math.min(round2(gpBalance * rate), gpBalance) : 0,
     });
   }
   rows.sort((a, b) => a.characterName.localeCompare(b.characterName));
