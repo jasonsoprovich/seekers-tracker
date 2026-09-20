@@ -723,6 +723,21 @@ export default {
     } catch (e) {
       console.log(`[cron] main-pointer reconcile failed (non-fatal): ${e}`);
     }
+
+    // Prune system_event_log rows older than a year — unlike
+    // ledger_audit_log (the member-visible trail, kept indefinitely as the
+    // permanent record of a ledger edit), this table logs every admin/
+    // officer mutation and would otherwise grow forever with no cap. A year
+    // is well past any realistic debugging window. Best-effort, same as the
+    // session prune above.
+    try {
+      const res = await db.run(
+        sql`DELETE FROM system_event_log WHERE occurred_at < unixepoch() - 365 * 86400`,
+      );
+      console.log(`[cron] pruned ${res.meta.changes ?? 0} system_event_log rows older than 1 year`);
+    } catch (e) {
+      console.log(`[cron] system_event_log prune failed (non-fatal): ${e}`);
+    }
   },
 } satisfies ExportedHandler<CloudflareEnv>;
 
