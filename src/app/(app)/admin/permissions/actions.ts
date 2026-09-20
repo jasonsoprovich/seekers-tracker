@@ -7,8 +7,9 @@ import { redirect } from "next/navigation";
 import { rolePermissions } from "@/db";
 import { getRealUserRole } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { capabilityDef, isCapability, isMatrixRole, type MatrixRole } from "@/lib/permissions";
+import { capabilityDef, getPermissionMatrix, isCapability, isMatrixRole, type MatrixRole } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type PermissionCellInput = { capability: string; role: string; allowed: boolean };
 export type SavePermissionsResult = { error?: string };
@@ -40,10 +41,18 @@ export async function savePermissionMatrix(cells: PermissionCellInput[]): Promis
   if (cells.length > 200) return { error: "Too many changes at once." };
 
   const db = await getDb();
+  const before = await getPermissionMatrix();
+  const changes: { capability: string; role: MatrixRole; before: boolean; after: boolean }[] = [];
+
   for (const cell of cells) {
     if (!isCapability(cell.capability) || !isMatrixRole(cell.role)) continue;
     const def = capabilityDef(cell.capability);
     if (def.lockedRoles?.includes(cell.role as MatrixRole)) continue;
+
+    const wasAllowed = before[cell.capability][cell.role as MatrixRole];
+    if (wasAllowed !== cell.allowed) {
+      changes.push({ capability: cell.capability, role: cell.role as MatrixRole, before: wasAllowed, after: cell.allowed });
+    }
 
     const isDefault = (def.defaults as readonly MatrixRole[]).includes(cell.role as MatrixRole) === cell.allowed;
     if (isDefault) {
@@ -61,6 +70,16 @@ export async function savePermissionMatrix(cells: PermissionCellInput[]): Promis
     }
   }
 
+  if (changes.length > 0) {
+    const actor = await webActor(db, auth.userId);
+    await recordSystemEvent(db, actor, {
+      action: "permissions.save",
+      summary: `Permission matrix changed: ${changes.map((c) => `${c.capability}/${c.role} ${c.before ? "on" : "off"}→${c.after ? "on" : "off"}`).join(", ")}`,
+      before: Object.fromEntries(changes.map((c) => [`${c.capability}.${c.role}`, c.before])),
+      after: Object.fromEntries(changes.map((c) => [`${c.capability}.${c.role}`, c.after])),
+    });
+  }
+
   // The nav, /admin's own link cards, and every gated page all read the
   // matrix fresh per request (cache()'d per-request, not a TTL) — a full
   // layout revalidation is what makes a toggle visible immediately rather
@@ -75,6 +94,11 @@ export async function resetPermissionsToDefaults(): Promise<SavePermissionsResul
 
   const db = await getDb();
   await db.delete(rolePermissions);
+  const actor = await webActor(db, auth.userId);
+  await recordSystemEvent(db, actor, {
+    action: "permissions.reset",
+    summary: "Permission matrix reset to defaults",
+  });
   revalidatePath("/", "layout");
   return {};
 }
