@@ -43,6 +43,7 @@ export const SYSTEM_EVENTS = {
   "characters.update": { category: "characters", label: "Character edited" },
   "characters.link": { category: "characters", label: "Character linked to account" },
   "characters.detach": { category: "characters", label: "Character detached" },
+  "characters.remove": { category: "characters", label: "Alt or mule removed from guild" },
   "characters.retype": { category: "characters", label: "Character type changed" },
   "characters.officerTag": { category: "characters", label: "Officer tag toggled" },
   "characters.absorb": { category: "characters", label: "Standalone player absorbed" },

@@ -125,10 +125,10 @@ export function AddLedgerEntryForm({
       </Field>
 
       {(type === "ep" || type === "gp") && (
-        <Field className="w-40">
-          <span className="text-neutral-400">Link to event</span>
+        <Field className="w-48">
+          <span className="text-neutral-400">Raid / event date</span>
           <input type="date" name="raidDate" className={fieldClasses({ size: "sm" })} />
-          <span className="text-xs text-neutral-500">Optional</span>
+          <span className="text-xs text-neutral-500">Optional. Shows this entry on that date's Raids & Events page.</span>
         </Field>
       )}
 

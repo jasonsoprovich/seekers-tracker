@@ -10,7 +10,7 @@ import { getRealUserRole, ROLES, roleRank, type Role } from "@/lib/authz";
 import { isUniqueConstraintError, parseCharacterForm } from "@/lib/character-form";
 import { getDb } from "@/lib/db";
 import { settleStandings } from "@/lib/epgp/standings";
-import { attachCharacterToPlayer, createStandalonePlayer } from "@/lib/players";
+import { attachCharacterToPlayer, createStandalonePlayer, removeNonMainCharacterFromGuildCore } from "@/lib/players";
 import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
@@ -27,6 +27,20 @@ import { recordSystemEvent, webActor } from "@/lib/system-log";
 // ("members.main.swap") and guild removal (those live in admin/actions.ts).
 
 export type AccountActionResult = { error?: string };
+
+// An alt/mule may leave the guild without departing the person who owns the
+// account. Mains are intentionally refused in the core function: removing a
+// main is an account-level departure and must remove the whole group.
+export async function removeNonMainCharacterFromGuild(characterId: number): Promise<AccountActionResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("members.remove")) {
+    return { error: "Only officers, leaders, and admins can remove a character from the guild." };
+  }
+  if (!Number.isInteger(characterId) || characterId <= 0) return { error: "Invalid character." };
+  return removeNonMainCharacterFromGuildCore(await getDb(), session.user.id, characterId);
+}
 
 // alt <-> mule. Never touches the account's main — that's a main swap.
 export async function setCharacterType(characterId: number, type: "alt" | "mule"): Promise<AccountActionResult> {

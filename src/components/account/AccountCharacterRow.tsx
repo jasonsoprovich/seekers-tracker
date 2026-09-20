@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { setPlayerMainCharacter } from "@/app/(app)/admin/actions";
-import { detachCharacterFromAccount, setCharacterOfficerTag, setCharacterType } from "@/app/(app)/characters/[id]/account/actions";
+import { detachCharacterFromAccount, removeNonMainCharacterFromGuild, setCharacterOfficerTag, setCharacterType } from "@/app/(app)/characters/[id]/account/actions";
 import { Button } from "@/components/ui/Button";
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { useConfirm, useConfirmWith } from "@/components/ui/ConfirmDialog";
@@ -42,6 +42,7 @@ export function AccountCharacterRow({
   canRetype,
   canPromote,
   canUnlink,
+  canRemoveFromGuild,
   showOfficerTag,
   canToggleOfficerTag,
 }: {
@@ -51,6 +52,7 @@ export function AccountCharacterRow({
   canRetype: boolean;
   canPromote: boolean;
   canUnlink: boolean;
+  canRemoveFromGuild: boolean;
   // The account's site role is officer+ — show the in-game officer tag
   // state; officer+ viewers can toggle it on non-main characters. The main
   // always carries the account's role.
@@ -108,6 +110,17 @@ export function AccountCharacterRow({
     });
     if (!ok) return;
     await run(() => detachCharacterFromAccount(character.id));
+  }
+
+  async function onRemoveFromGuild() {
+    const ok = await confirm({
+      title: `Remove ${character.name} from the guild?`,
+      message: `Removes this ${character.charType} from the roster but keeps the rest of the account and its EP/GP unchanged.`,
+      confirmLabel: "Remove character",
+      danger: true,
+    });
+    if (!ok) return;
+    await run(() => removeNonMainCharacterFromGuild(character.id));
   }
 
   const typeLabel = character.isMain ? "Main" : character.charType === "mule" ? "Mule" : "Alt";
@@ -191,6 +204,16 @@ export function AccountCharacterRow({
               className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-60"
             >
               Unlink
+            </button>
+          )}
+          {!character.isMain && character.status !== "removed" && canRemoveFromGuild && (
+            <button
+              type="button"
+              onClick={onRemoveFromGuild}
+              disabled={pending}
+              className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-60"
+            >
+              Remove from guild
             </button>
           )}
         </div>

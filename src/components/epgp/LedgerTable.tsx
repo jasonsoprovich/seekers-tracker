@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -43,9 +44,9 @@ export function LedgerTable(props: Props) {
     recordedBy: (r) => r.enteredByName,
   });
 
-  // EP: Date, Character, Activity, Zone, Points, Source, Recorded by, Note.
-  // GP: Date, Character, Item, Bid, Points, Source, Recorded by, Note.
-  const baseCols = 8;
+  // EP: Date, Linked event, Character, Activity, Zone, Points, Source,
+  // Recorded by, Note. GP swaps Activity/Zone for Item/Bid.
+  const baseCols = 9;
   const totalCols = props.canManage ? baseCols + 1 : baseCols;
 
   function startEdit(row: EpRow | GpRow) {
@@ -160,7 +161,7 @@ export function LedgerTable(props: Props) {
                 />
               </Field>
               <Field>
-                <span className="text-neutral-400">Link to event</span>
+                <span className="text-neutral-400">Raid / event date</span>
                 <input
                   type="date"
                   value={draft.raidDate}
@@ -190,7 +191,7 @@ export function LedgerTable(props: Props) {
                 />
               </Field>
               <Field>
-                <span className="text-neutral-400">Link to event</span>
+                <span className="text-neutral-400">Raid / event date</span>
                 <input
                   type="date"
                   value={draft.raidDate}
@@ -260,7 +261,11 @@ export function LedgerTable(props: Props) {
         {(props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate) && (
           <div>
             <dt className="text-neutral-500">Linked event</dt>
-            <dd className="text-neutral-300">{props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate}</dd>
+            <dd>
+              <Link href={`/epgp/raids/${props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate}`} className="text-accent hover:underline">
+                {props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate}
+              </Link>
+            </dd>
           </div>
         )}
         <div>
@@ -307,10 +312,11 @@ export function LedgerTable(props: Props) {
       </div>
 
       <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
-        <table className="w-full min-w-[900px] text-left text-sm">
+        <table className="w-full min-w-[1040px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
               <SortableTh className="px-3 py-2" label="Date" sortKey="date" sort={sort} onSort={toggle} />
+              <th className="px-3 py-2 font-medium">Linked event</th>
               <SortableTh className="px-3 py-2" label="Character" sortKey="character" sort={sort} onSort={toggle} />
               {props.type === "ep" ? (
                 <>
@@ -327,12 +333,13 @@ export function LedgerTable(props: Props) {
               <SortableTh className="px-3 py-2" label="Source" sortKey="source" sort={sort} onSort={toggle} />
               <SortableTh className="px-3 py-2" label="Recorded by" sortKey="recordedBy" sort={sort} onSort={toggle} />
               <th className="px-3 py-2 font-medium">Note</th>
-              {props.canManage && <th className="px-3 py-2 font-medium">Actions</th>}
+              {props.canManage && <th className="sticky right-0 z-10 bg-neutral-900 px-3 py-2 font-medium shadow-[-1px_0_0_0_rgb(38_38_38)]">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {sorted.map((r) => {
               const editing = editingId === r.id;
+              const linkedEventDate = props.type === "ep" ? (r as EpRow).raidDate : (r as GpRow).raidDate;
               return (
                 <tr key={r.id} className="hover:bg-neutral-900/40">
                   {editing ? (
@@ -344,7 +351,16 @@ export function LedgerTable(props: Props) {
                           onChange={(e) => setDraft((d) => ({ ...d, occurredAt: e.target.value }))}
                           className={fieldClasses({ size: "sm" })}
                         />
-                            </td>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="date"
+                          value={draft.raidDate}
+                          onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
+                          aria-label="Raid or event date"
+                          className={fieldClasses({ size: "sm" })}
+                        />
+                      </td>
                       <td className="px-3 py-2 font-medium text-neutral-400">{r.characterName}</td>
                       {props.type === "ep" ? (
                         <>
@@ -379,16 +395,9 @@ export function LedgerTable(props: Props) {
                               value={draft.activityOrTier}
                               onChange={(e) => setDraft((d) => ({ ...d, activityOrTier: e.target.value }))}
                               className={fieldClasses({ size: "sm" })}
-                               placeholder="Bid"
-                             />
-                             <input
-                               type="date"
-                               value={draft.raidDate}
-                               onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
-                               aria-label="Link to event"
-                               className={`${fieldClasses({ size: "sm" })} mt-1`}
-                             />
-                           </td>
+                              placeholder="Bid"
+                            />
+                            </td>
                         </>
                       )}
                       <td className="px-3 py-2">
@@ -409,7 +418,7 @@ export function LedgerTable(props: Props) {
                           placeholder="Note"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="sticky right-0 z-10 bg-neutral-950 px-3 py-2 shadow-[-1px_0_0_0_rgb(38_38_38)]">
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -428,6 +437,15 @@ export function LedgerTable(props: Props) {
                   ) : (
                     <>
                       <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt, r.source)}</td>
+                      <td className="px-3 py-2 text-neutral-500">
+                        {linkedEventDate ? (
+                          <Link href={`/epgp/raids/${linkedEventDate}`} className="text-accent hover:underline">
+                            {linkedEventDate}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-medium">{r.characterName}</td>
                       {props.type === "ep" ? (
                         <>
@@ -447,7 +465,7 @@ export function LedgerTable(props: Props) {
                         {r.note || "—"}
                       </td>
                       {props.canManage && (
-                        <td className="px-3 py-2">
+                        <td className="sticky right-0 z-10 bg-neutral-950 px-3 py-2 shadow-[-1px_0_0_0_rgb(38_38_38)]">
                           <div className="flex gap-2">
                             <button type="button" onClick={() => startEdit(r)} className="text-neutral-300 hover:text-neutral-100">
                               Edit

@@ -1,0 +1,1 @@
+ALTER TABLE `characters` ADD `removed_by_player_departure` integer DEFAULT false NOT NULL;

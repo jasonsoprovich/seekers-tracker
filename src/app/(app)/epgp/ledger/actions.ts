@@ -9,7 +9,6 @@ import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
 import { getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
-import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { guildDayBounds } from "@/lib/guild-timezone";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -71,9 +70,6 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   if (!activityOrTier) return { error: input.kind === "ep" ? "Activity is required." : "Bid is required." };
   const raidDate = input.raidDate.trim() || null;
   if (raidDate && !guildDayBounds(raidDate)) return { error: "Event date must be a valid date." };
-  if (raidDate && !ATTENDANCE_GATED_ACTIVITIES.has(activityOrTier)) {
-    return { error: "Only attendance entries can be linked to a raid or event." };
-  }
 
   const db = await getDb();
   // An edit never reassigns the character (that's a delete + re-add), so

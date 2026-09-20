@@ -282,6 +282,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
                 canRetype={isOfficer || ownsThis || isAccountOwner}
                 canPromote={canSwapMain}
                 canUnlink={isOfficer}
+                canRemoveFromGuild={canRemoveMember}
                 showOfficerTag={accountIsOfficer}
                 canToggleOfficerTag={isOfficer}
               />
@@ -341,7 +342,7 @@ export default async function CharacterAccountPage({ params }: { params: Promise
           <p className="mt-1 text-sm text-neutral-400">
             {player.status === "departed"
               ? "This account was removed from the guild. Reinstating restores the zeroed EP and re-opens site access."
-              : "Removing this account zeroes its EP as a departure entry (GP is kept, every character stays on record) and blocks site access. Reversible."}
+              : "Removing this account removes its main, alts, and mules from the roster, zeroes its EP as a departure entry (GP is kept), and blocks site access. Reversible."}
           </p>
           <div className="mt-3">
             <PlayerGuildStatusButtons playerId={player.id} displayName={accountName} status={player.status} characterCount={list.length} />

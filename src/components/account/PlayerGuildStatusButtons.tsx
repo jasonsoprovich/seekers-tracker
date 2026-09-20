@@ -9,7 +9,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // Officer/leader/admin by default ("members.remove", opened to officers
 // 2026-09-19): remove this player from the guild (EP zeroed as a
-// reversible departure event, GP kept, site access off) or reinstate them.
+// reversible departure event, GP kept, every account character removed, site
+// access off) or reinstate them.
 // Keyed by players.id so it works for accounts that never claimed a site
 // login too. Rendered only when the viewer's account/page.tsx already
 // checked "members.remove" — this component has no gate of its own.
@@ -44,7 +45,7 @@ export function PlayerGuildStatusButtons({
   async function onRemove() {
     const ok = await confirm({
       title: `Remove ${displayName} from the guild?`,
-      message: `Zeroes the account's EP (all ${characterCount} character${characterCount === 1 ? "" : "s"}) as a departure entry, keeps GP and every character record, drops any site role and app keys, and blocks site access. Reversible from this page.`,
+      message: `Removes all ${characterCount} linked character${characterCount === 1 ? "" : "s"} from the roster, zeroes the account's EP as a departure entry, keeps GP and every character record, drops any site role and app keys, and blocks site access. Reversible from this page.`,
       confirmLabel: "Remove from guild",
       danger: true,
     });
@@ -55,7 +56,7 @@ export function PlayerGuildStatusButtons({
   async function onReinstate() {
     const ok = await confirm({
       title: `Reinstate ${displayName}?`,
-      message: "Restores the EP that was zeroed on removal and re-opens site access. A site role has to be re-granted separately on Admin.",
+      message: "Restores the EP and characters removed with this account, then re-opens site access. Separately removed alts or mules stay removed. A site role has to be re-granted separately on Admin.",
       confirmLabel: "Reinstate",
     });
     if (!ok) return;

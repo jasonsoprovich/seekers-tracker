@@ -38,7 +38,7 @@ import { apikeys, characters, epLedger, players, users } from "../src/db";
 import { LEADERSHIP_ROLES } from "../src/lib/authz";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
 import { fetchIsMemberAllowed, isMemberAllowed } from "../src/lib/discord-verify";
-import { reinstatePlayerFromGuildCore, removePlayerFromGuildCore, syncAccountRole } from "../src/lib/players";
+import { reinstatePlayerFromGuildCore, removeNonMainCharacterFromGuildCore, removePlayerFromGuildCore, syncAccountRole } from "../src/lib/players";
 
 const SNAPSHOT_NAME = "phase1-guild-removal-test";
 // Deliberately not a real Discord snowflake pattern that could collide with
@@ -119,6 +119,23 @@ async function main() {
       .insert(characters)
       .values({ name: `VerifyChar-${randomUUID().slice(0, 8)}`, class: UNKNOWN_CLASS_ID, race: UNKNOWN_RACE_ID, level: 1, playerId: officerPlayerId })
       .returning({ id: characters.id });
+    await db.update(players).set({ mainCharacterId: officerChar.id }).where(eq(players.id, officerPlayerId));
+    const [officerAlt] = await db
+      .insert(characters)
+      .values({
+        name: `VerifyAlt-${randomUUID().slice(0, 8)}`,
+        class: UNKNOWN_CLASS_ID,
+        race: UNKNOWN_RACE_ID,
+        level: 1,
+        charType: "alt",
+        mainCharacterId: officerChar.id,
+        playerId: officerPlayerId,
+      })
+      .returning({ id: characters.id });
+    const [officerMule] = await db
+      .insert(characters)
+      .values({ name: `VerifyMule-${randomUUID().slice(0, 8)}`, class: UNKNOWN_CLASS_ID, race: UNKNOWN_RACE_ID, level: 1, charType: "mule", playerId: officerPlayerId })
+      .returning({ id: characters.id });
     // Give the character positive EP so commitDepartureWipe actually has
     // something to zero (and removalDecayEventId ends up non-null, which
     // also exercises reinstatePlayerFromGuildCore's reverseDecayEvent path).
@@ -134,6 +151,17 @@ async function main() {
       .values({ id: randomUUID(), referenceId: officerUserId, key: `verify-test-key-${randomUUID()}` })
       .returning({ id: apikeys.id });
 
+    const altRemoval = await removeNonMainCharacterFromGuildCore(db, actingLeader.id, officerAlt.id);
+    check(failures, !("error" in altRemoval) || !altRemoval.error, "an alt can be removed without removing its account");
+    const [altAfterRemoval] = await db
+      .select({ status: characters.status, removedByPlayerDeparture: characters.removedByPlayerDeparture })
+      .from(characters)
+      .where(eq(characters.id, officerAlt.id));
+    check(failures, altAfterRemoval?.status === "removed", "individual alt removal marks only that alt removed");
+    check(failures, altAfterRemoval?.removedByPlayerDeparture === false, "individual alt removal is not tagged as an account departure");
+    const mainRemoval = await removeNonMainCharacterFromGuildCore(db, actingLeader.id, officerChar.id);
+    check(failures, "error" in mainRemoval && /entire account/i.test(mainRemoval.error ?? ""), "a main cannot be removed while its account remains");
+
     const removeResult = await removePlayerFromGuildCore(db, actingLeader.id, officerPlayerId);
     check(failures, !("error" in removeResult) || !removeResult.error, `officer removal succeeds (${"error" in removeResult ? removeResult.error : "ok"})`);
 
@@ -146,6 +174,16 @@ async function main() {
     check(failures, officerPlayerAfter?.role === "member", "task 1.1: players.role ALSO dropped to member on removal (the actual bug)");
     check(failures, officerPlayerAfter?.status === "departed", "players.status flipped to departed");
     check(failures, officerPlayerAfter?.removalDecayEventId != null, "EP wipe recorded a reversible decay event");
+    const characterStatusesAfterAccountRemoval = await db
+      .select({ id: characters.id, status: characters.status, removedByPlayerDeparture: characters.removedByPlayerDeparture })
+      .from(characters)
+      .where(inArray(characters.id, [officerChar.id, officerAlt.id, officerMule.id]));
+    const statusByCharacter = new Map(characterStatusesAfterAccountRemoval.map((row) => [row.id, row]));
+    check(failures, statusByCharacter.get(officerChar.id)?.status === "removed", "account removal removes the linked main");
+    check(failures, statusByCharacter.get(officerMule.id)?.status === "removed", "account removal removes linked mules");
+    check(failures, statusByCharacter.get(officerChar.id)?.removedByPlayerDeparture === true, "account removal marks the main as departure-removed");
+    check(failures, statusByCharacter.get(officerMule.id)?.removedByPlayerDeparture === true, "account removal marks the mule as departure-removed");
+    check(failures, statusByCharacter.get(officerAlt.id)?.removedByPlayerDeparture === false, "account removal preserves a separately removed alt's provenance");
 
     const remainingKeys = await db.select({ id: apikeys.id }).from(apikeys).where(eq(apikeys.id, testKey.id));
     check(failures, remainingKeys.length === 0, "task 1.3: the removed officer's app key was deleted, not just disabled");
@@ -180,6 +218,14 @@ async function main() {
     check(failures, officerPlayerReinstated?.status === "active", "reinstatement restores players.status to active");
     check(failures, officerPlayerReinstated?.departedAt === null, "reinstatement clears departedAt");
     check(failures, officerPlayerReinstated?.removalDecayEventId === null, "reinstatement clears the removalDecayEventId pointer");
+    const characterStatusesAfterReinstate = await db
+      .select({ id: characters.id, status: characters.status, removedByPlayerDeparture: characters.removedByPlayerDeparture })
+      .from(characters)
+      .where(inArray(characters.id, [officerChar.id, officerAlt.id, officerMule.id]));
+    const reinstatedStatusByCharacter = new Map(characterStatusesAfterReinstate.map((row) => [row.id, row]));
+    check(failures, reinstatedStatusByCharacter.get(officerChar.id)?.status === "active", "reinstatement restores the main removed with the account");
+    check(failures, reinstatedStatusByCharacter.get(officerMule.id)?.status === "active", "reinstatement restores the mule removed with the account");
+    check(failures, reinstatedStatusByCharacter.get(officerAlt.id)?.status === "removed", "reinstatement keeps a separately removed alt removed");
     const epAfterReinstate = await db.select({ points: epLedger.points }).from(epLedger).where(eq(epLedger.characterId, officerChar.id));
     check(failures, epAfterReinstate.reduce((sum, r) => sum + r.points, 0) === 50, "reinstatement's reverseDecayEvent restored the wiped EP");
     const allowedAfterReinstate = await fetchIsMemberAllowed(db, officerUserId);

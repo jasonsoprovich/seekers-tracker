@@ -159,6 +159,10 @@ export const characters = sqliteTable("characters", {
   status: text("status", { enum: ["active", "inactive", "removed"] })
     .notNull()
     .default("active"),
+  // True only when an account-level guild removal set this character to
+  // "removed". Reinstating that account restores these characters without
+  // accidentally restoring an alt or mule removed on its own.
+  removedByPlayerDeparture: integer("removed_by_player_departure", { mode: "boolean" }).notNull().default(false),
   // When `status` last changed (§4j) — nullable, since every pre-Phase-3
   // character predates this column and its true change date is unknown.
   statusChangedAt: integer("status_changed_at", { mode: "timestamp" }),

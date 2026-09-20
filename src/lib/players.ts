@@ -655,7 +655,8 @@ export type GuildStatusResult = { error?: string };
 //   4. revokes every app API key the account holds (task 1.3) — same as
 //      setUserRole's demotion path; a departed member's key stops existing,
 //      not just stops passing its live canManageEpgp re-check on next use.
-// Character records and GP history stay as-is. The role is NOT auto-restored
+// Every active/inactive character on the account is marked removed as part of
+// the same departure. GP history stays as-is. The role is NOT auto-restored
 // on reinstate — a leader re-grants it deliberately.
 export async function removePlayerFromGuildCore(db: Db, actingUserId: string, playerId: number): Promise<GuildStatusResult> {
   const [player] = await db
@@ -708,6 +709,13 @@ export async function removePlayerFromGuildCore(db: Db, actingUserId: string, pl
     .set({ status: "departed", departedAt: now, removalDecayEventId, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
     .where(eq(players.id, player.id));
 
+  // Preserve individually removed alts/mules when the account is later
+  // reinstated. Only rows this account departure changed receive the marker.
+  await db
+    .update(characters)
+    .set({ status: "removed", removedByPlayerDeparture: true, statusChangedAt: now, updatedAt: now })
+    .where(and(eq(characters.playerId, player.id), ne(characters.status, "removed")));
+
   const actor = await webActor(db, actingUserId);
   await recordSystemEvent(db, actor, {
     action: "members.remove",
@@ -722,9 +730,10 @@ export async function removePlayerFromGuildCore(db: Db, actingUserId: string, pl
   return {};
 }
 
-// Full reverse of removePlayerFromGuildCore's EP wipe + status, but NOT the
-// role (a leader re-grants that). Safe if the departure event was already
-// reversed by hand on /epgp/decay — that just clears the pointer.
+// Full reverse of removePlayerFromGuildCore's EP wipe, player status, and the
+// character statuses it changed, but NOT the role (a leader re-grants that).
+// Safe if the departure event was already reversed by hand on /epgp/decay —
+// that just clears the pointer.
 export async function reinstatePlayerFromGuildCore(db: Db, actingUserId: string, playerId: number): Promise<GuildStatusResult> {
   const now = new Date();
   const [player] = await db
@@ -745,6 +754,11 @@ export async function reinstatePlayerFromGuildCore(db: Db, actingUserId: string,
     .set({ status: "active", departedAt: null, removalDecayEventId: null, statusChangedBy: actingUserId, statusChangedAt: now, updatedAt: now })
     .where(eq(players.id, player.id));
 
+  await db
+    .update(characters)
+    .set({ status: "active", removedByPlayerDeparture: false, statusChangedAt: now, updatedAt: now })
+    .where(and(eq(characters.playerId, player.id), eq(characters.removedByPlayerDeparture, true)));
+
   const actor = await webActor(db, actingUserId);
   await recordSystemEvent(db, actor, {
     action: "members.reinstate",
@@ -756,5 +770,40 @@ export async function reinstatePlayerFromGuildCore(db: Db, actingUserId: string,
     after: { status: "active" },
   });
 
+  return {};
+}
+
+// A character-level guild removal is deliberately narrower than removing an
+// account: it can only affect an alt or mule, keeps it linked to its account
+// for history, and never writes a departure/EP adjustment.
+export async function removeNonMainCharacterFromGuildCore(db: Db, actingUserId: string, characterId: number): Promise<GuildStatusResult> {
+  const [character] = await db
+    .select({ id: characters.id, name: characters.name, playerId: characters.playerId, charType: characters.charType, status: characters.status })
+    .from(characters)
+    .where(eq(characters.id, characterId));
+  if (!character) return { error: "Character not found." };
+  if (character.playerId === null) return { error: "That character isn't on an account." };
+  if (character.status === "removed") return { error: "That character has already been removed from the guild." };
+
+  const [player] = await db.select({ mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, character.playerId));
+  if (!player) return { error: "Account not found." };
+  if (character.charType === "main" || player.mainCharacterId === character.id) {
+    return { error: "A main character can only be removed by removing its entire account." };
+  }
+
+  const now = new Date();
+  await db
+    .update(characters)
+    .set({ status: "removed", removedByPlayerDeparture: false, statusChangedAt: now, updatedAt: now })
+    .where(eq(characters.id, character.id));
+  await recordSystemEvent(db, await webActor(db, actingUserId), {
+    action: "characters.remove",
+    targetType: "character",
+    targetId: character.id,
+    targetLabel: character.name,
+    summary: `${character.name} removed from the guild as an individual ${character.charType} (account EP/GP unchanged)`,
+    before: { status: character.status, playerId: character.playerId },
+    after: { status: "removed", playerId: character.playerId },
+  });
   return {};
 }

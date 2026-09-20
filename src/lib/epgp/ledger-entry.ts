@@ -3,7 +3,6 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
-import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { guildDayBounds } from "@/lib/guild-timezone";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { getSettingAt } from "@/lib/epgp/settings";
@@ -81,9 +80,9 @@ export async function insertLedgerEntry(
   }
   const raidDate = input.raidDate?.trim() || null;
   if (raidDate && !guildDayBounds(raidDate)) return { ok: false, error: "Event date must be a valid date." };
-  if (raidDate && !ATTENDANCE_GATED_ACTIVITIES.has(activityOrTier)) {
-    return { ok: false, error: "Only attendance entries can be linked to a raid or event." };
-  }
+  // Raids & Events are grouped by this guild-local date rather than a
+  // separate event id. Any manual correction can belong to that date: missed
+  // attendance, a missed bid winner, or a rot-loot charge.
 
   const [character] = await db
     .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId, playerId: characters.playerId })
