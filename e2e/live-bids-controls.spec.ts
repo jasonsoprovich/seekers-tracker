@@ -14,14 +14,23 @@ async function disableLiveSocket(page: Page) {
 test.describe("live bid board", () => {
   test.use({ storageState: "e2e/.auth/member.json" });
 
-  test("explains hidden collecting mode while retaining resolved results", async ({ page }) => {
+  test("limits active rounds to their bid count while retaining resolved details", async ({ page }) => {
     await disableLiveSocket(page);
     await page.route("**/api/live-bids/state", (route) =>
       route.fulfill({
         json: {
           type: "state",
-          showCollecting: false,
+          collectingDetail: "limited",
           rounds: [
+            {
+              itemName: "Collecting Item",
+              officerName: "Officer",
+              bids: [bid("Hidden Bidder", "High Bid", 4.2), bid("Another Bidder", "Low Bid", 2.1)],
+              winners: [],
+              status: "live",
+              lastSeenAt: Date.now(),
+              startedAt: 1,
+            },
             {
               itemName: "Finalized Item",
               officerName: "Officer",
@@ -37,7 +46,8 @@ test.describe("live bid board", () => {
     );
     await page.goto("/live-bids");
 
-    await expect(page.getByText("Live collecting rounds are temporarily hidden by leadership.")).toBeVisible();
+    await expect(page.getByText("2 bids received")).toBeVisible();
+    await expect(page.getByText("Hidden Bidder")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Finalized Item" })).toBeVisible();
   });
 
@@ -47,7 +57,7 @@ test.describe("live bid board", () => {
       route.fulfill({
         json: {
           type: "state",
-          showCollecting: true,
+          collectingDetail: "full",
           rounds: [
             { itemName: "First", officerName: "One", bids: [bid("A", "High Bid", 5)], winners: [], status: "live", lastSeenAt: 40, startedAt: 10 },
             { itemName: "Second", officerName: "Two", bids: [bid("B", "Low Bid", 2), bid("C", "Alt Loot", 1)], winners: [], status: "idle", lastSeenAt: 50, startedAt: 20 },
@@ -74,17 +84,17 @@ test.describe("live bid board", () => {
 test.describe("live bid admin control", () => {
   test.use({ storageState: "e2e/.auth/leader.json" });
 
-  test("is available to leaders and persists a visibility change", async ({ page }) => {
-    let showCollecting = true;
+  test("is available to leaders and persists a detail-mode change", async ({ page }) => {
+    let collectingDetail = "full";
     await page.route("**/api/live-bids/config", async (route) => {
       if (route.request().method() === "POST") {
-        showCollecting = (route.request().postDataJSON() as { showCollecting: boolean }).showCollecting;
+        collectingDetail = (route.request().postDataJSON() as { collectingDetail: string }).collectingDetail;
       }
-      await route.fulfill({ json: { showCollecting } });
+      await route.fulfill({ json: { collectingDetail } });
     });
     await page.goto("/admin");
-    await page.getByRole("button", { name: "Hide collecting rounds" }).click();
-    await expect(page.getByText("Collecting rounds are hidden; resolved rounds are still visible.")).toBeVisible();
+    await page.getByRole("button", { name: "Limited" }).click();
+    await expect(page.getByText("Limited is active.")).toBeVisible();
   });
 });
 
@@ -93,6 +103,6 @@ test.describe("live bid officer restrictions", () => {
 
   test("does not render the leader control", async ({ page }) => {
     await page.goto("/admin");
-    await expect(page.getByText("Live collecting rounds")).toHaveCount(0);
+    await expect(page.getByText("Live bid detail")).toHaveCount(0);
   });
 });

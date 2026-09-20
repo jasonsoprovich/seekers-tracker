@@ -83,7 +83,8 @@ type RoundView = {
   startedAt: number;
 };
 
-type ServerMessage = { type: "state"; rounds: RoundView[]; showCollecting: boolean };
+type CollectingDetail = "full" | "limited" | "none";
+type ServerMessage = { type: "state"; rounds: RoundView[]; collectingDetail: CollectingDetail };
 
 type PushBody = {
   itemName?: unknown;
@@ -145,7 +146,7 @@ const RESOLVED_STORAGE_PREFIX = "resolved:";
 // starts un-dismissed for everyone.
 const DISMISS_STORAGE_PREFIX = "dismiss:";
 const CONFIG_STORAGE_KEY = "config";
-type LiveBidConfig = { showCollecting: boolean };
+type LiveBidConfig = { collectingDetail?: unknown; showCollecting?: boolean };
 
 export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   private rounds = new Map<string, Round>();
@@ -154,7 +155,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   // constructor and kept in step on every write so broadcast() can filter
   // without touching storage on the hot path.
   private dismissals = new Map<string, Set<string>>();
-  private showCollecting = true;
+  private collectingDetail: CollectingDetail = "full";
   // The alarm time currently scheduled, so markSeen can skip re-arming for
   // small forward moves. Resets to null on DO eviction — the next markSeen
   // just re-arms once, which is fine.
@@ -182,7 +183,14 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         ctx.storage.list<Round>({ prefix: ROUND_STORAGE_PREFIX }),
         ctx.storage.get<LiveBidConfig>(CONFIG_STORAGE_KEY),
       ]);
-      this.showCollecting = config?.showCollecting ?? true;
+      // Retain the intent of the previous binary visibility setting while
+      // upgrading it to the three public-detail levels.
+      this.collectingDetail =
+        config?.collectingDetail === "full" || config?.collectingDetail === "limited" || config?.collectingDetail === "none"
+          ? config.collectingDetail
+          : config?.showCollecting === false
+            ? "none"
+            : "full";
       for (const [storageKey, round] of stored) {
         if (typeof round.lastBidAt !== "number") round.lastBidAt = round.startedAt ?? round.lastSeenAt ?? Date.now();
         if (typeof round.startedAt !== "number") round.startedAt = round.lastBidAt;
@@ -244,7 +252,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     }
 
     if (url.pathname === "/config" && request.method === "GET") {
-      return Response.json({ showCollecting: this.showCollecting });
+      return Response.json({ collectingDetail: this.collectingDetail });
     }
 
     if (url.pathname === "/config" && request.method === "POST") {
@@ -254,14 +262,14 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       } catch {
         return Response.json({ error: "Invalid JSON body." }, { status: 400 });
       }
-      const showCollecting = (body as { showCollecting?: unknown })?.showCollecting;
-      if (typeof showCollecting !== "boolean") {
-        return Response.json({ error: "showCollecting must be a boolean." }, { status: 400 });
+      const collectingDetail = (body as { collectingDetail?: unknown })?.collectingDetail;
+      if (collectingDetail !== "full" && collectingDetail !== "limited" && collectingDetail !== "none") {
+        return Response.json({ error: "collectingDetail must be full, limited, or none." }, { status: 400 });
       }
-      this.showCollecting = showCollecting;
-      await this.ctx.storage.put(CONFIG_STORAGE_KEY, { showCollecting });
+      this.collectingDetail = collectingDetail;
+      await this.ctx.storage.put(CONFIG_STORAGE_KEY, { collectingDetail });
       this.broadcast();
-      return Response.json({ showCollecting });
+      return Response.json({ collectingDetail });
     }
 
     if (request.method === "POST" && url.pathname === "/push") {
@@ -712,9 +720,8 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
     // creation order. Heartbeats and bid updates never move a card.
     const rounds: RoundView[] = visibleLiveBidRounds(
       [...this.rounds.entries()]
-      .filter(([k]) => !this.isDismissedBy(userId, k))
-      .map(([, r]) => r),
-      this.showCollecting,
+        .filter(([k]) => !this.isDismissedBy(userId, k))
+        .map(([, r]) => r),
     )
       .map((r) => ({
         itemName: r.itemName,
@@ -725,7 +732,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         lastSeenAt: r.state === "resolved" ? r.resolvedAt : r.lastSeenAt,
         startedAt: r.startedAt,
       }));
-    return { type: "state", rounds, showCollecting: this.showCollecting };
+    return { type: "state", rounds, collectingDetail: this.collectingDetail };
   }
 
   private broadcast() {

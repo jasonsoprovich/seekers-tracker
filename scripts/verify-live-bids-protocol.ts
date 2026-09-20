@@ -19,21 +19,17 @@ const rounds: FixtureRound[] = [
 const sourceOrder = rounds.map((round) => round.name);
 
 assert.deepEqual(
-  visibleLiveBidRounds(rounds, true).map((round) => round.name),
+  visibleLiveBidRounds(rounds).map((round) => round.name),
   ["collecting-old", "collecting-new", "resolved-old", "resolved-new"],
 );
 rounds[3].lastSeenAt = 10_000;
 rounds[1].lastSeenAt = 1;
 assert.deepEqual(
-  visibleLiveBidRounds(rounds, true).map((round) => round.name),
+  visibleLiveBidRounds(rounds).map((round) => round.name),
   ["collecting-old", "collecting-new", "resolved-old", "resolved-new"],
   "heartbeat/bid activity must not reorder rounds",
 );
-assert.deepEqual(
-  visibleLiveBidRounds(rounds, false).map((round) => round.name),
-  ["resolved-old", "resolved-new"],
-  "hidden mode must retain every resolved round",
-);
+assert.equal(visibleLiveBidRounds(rounds).filter((round) => round.state === "collecting").length, 2, "all detail modes retain open rounds");
 assert.deepEqual(rounds.map((round) => round.name), sourceOrder, "ordering must not mutate DO state");
 
 assert.equal(viewAsRoleFromCookieHeader("other=1; seekers_view_as_role=leader"), "leader");

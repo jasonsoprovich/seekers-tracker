@@ -19,6 +19,7 @@ type LiveBidTell = {
 };
 
 type LiveStatus = "live" | "idle" | "resolved";
+type CollectingDetail = "full" | "limited" | "none";
 
 // PLAN.md §15, multi-officer (2026-08-30) + §16 resolved rounds
 // (2026-09-01): during a raid, 1-10 officers each run their own parser app
@@ -36,7 +37,7 @@ type RoundView = {
   startedAt: number;
 };
 
-type ServerMessage = { type: "state"; rounds: RoundView[]; showCollecting: boolean };
+type ServerMessage = { type: "state"; rounds: RoundView[]; collectingDetail: CollectingDetail };
 
 type ConnectionStatus = "connecting" | "open" | "closed";
 
@@ -98,7 +99,7 @@ function StatusPill({ status }: { status: LiveStatus }) {
 export function LiveBidsView() {
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
   const [rounds, setRounds] = useState<RoundView[]>([]);
-  const [showCollecting, setShowCollecting] = useState(true);
+  const [collectingDetail, setCollectingDetail] = useState<CollectingDetail>("full");
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   // Resolved cards this viewer just dismissed — optimistic hide until the
@@ -133,7 +134,7 @@ export function LiveBidsView() {
         const msg = raw as ServerMessage | null;
         if (!cancelled && msg?.type === "state") {
           setRounds((cur) => (cur.length === 0 ? msg.rounds : cur));
-          setShowCollecting(msg.showCollecting !== false);
+          setCollectingDetail(msg.collectingDetail ?? "full");
         }
       })
       .catch(() => {});
@@ -162,7 +163,7 @@ export function LiveBidsView() {
           const msg = JSON.parse(event.data) as ServerMessage;
           if (msg.type === "state") {
             setRounds(msg.rounds);
-            setShowCollecting(msg.showCollecting !== false);
+            setCollectingDetail(msg.collectingDetail ?? "full");
           }
         } catch {
           // ignore a malformed frame rather than tearing down the socket
@@ -197,7 +198,7 @@ export function LiveBidsView() {
         const msg = (await resp.json()) as ServerMessage;
         if (msg.type === "state") {
           setRounds(msg.rounds);
-          setShowCollecting(msg.showCollecting !== false);
+          setCollectingDetail(msg.collectingDetail ?? "full");
         }
       }
     } catch {
@@ -327,17 +328,9 @@ export function LiveBidsView() {
         </div>
       </div>
 
-      {!showCollecting && (
-        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200" role="status">
-          Live collecting rounds are temporarily hidden by leadership. Officers can keep collecting bids, and finalized results will appear here.
-        </div>
-      )}
-
       {visibleRounds.length === 0 ? (
         <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
-          {showCollecting
-            ? "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
-            : "No finalized bid rounds are on the board right now."}
+          "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
         </div>
       ) : (
         // CSS columns preserve source/keyboard order while allowing each
@@ -346,6 +339,8 @@ export function LiveBidsView() {
           {visibleRounds.map((round) => {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";
+            const showLiveBids = resolved || collectingDetail === "full";
+            const showBidCount = !resolved && collectingDetail === "limited";
             const winnerNames = new Set(round.winners.map((w) => w.characterName.toLowerCase()));
             // Collecting rounds: always show the table. Resolved rounds:
             // collapsed unless the viewer opened this one.
@@ -364,12 +359,13 @@ export function LiveBidsView() {
                     </h2>
                     <StatusPill status={round.status} />
                   </div>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xs text-neutral-500">
-                    <span>collected by {round.officerName}</span>
-                    <span className="ml-auto">
-                      {resolved ? "finalized" : "updated"} {relativeTime(round.lastSeenAt, now)}
-                    </span>
-                    {!resolved && (
+                  {(resolved || collectingDetail === "full") && (
+                    <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xs text-neutral-500">
+                      <span>collected by {round.officerName}</span>
+                      <span className="ml-auto">
+                        {resolved ? "finalized" : "updated"} {relativeTime(round.lastSeenAt, now)}
+                      </span>
+                      {!resolved && (
                       <button
                         type="button"
                         onClick={() => onDismiss(round.itemName, round.status)}
@@ -378,8 +374,11 @@ export function LiveBidsView() {
                       >
                         Hide
                       </button>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
+                  {showBidCount && <p className="mt-2 text-sm text-neutral-300">{ranked.length} bid{ranked.length === 1 ? "" : "s"} received</p>}
+                  {!resolved && collectingDetail === "none" && <p className="mt-2 text-sm text-neutral-300">Bidding is open.</p>}
                   {resolved && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-400">
@@ -410,9 +409,9 @@ export function LiveBidsView() {
                   </button>
                 )}
 
-                {ranked.length === 0 ? (
+                {showLiveBids && ranked.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-neutral-500">No bids{resolved ? " were recorded" : " yet"}.</div>
-                ) : !showTable ? null : (
+                ) : !showLiveBids || !showTable ? null : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
