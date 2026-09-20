@@ -185,10 +185,13 @@ export const CAPABILITIES = {
   },
   "epgp.liveBids.visibility": {
     group: "EPGP",
-    label: "Hide / show live collecting rounds",
-    description: "Control whether open bid rounds are visible on the member live-bids feed while they're being collected.",
+    label: "Set live bid detail",
+    description: "Choose full, limited, or no-detail visibility for open bid rounds. Resolved rounds always remain fully visible.",
     defaults: ["leader"],
-    lockedRoles: ["member"],
+    // This setting is intentionally reserved for guild leadership. Admins
+    // always bypass the matrix (roleCan), and no matrix override may grant
+    // this control to members or officers or remove it from leaders.
+    lockedRoles: ["member", "officer", "leader"],
   },
 
   // --- Admin Area -----------------------------------------------------
@@ -274,6 +277,7 @@ export function applyOverrides(rows: readonly OverrideRow[]): PermissionMatrix {
   const matrix = defaultMatrix();
   for (const row of rows) {
     if (!isCapability(row.capability) || !isMatrixRole(row.role)) continue;
+    if (capabilityDef(row.capability).lockedRoles?.includes(row.role)) continue;
     matrix[row.capability][row.role] = row.allowed;
   }
   return matrix;
