@@ -4,6 +4,7 @@ import { createManualHolding, deleteManualHolding, updateHolding, type HoldingMu
 import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 // Same officer/leader/admin default as EPGP ledger entries and bids
 // ("epgp.bank.manage") — bank content is guild-officer-managed the same way.
@@ -39,7 +40,7 @@ export async function addManualHoldingAction(input: AddHoldingInput): Promise<Ho
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  return createManualHolding(db, {
+  const result = await createManualHolding(db, {
     holderName: input.holderName,
     category: input.category,
     itemName: input.itemName,
@@ -49,6 +50,17 @@ export async function addManualHoldingAction(input: AddHoldingInput): Promise<Ho
     status: input.status,
     note: input.note || undefined,
   });
+  if (result.id != null) {
+    await recordSystemEvent(db, await webActor(db, auth.userId), {
+      action: "bank.holding.create",
+      targetType: "bank_holding",
+      targetId: result.id,
+      targetLabel: input.itemName,
+      summary: `Bank holding added: ${input.itemName} x${input.quantity} (${input.holderName})`,
+      after: input,
+    });
+  }
+  return result;
 }
 
 export type EditHoldingInput = { status: "guild_bank" | "reserved"; quantity: string; note: string };
@@ -58,7 +70,17 @@ export async function updateHoldingAction(id: number, input: EditHoldingInput): 
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  return updateHolding(db, id, { status: input.status, quantity: Number(input.quantity), note: input.note || undefined });
+  const result = await updateHolding(db, id, { status: input.status, quantity: Number(input.quantity), note: input.note || undefined });
+  if (result.id != null) {
+    await recordSystemEvent(db, await webActor(db, auth.userId), {
+      action: "bank.holding.update",
+      targetType: "bank_holding",
+      targetId: id,
+      summary: `Bank holding #${id} edited`,
+      after: input,
+    });
+  }
+  return result;
 }
 
 export async function deleteHoldingAction(id: number): Promise<HoldingMutationResult> {
@@ -66,5 +88,14 @@ export async function deleteHoldingAction(id: number): Promise<HoldingMutationRe
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  return deleteManualHolding(db, id);
+  const result = await deleteManualHolding(db, id);
+  if (!result.error) {
+    await recordSystemEvent(db, await webActor(db, auth.userId), {
+      action: "bank.holding.delete",
+      targetType: "bank_holding",
+      targetId: id,
+      summary: `Bank holding #${id} deleted`,
+    });
+  }
+  return result;
 }

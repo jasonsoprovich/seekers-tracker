@@ -5,8 +5,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createAuth } from "@/auth";
+import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type AppKeyActionResult = { error?: string; key?: string };
 
@@ -46,6 +48,14 @@ export async function generateAppKey(name: string): Promise<AppKeyActionResult> 
     },
   });
 
+  const db = await getDb();
+  await recordSystemEvent(db, await webActor(db, session.user.id), {
+    action: "system.apikey.create",
+    targetType: "user",
+    targetId: session.user.id,
+    summary: `API key "${trimmedName}" generated`,
+  });
+
   return { key: created.key };
 }
 
@@ -63,6 +73,14 @@ export async function revokeAppKey(keyId: string): Promise<AppKeyActionResult> {
   await auth.api.deleteApiKey({
     body: { keyId },
     headers: await headers(),
+  });
+
+  const db = await getDb();
+  await recordSystemEvent(db, await webActor(db, session.user.id), {
+    action: "system.apikey.revoke",
+    targetType: "user",
+    targetId: session.user.id,
+    summary: "API key revoked (self-service)",
   });
 
   return {};
