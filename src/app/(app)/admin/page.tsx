@@ -8,7 +8,7 @@ import { LiveBidVisibilityControl } from "@/components/admin/LiveBidVisibilityCo
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterClaims, characters, players, users } from "@/db";
-import { getRealUserRole } from "@/lib/authz";
+import { getRealUserRole, LEADERSHIP_ROLES } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { type Capability, getPermissions } from "@/lib/permissions";
@@ -23,7 +23,10 @@ const OFFICER_APP_RELEASE_URL = "https://github.com/jasonsoprovich/seekers-epgp-
 // gated by their target pages). `adminOnly` is for links that must never
 // be tunable through the permissions matrix — the Permissions editor
 // itself is the one such case (see CAPABILITY_GROUPS' comment on why it's
-// deliberately excluded from the registry).
+// deliberately excluded from the registry). `leadershipOnly` is the same
+// idea for leader+admin — the System Log/Export page, which must stay
+// reachable by whoever can already see every other admin control, not be
+// toggleable away from a leader by an officer-tunable capability.
 type AdminLink = {
   href: string;
   label: string;
@@ -32,6 +35,7 @@ type AdminLink = {
   badgeKey?: "pendingClaims";
   capability?: Capability;
   adminOnly?: boolean;
+  leadershipOnly?: boolean;
 };
 
 const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }[] = [
@@ -77,6 +81,18 @@ const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }
     description: "Who can do what, per role.",
     links: [
       { href: "/admin/permissions", label: "Permissions", description: "Toggle capabilities for members, officers, and leaders.", adminOnly: true },
+    ],
+  },
+  {
+    title: "Diagnostics",
+    description: "Detailed change history and raw data export. Leaders and admins only.",
+    links: [
+      {
+        href: "/admin/logs",
+        label: "System Log & Export",
+        description: "Every admin/officer change to the database, and CSV export of any table.",
+        leadershipOnly: true,
+      },
     ],
   },
 ];
@@ -159,6 +175,7 @@ export default async function AdminPage() {
       {ADMIN_SECTIONS.map((section, index) => {
         const links = section.links.filter((link) => {
           if (link.adminOnly) return realRole === "admin";
+          if (link.leadershipOnly) return realRole !== null && LEADERSHIP_ROLES.includes(realRole);
           if (link.capability) return perms.can(link.capability);
           return true;
         });
