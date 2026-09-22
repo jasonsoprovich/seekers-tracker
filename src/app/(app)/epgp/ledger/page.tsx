@@ -194,6 +194,11 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
             <button type="submit" className="rounded-md border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60">
               Search
             </button>
+            {term && (
+              <Link href={pageHref({ q: "", page: 1 })} className="rounded-md border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60">
+                Clear filters
+              </Link>
+            )}
           </form>
         )}
       </div>

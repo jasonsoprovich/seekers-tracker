@@ -153,9 +153,10 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
     }
   }
 
-  // Live-bid loot has no raid_name. When a date contains one named event,
-  // that unambiguous date-only activity belongs to it rather than a second
-  // phantom event row. Do not guess when multiple named events share a date.
+  // Older attendance and live-bid rows have no raid_name. When a date
+  // contains one named event, that unambiguous date-only activity belongs to
+  // it rather than a second phantom event row. Do not guess when multiple
+  // named events share a date.
   const namedKeysByDate = new Map<string, string[]>();
   for (const key of [...attByEvent.keys(), ...named.map((raid) => eventKey(raid.raidDate, raid.name))]) {
     const [date, name] = key.split("\u0000");
@@ -165,6 +166,16 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
     if (namedKeys.length !== 1) continue;
     const legacyKey = eventKey(date, null);
     const namedKey = namedKeys[0];
+    const attendance = attByEvent.get(legacyKey);
+    if (attendance) {
+      const namedAttendance = attByEvent.get(namedKey) ?? { members: new Set<number>(), ep: 0, zones: new Set<string>(), leaderCandidate: null };
+      for (const member of attendance.members) namedAttendance.members.add(member);
+      for (const zone of attendance.zones) namedAttendance.zones.add(zone);
+      namedAttendance.ep += attendance.ep;
+      if (attendance.leaderCandidate && isEarlierLeaderCandidate(attendance.leaderCandidate, namedAttendance.leaderCandidate)) namedAttendance.leaderCandidate = attendance.leaderCandidate;
+      attByEvent.set(namedKey, namedAttendance);
+      attByEvent.delete(legacyKey);
+    }
     const loot = lootByEvent.get(legacyKey);
     if (loot !== undefined) {
       lootByEvent.set(namedKey, (lootByEvent.get(namedKey) ?? 0) + loot);
@@ -279,7 +290,6 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
   if (!bounds) return null;
   const { start, end } = bounds;
 
-  const eventNameCondition = (column: typeof epLedger.raidName | typeof gpLedger.raidName | typeof raids.name) => raidName === null ? isNull(column) : eq(column, raidName);
   const [attRows, lootRows, allBidRows, gpRows, meta] = await Promise.all([
     db
       .select({
@@ -300,8 +310,8 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       .from(epLedger)
       .leftJoin(characters, eq(characters.id, epLedger.characterId))
       .where(or(
-        and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end), eventNameCondition(epLedger.raidName)),
-        and(eq(epLedger.raidDate, raidDate), eventNameCondition(epLedger.raidName)),
+        and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end)),
+        eq(epLedger.raidDate, raidDate),
       )),
     db
       .select({
@@ -353,15 +363,19 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
   ]);
 
   const eventMeta = raidName === null ? meta[0] : meta.find((event) => event.name === raidName);
-  const namedEventCount = new Set(meta.flatMap((event) => event.name ? [event.name] : [])).size;
-  const includeDateOnlyLiveLoot = raidName === null || namedEventCount === 1;
-  if (!includeDateOnlyLiveLoot) {
+  const namedEventCount = new Set([
+    ...meta.flatMap((event) => event.name ? [event.name] : []),
+    ...attRows.flatMap((row) => row.raidName ? [row.raidName] : []),
+  ]).size;
+  const includeDateOnlyActivity = raidName === null || namedEventCount === 1;
+  attRows.splice(0, attRows.length, ...attRows.filter((row) => row.raidName === raidName || (includeDateOnlyActivity && row.raidName === null)));
+  if (!includeDateOnlyActivity) {
     lootRows.length = 0;
     allBidRows.length = 0;
   }
   gpRows.splice(0, gpRows.length, ...gpRows.filter((row) => {
     if (row.raidName === raidName) return true;
-    return includeDateOnlyLiveLoot && row.raidName === null;
+    return includeDateOnlyActivity && row.raidName === null;
   }));
 
   if (attRows.length === 0 && lootRows.length === 0 && gpRows.length === 0 && meta.length === 0) return null;
