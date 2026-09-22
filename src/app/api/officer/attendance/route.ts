@@ -24,6 +24,11 @@ type AttendanceRequestBody = {
   zone?: unknown;
   raidName?: unknown;
   awardEventLead?: unknown;
+  // Who the Event Lead EP goes to, when awardEventLead is true. Blank/
+  // absent keeps the original behavior: the API key owner's own current
+  // main. See prepareEventLeadAward's doc comment for why a client-chosen
+  // recipient is safe here (no new privilege over Manual Entry).
+  eventLeadCharacterName?: unknown;
 };
 
 // Pre-submit "is this capture already in the ledger?" check for the parser
@@ -114,6 +119,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "`awardEventLead` must be a boolean." }, { status: 400 });
   }
   const awardEventLead = body.awardEventLead === true;
+  if (body.eventLeadCharacterName !== undefined && typeof body.eventLeadCharacterName !== "string") {
+    return Response.json({ error: "`eventLeadCharacterName` must be a string." }, { status: 400 });
+  }
+  const eventLeadCharacterNameCheck =
+    typeof body.eventLeadCharacterName === "string" ? body.eventLeadCharacterName.trim() : "";
+  if (eventLeadCharacterNameCheck.length > LIMITS.characterName) {
+    return Response.json({ error: "Event Lead character name is too long." }, { status: 400 });
+  }
+  const eventLeadCharacterName = eventLeadCharacterNameCheck || undefined;
   const activity = activityCheck.value;
 
   const db = await getDb();
@@ -142,11 +156,14 @@ export async function POST(request: Request) {
     );
   }
 
-  // Resolve every Event Lead dependency before attendance writes begin. The
-  // award belongs to the API-key owner, never a client-supplied character,
-  // and only a single unambiguous owned account/current main is accepted.
+  // Resolve every Event Lead dependency before attendance writes begin.
+  // Defaults to the API-key owner's own current main; eventLeadCharacterName
+  // lets the submitting officer name a different raid leader instead (the
+  // attendance-taker isn't always the actual leader — see
+  // prepareEventLeadAward's doc comment for why this is safe to accept from
+  // the client).
   const eventLeadPreparation = awardEventLead
-    ? await prepareEventLeadAward(db, auth.userId, activity, occurredAt)
+    ? await prepareEventLeadAward(db, auth.userId, activity, occurredAt, eventLeadCharacterName)
     : null;
   if (eventLeadPreparation && !eventLeadPreparation.ok) {
     return Response.json({ error: eventLeadPreparation.error }, { status: 422 });
@@ -305,5 +322,15 @@ export async function POST(request: Request) {
     });
   }
 
-  return Response.json({ inserted, eventLeadInserted, unmatched, duplicates, standings }, { status: 201 });
+  return Response.json(
+    {
+      inserted,
+      eventLeadInserted,
+      eventLeadCharacterName: eventLeadInserted ? eventLeadPreparation?.award.characterName : undefined,
+      unmatched,
+      duplicates,
+      standings,
+    },
+    { status: 201 },
+  );
 }

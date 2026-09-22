@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, players } from "@/db";
@@ -39,6 +39,11 @@ export async function checkMinAttendance(
 
 export type PreparedEventLeadAward = {
   characterId: number;
+  // The recipient's canonical name, for the attendance route's response —
+  // the officer chose a name that may differ from this (an alt of the
+  // chosen character, or a typo'd casing), so the confirmation should show
+  // who the EP actually landed on.
+  characterName: string;
   playerId: number;
   points: number;
   capAtEntry: number | null;
@@ -50,27 +55,72 @@ export async function prepareEventLeadAward(
   userId: string,
   activity: string,
   occurredAt: Date,
+  // The officer taking attendance isn't always the actual raid leader (a
+  // trainee learning the app, covering for someone) — the confirm dialog
+  // lets them name who Event Lead actually goes to instead of only being
+  // able to toggle the API-key owner's own award on/off, then having to
+  // fix it with a separate Manual Entry afterward. This introduces no new
+  // privilege: an officer can already award "Event Lead" EP to any
+  // character today via /api/officer/manual-entry (insertLedgerEntry
+  // takes an arbitrary characterId) — this just makes the common case
+  // (attendance-taker != raid leader) a one-step submit. `overrideCharacterName`
+  // is resolved the same way any other captured name is (case-insensitive
+  // exact match against `characters`); undefined/blank keeps the original
+  // behavior of awarding the API key owner's own current main.
+  overrideCharacterName?: string,
 ): Promise<{ ok: true; award: PreparedEventLeadAward } | { ok: false; error: string }> {
   if (!ATTENDANCE_GATED_ACTIVITIES.has(activity)) {
     return { ok: false, error: "Event Lead can only be awarded with an attendance-gated activity." };
   }
 
-  const ownedPlayers = await db
-    .select({ id: players.id, mainCharacterId: players.mainCharacterId })
-    .from(players)
-    .where(eq(players.userId, userId));
-  if (ownedPlayers.length !== 1 || ownedPlayers[0].mainCharacterId == null) {
-    return { ok: false, error: "The API key owner must resolve to exactly one player account with a current main." };
+  let player: { id: number; mainCharacterId: number | null };
+  if (overrideCharacterName) {
+    const [char] = await db
+      .select({ id: characters.id, playerId: characters.playerId })
+      .from(characters)
+      .where(sql`${characters.name} COLLATE NOCASE = ${overrideCharacterName}`);
+    if (!char) {
+      return { ok: false, error: `Could not find a character named "${overrideCharacterName}" for the Event Lead award.` };
+    }
+    if (char.playerId == null) {
+      return { ok: false, error: `"${overrideCharacterName}" isn't linked to a player account, so Event Lead can't be awarded to them.` };
+    }
+    const [p] = await db.select({ id: players.id, mainCharacterId: players.mainCharacterId }).from(players).where(eq(players.id, char.playerId));
+    if (!p) {
+      return { ok: false, error: `"${overrideCharacterName}"'s player account could not be found.` };
+    }
+    player = p;
+  } else {
+    const ownedPlayers = await db
+      .select({ id: players.id, mainCharacterId: players.mainCharacterId })
+      .from(players)
+      .where(eq(players.userId, userId));
+    if (ownedPlayers.length !== 1) {
+      return { ok: false, error: "The API key owner must resolve to exactly one player account with a current main." };
+    }
+    player = ownedPlayers[0];
+  }
+  if (player.mainCharacterId == null) {
+    return {
+      ok: false,
+      error: overrideCharacterName
+        ? `"${overrideCharacterName}" has no current main character set, so Event Lead can't be awarded to them.`
+        : "The API key owner must resolve to exactly one player account with a current main.",
+    };
   }
 
-  const player = ownedPlayers[0];
-  const mainCharacterId = player.mainCharacterId!;
+  const mainCharacterId = player.mainCharacterId;
   const [main] = await db
-    .select({ id: characters.id, playerId: characters.playerId })
+    .select({ id: characters.id, name: characters.name, playerId: characters.playerId })
     .from(characters)
     .where(eq(characters.id, mainCharacterId));
   if (!main || main.playerId !== player.id) {
-    return { ok: false, error: "The API key owner's current main is missing or does not belong to their player account." };
+    return {
+      ok: false,
+      error: overrideCharacterName
+        ? `"${overrideCharacterName}"'s current main is missing or does not belong to their player account.`
+        : "The API key owner's current main is missing or does not belong to their player account.",
+    };
   }
 
   const [points, capRaw] = await Promise.all([
@@ -83,10 +133,17 @@ export async function prepareEventLeadAward(
     ok: true,
     award: {
       characterId: main.id,
+      characterName: main.name,
       playerId: player.id,
       points,
       capAtEntry: capRaw !== null ? Number(capRaw) : null,
-      sourceKey: `attendance-event-lead:v1:${userId}:${activity}:${occurredAt.getTime()}`,
+      // Keyed by (activity, occurredAt, recipient player) rather than the
+      // submitting officer's userId (v1's key) — the thing that must stay
+      // unique per raid moment is "this player already got Event Lead for
+      // this capture", regardless of which officer's key submitted it or
+      // who they chose. v2 so an old v1 key from before this change never
+      // collides with (or blocks) a v2 one for the same moment.
+      sourceKey: `attendance-event-lead:v2:${activity}:${occurredAt.getTime()}:player:${player.id}`,
     },
   };
 }

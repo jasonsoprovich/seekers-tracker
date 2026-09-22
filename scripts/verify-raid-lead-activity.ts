@@ -75,6 +75,41 @@ async function main() {
     const dirty = await db.select().from(standingsDirty).where(eq(standingsDirty.scope, `player:${lead.playerId}`));
     check(failures, dirty.length === 1, "the unique award transaction leaves a standings dirty marker");
 
+    // Officer-chosen Event Lead recipient (2026-09-22): the officer taking
+    // attendance isn't always the actual raid leader. A separate day
+    // (2037-01-16, vs. the shared 2037-01-14 fixture the rest of this
+    // script's raid-aggregation checks depend on below) so an actual
+    // insert here can't perturb their EP/row-count assertions.
+    const overrideOccurredAt = new Date("2037-01-16T02:00:00Z");
+    const overridden = await prepareEventLeadAward(db, lead.userId, "Raid - End", overrideOccurredAt, other.mainName);
+    check(
+      failures,
+      overridden.ok && overridden.award.playerId === other.playerId && overridden.award.characterName === other.mainName,
+      "an override name awards the NAMED character's player/main, not the submitting officer's",
+    );
+    check(
+      failures,
+      overridden.ok && overridden.award.sourceKey !== prepared.award.sourceKey,
+      "the override's award has a different source key than the default-recipient award for the same moment",
+    );
+    const caseInsensitive = await prepareEventLeadAward(db, lead.userId, "Raid - End", overrideOccurredAt, other.mainName.toUpperCase());
+    check(failures, caseInsensitive.ok && caseInsensitive.award.playerId === other.playerId, "the override name resolves case-insensitively");
+    const unknownName = await prepareEventLeadAward(db, lead.userId, "Raid - End", overrideOccurredAt, "NoSuchCharacterAtAll");
+    check(failures, !unknownName.ok, "rejects an override name that doesn't match any character");
+    const noMainYet = await addAccount(db, `verify-raid-no-main-${randomUUID()}`, "No Main Yet");
+    await db.update(players).set({ mainCharacterId: null }).where(eq(players.id, noMainYet.playerId));
+    const noMain = await prepareEventLeadAward(db, lead.userId, "Raid - End", overrideOccurredAt, noMainYet.mainName);
+    check(failures, !noMain.ok, "rejects an override name whose player has no current main set");
+    if (overridden.ok) {
+      const inserted = await insertPreparedEventLeadAward(db, overridden.award, overrideOccurredAt, lead.userId, "verification");
+      const overriddenRows = await db.select().from(epLedger).where(eq(epLedger.sourceKey, overridden.award.sourceKey));
+      check(
+        failures,
+        inserted && overriddenRows.length === 1 && overriddenRows[0]?.playerId === other.playerId,
+        "the override award actually lands on the named character's player, not the officer's own",
+      );
+    }
+
     const createdFirst = new Date("2037-01-15T02:01:00Z");
     const createdSecond = new Date("2037-01-15T02:02:00Z");
     await db.insert(epLedger).values([
