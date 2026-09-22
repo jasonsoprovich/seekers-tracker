@@ -11,6 +11,7 @@ import { getDb } from "@/lib/db";
 import { getStandings } from "@/lib/epgp/standings";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
+import { isRosterPlaceholder } from "@/lib/roster-visibility";
 
 type Character = typeof characters.$inferSelect;
 type FlagRow = { flagId: string; done: boolean; source: "manual" | "seer" | "import" };
@@ -44,7 +45,7 @@ export default async function DashboardPage() {
   if (!session) redirect("/login");
 
   const db = await getDb();
-  const [allCharacters, standings, flagRows, roleHolders] = await Promise.all([
+  const [allCharacters, standings, flagRows, roleHolders, playerStatuses] = await Promise.all([
     db.select().from(characters),
     getStandings(db),
     db.select().from(characterPopFlags),
@@ -54,7 +55,9 @@ export default async function DashboardPage() {
       .leftJoin(users, eq(users.id, players.userId))
       .innerJoin(characters, eq(characters.id, players.mainCharacterId))
       .where(inArray(players.role, [...LEADERSHIP_ROLES, "officer"])),
+    db.select({ id: players.id, status: players.status }).from(players),
   ]);
+  const departedPlayerIds = new Set(playerStatuses.filter((player) => player.status === "departed").map((player) => player.id));
 
   // Shared roster feed for RosterOverview's combined Characters/Mains/Alts
   // card, Roster-by-Class chart, and Active-by-Class list — one filter
@@ -65,7 +68,7 @@ export default async function DashboardPage() {
   // dropped outright, per character.activity.ts's per-CHARACTER — not
   // per-player — activity (a roster entry never inherits a sibling's).
   const rosterEntries: RosterEntry[] = allCharacters
-    .filter((c) => c.charType !== "mule" && c.playerId !== null && c.status === "active")
+    .filter((c) => c.charType !== "mule" && c.playerId !== null && c.status === "active" && !departedPlayerIds.has(c.playerId) && !isRosterPlaceholder(c.name))
     .map((c) => ({
       name: c.name,
       classId: c.class,

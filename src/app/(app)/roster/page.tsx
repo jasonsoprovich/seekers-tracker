@@ -10,6 +10,7 @@ import { charClassLabel } from "@/lib/eq/enums";
 import { getStandings } from "@/lib/epgp/standings";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { isRosterPlaceholder } from "@/lib/roster-visibility";
 
 // Visible to every role (member/officer/leader) — this is a read-only view
 // of the whole guild's roster, mains and alts, owned and unclaimed alike.
@@ -79,7 +80,7 @@ export default async function RosterPage() {
     return r.playerId !== null ? totals.get(r.playerId) : undefined;
   }
 
-  const rosterRows: RosterRow[] = rows.map((r) => {
+  const rosterRows: RosterRow[] = rows.filter((r) => !isRosterPlaceholder(r.name)).map((r) => {
     const total = totalsFor(r);
     // Role and owner come from the account when it has a site login; the
     // character's own claim is the fallback for characters with no account.

@@ -153,6 +153,30 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
     }
   }
 
+  // Live-bid loot has no raid_name. When a date contains one named event,
+  // that unambiguous date-only activity belongs to it rather than a second
+  // phantom event row. Do not guess when multiple named events share a date.
+  const namedKeysByDate = new Map<string, string[]>();
+  for (const key of [...attByEvent.keys(), ...named.map((raid) => eventKey(raid.raidDate, raid.name))]) {
+    const [date, name] = key.split("\u0000");
+    if (name) namedKeysByDate.set(date, [...new Set([...(namedKeysByDate.get(date) ?? []), key])]);
+  }
+  for (const [date, namedKeys] of namedKeysByDate) {
+    if (namedKeys.length !== 1) continue;
+    const legacyKey = eventKey(date, null);
+    const namedKey = namedKeys[0];
+    const loot = lootByEvent.get(legacyKey);
+    if (loot !== undefined) {
+      lootByEvent.set(namedKey, (lootByEvent.get(namedKey) ?? 0) + loot);
+      lootByEvent.delete(legacyKey);
+    }
+    const gp = gpByEvent.get(legacyKey);
+    if (gp !== undefined) {
+      gpByEvent.set(namedKey, (gpByEvent.get(namedKey) ?? 0) + gp);
+      gpByEvent.delete(legacyKey);
+    }
+  }
+
   const dataEvents = new Set<string>([...attByEvent.keys(), ...lootByEvent.keys(), ...gpByEvent.keys()]);
   const metaByEvent = new Map<string, (typeof named)[number]>();
   for (const meta of named) {
@@ -286,7 +310,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
         occurredAt: lootEvents.occurredAt,
       })
       .from(lootEvents)
-      .where(raidName === null ? and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end)) : sql`0`),
+      .where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
     db
       .select({
         lootEventId: bids.lootEventId,
@@ -303,7 +327,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       .from(bids)
       .innerJoin(lootEvents, eq(lootEvents.id, bids.lootEventId))
       .leftJoin(characters, eq(characters.id, bids.characterId))
-      .where(raidName === null ? and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end)) : sql`0`),
+      .where(and(gte(lootEvents.occurredAt, start), lt(lootEvents.occurredAt, end))),
     db
       .select({
         id: gpLedger.id,
@@ -322,11 +346,23 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       .from(gpLedger)
       .leftJoin(characters, eq(characters.id, gpLedger.characterId))
       .where(or(
-        and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end), eventNameCondition(gpLedger.raidName)),
-        and(eq(gpLedger.raidDate, raidDate), eventNameCondition(gpLedger.raidName)),
+        and(eq(gpLedger.source, "parse"), gte(gpLedger.occurredAt, start), lt(gpLedger.occurredAt, end)),
+        eq(gpLedger.raidDate, raidDate),
       )),
-    db.select().from(raids).where(raidName === null ? eq(raids.raidDate, raidDate) : and(eq(raids.raidDate, raidDate), eq(raids.name, raidName))),
+    db.select().from(raids).where(eq(raids.raidDate, raidDate)),
   ]);
+
+  const eventMeta = raidName === null ? meta[0] : meta.find((event) => event.name === raidName);
+  const namedEventCount = new Set(meta.flatMap((event) => event.name ? [event.name] : [])).size;
+  const includeDateOnlyLiveLoot = raidName === null || namedEventCount === 1;
+  if (!includeDateOnlyLiveLoot) {
+    lootRows.length = 0;
+    allBidRows.length = 0;
+  }
+  gpRows.splice(0, gpRows.length, ...gpRows.filter((row) => {
+    if (row.raidName === raidName) return true;
+    return includeDateOnlyLiveLoot && row.raidName === null;
+  }));
 
   if (attRows.length === 0 && lootRows.length === 0 && gpRows.length === 0 && meta.length === 0) return null;
 
@@ -368,32 +404,17 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
   const captures = [...captureMap.values()].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
   for (const c of captures) c.members.sort((a, b) => a.name.localeCompare(b.name));
 
-  // GP charge per (item, winner) — first match wins if an item dropped twice.
-  // Keyed by the winner's ACCOUNT (player_id), not character: insertLedgerEntry
-  // charges an alt's win to the account's main character, so matching on
-  // bids.character_id left every alt winner's GP showing "—" (leader,
-  // 2026-09-11: Korrek's and Blesko's wins on the 09-09 raid). Character id
-  // is the fallback for rows written before player_id existed.
-  const gpByPlayer = new Map<string, number>();
-  const gpByCharacter = new Map<string, number>();
+  // Current GP rows are the authoritative event winner record. A bid is
+  // immutable history: after an officer corrects a winner or changes a drop
+  // to NoLooter/rot, the event summary follows the surviving ledger row.
+  const winnersByItem = new Map<string, RaidLootWinner[]>();
   for (const g of gpRows) {
     if (!g.itemName) continue;
     const item = g.itemName.toLowerCase();
-    if (g.playerId != null && !gpByPlayer.has(`${item}@${g.playerId}`)) gpByPlayer.set(`${item}@${g.playerId}`, g.points);
-    if (g.characterId != null && !gpByCharacter.has(`${item}@${g.characterId}`)) gpByCharacter.set(`${item}@${g.characterId}`, g.points);
+    const winners = winnersByItem.get(item) ?? [];
+    winners.push({ characterName: g.characterName ?? "(unknown)", tier: g.tier ?? "—", gp: g.points, note: g.note });
+    winnersByItem.set(item, winners);
   }
-  const gpFor = (itemName: string, playerId: number | null, characterId: number | null): number | null => {
-    const item = itemName.toLowerCase();
-    if (playerId != null) {
-      const byPlayer = gpByPlayer.get(`${item}@${playerId}`);
-      if (byPlayer !== undefined) return byPlayer;
-    }
-    if (characterId != null) {
-      const byCharacter = gpByCharacter.get(`${item}@${characterId}`);
-      if (byCharacter !== undefined) return byCharacter;
-    }
-    return null;
-  };
   const bidsByLootEvent = new Map<number, RaidLootBid[]>();
   const winnersByLootEvent = new Map<number, RaidLootWinner[]>();
   const itemNameByLootEvent = new Map(lootRows.map((loot) => [loot.id, loot.itemName]));
@@ -406,16 +427,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       status: b.status,
     });
     bidsByLootEvent.set(b.lootEventId, list);
-    if (b.status === "won") {
-      const winners = winnersByLootEvent.get(b.lootEventId) ?? [];
-      winners.push({
-        characterName: b.characterName ?? "(unknown)",
-        tier: b.tier,
-        gp: gpFor(itemNameByLootEvent.get(b.lootEventId) ?? "", b.playerId ?? b.characterPlayerId, b.characterId),
-        note: b.note,
-      });
-      winnersByLootEvent.set(b.lootEventId, winners);
-    }
+    if (b.status === "won") winnersByLootEvent.set(b.lootEventId, winnersByItem.get(itemNameByLootEvent.get(b.lootEventId)?.toLowerCase() ?? "") ?? []);
   }
 
   const loot: RaidLoot[] = lootRows
@@ -427,9 +439,9 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       manual: false,
       bids: bidsByLootEvent.get(r.id) ?? [],
     }))
-    .concat(
+      .concat(
       gpRows
-        .filter((g) => g.source === "manual" && g.raidDate === raidDate && g.raidName === raidName)
+        .filter((g) => g.source === "manual" && g.raidDate === raidDate && g.raidName === raidName && !lootRows.some((loot) => loot.itemName.toLowerCase() === g.itemName?.toLowerCase()))
         .map((g) => ({
           // Manual rows do not have a loot_events record. A negative id keeps
           // their expandable-row key distinct from real positive event ids.
@@ -446,11 +458,11 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
           bids: [],
         })),
     )
-    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+    .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
 
   const gpSpent = gpRows.reduce((n, g) => n + g.points, 0);
   const leaderNames = await resolveLeaderNames(db, [leaderCandidate]);
-  const leaderPlayerId = meta[0]?.leaderPlayerId ?? null;
+  const leaderPlayerId = eventMeta?.leaderPlayerId ?? null;
   const [leaderOverride] = leaderPlayerId == null
     ? []
     : await db
@@ -461,8 +473,8 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
 
   return {
     raidDate,
-    name: meta[0]?.name ?? raidName,
-    note: meta[0]?.note ?? null,
+    name: eventMeta?.name ?? raidName,
+    note: eventMeta?.note ?? null,
     memberCount: playerIds.size,
     epAwarded,
     gpSpent,

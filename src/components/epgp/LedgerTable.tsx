@@ -14,7 +14,7 @@ import type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledg
 
 export type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
-type Props = { type: "ep"; rows: EpRow[]; canManage: boolean } | { type: "gp"; rows: GpRow[]; canManage: boolean };
+type Props = { type: "ep"; rows: EpRow[]; canManage: boolean; characters: { id: number; name: string }[] } | { type: "gp"; rows: GpRow[]; canManage: boolean; characters: { id: number; name: string }[] };
 
 function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -24,7 +24,7 @@ function eventHref(date: string, name: string | null): string {
   return `/epgp/raids/${date}${name ? `?name=${encodeURIComponent(name)}` : ""}`;
 }
 
-type Draft = { activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; raidDate: string; raidName: string };
+type Draft = { characterId: string; activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; raidDate: string; raidName: string };
 
 export function LedgerTable(props: Props) {
   const router = useRouter();
@@ -32,7 +32,7 @@ export function LedgerTable(props: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>({ activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", raidDate: "", raidName: "" });
+  const [draft, setDraft] = useState<Draft>({ characterId: "", activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", raidDate: "", raidName: "" });
 
   // Click-to-sort columns (LT-19). Default order (as fetched: occurredAt
   // desc) is kept until the officer picks a column. `activityOrItem` /
@@ -57,6 +57,7 @@ export function LedgerTable(props: Props) {
     setEditingId(row.id);
     setError(null);
     setDraft({
+      characterId: props.type === "gp" ? String((row as GpRow).characterId) : "",
       activityOrTier: props.type === "ep" ? (row as EpRow).activity : (row as GpRow).tier,
       itemName: props.type === "gp" ? ((row as GpRow).itemName ?? "") : "",
       points: String(row.points),
@@ -91,6 +92,7 @@ export function LedgerTable(props: Props) {
         : await updateLedgerEntry({
             kind: "gp",
             id,
+            characterId: Number(draft.characterId),
             tier: draft.activityOrTier,
             itemName: draft.itemName,
             points,
@@ -146,7 +148,14 @@ export function LedgerTable(props: Props) {
               className={fieldClasses()}
             />
           </Field>
-          <div className="text-sm text-neutral-500">{r.characterName}</div>
+          {props.type === "gp" ? (
+            <Field>
+              <span className="text-neutral-400">Winner</span>
+              <select value={draft.characterId} onChange={(e) => setDraft((d) => ({ ...d, characterId: e.target.value }))} className={fieldClasses()}>
+                {props.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}
+              </select>
+            </Field>
+          ) : <div className="text-sm text-neutral-500">{r.characterName}</div>}
           {props.type === "ep" ? (
             <>
               <Field>
@@ -383,7 +392,13 @@ export function LedgerTable(props: Props) {
                           className={fieldClasses({ size: "sm" })}
                         />
                       </td>
-                      <td className="px-3 py-2 font-medium text-neutral-400">{r.characterName}</td>
+                      <td className="px-3 py-2 font-medium text-neutral-400">
+                        {props.type === "gp" ? (
+                          <select value={draft.characterId} onChange={(e) => setDraft((d) => ({ ...d, characterId: e.target.value }))} className={fieldClasses({ size: "sm" })}>
+                            {props.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}
+                          </select>
+                        ) : r.characterName}
+                      </td>
                       {props.type === "ep" ? (
                         <>
                           <td className="px-3 py-2">

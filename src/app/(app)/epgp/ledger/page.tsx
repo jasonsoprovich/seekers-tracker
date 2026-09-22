@@ -206,8 +206,8 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
 
       <div className="mt-4">
         {type === "totals" && <TotalsTable rows={totalsRows} searching={term.length > 0} />}
-        {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} />}
-        {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} />}
+        {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} characters={characterOptions} />}
+        {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} characters={characterOptions} />}
         {type === "bids" && <BidHistoryTable rows={bidRows} />}
         {type === "audit" && <AuditLogTable rows={auditRows} canManage={canManage} />}
       </div>

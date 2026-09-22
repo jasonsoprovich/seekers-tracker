@@ -36,8 +36,9 @@ export type RosterRow = {
   level: number;
   charType: "main" | "alt" | "mule";
   status: CharacterStatus;
-  // The account was removed from the guild (players.status 'departed') —
-  // hidden under "Active only", shown under "Removed from guild" / "All".
+  // The account was removed from the guild (players.status 'departed').
+  // It shares the roster's single Removed presentation with character-level
+  // removal, while remaining distinct in storage for reinstatement logic.
   departed: boolean;
   playerId: number | null;
   playerMainId: number | null;
@@ -147,10 +148,11 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
         if (classFilters.size > 0 && !classFilters.has(r.classId)) return false;
         if (raceFilter !== "all" && String(r.raceId) !== raceFilter) return false;
         if (typeFilter !== "all" && r.charType !== typeFilter) return false;
-        if (statusFilter === "departed") {
-          if (!r.departed) return false;
-        } else if (statusFilter === "active") {
+        const removed = r.status === "removed" || r.departed;
+        if (statusFilter === "active") {
           if (r.status !== "active" || r.departed) return false;
+        } else if (statusFilter === "removed") {
+          if (!removed) return false;
         } else if (statusFilter !== "all" && r.status !== statusFilter) return false;
         if (min !== null && r.level < min) return false;
         if (max !== null && r.level > max) return false;
@@ -314,15 +316,15 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             <Link href={`/characters/${r.id}/account`} prefetch={false} className="hover:text-emerald-400">
               {r.name}
             </Link>
-            <CharacterStatusBadge status={r.status} />
+            {r.status !== "removed" && <CharacterStatusBadge status={r.status} />}
             {r.hasPendingClaim && (
               <span className="rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-amber-400">
                 Claim pending
               </span>
             )}
-            {r.departed && (
+            {(r.status === "removed" || r.departed) && (
               <span className="rounded border border-red-800 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-red-400">
-                Removed from guild
+                Removed
               </span>
             )}
           </span>
@@ -401,7 +403,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             >
               {r.name}
             </Link>
-            <CharacterStatusBadge status={r.status} />
+            {r.status !== "removed" && <CharacterStatusBadge status={r.status} />}
             {r.hasPendingClaim && (
               <span className="rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-amber-400">
                 Claim pending
@@ -451,10 +453,10 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             </Link>
           </div>
         )}
-        {r.departed && (
+        {(r.status === "removed" || r.departed) && (
           <div className="col-span-2">
             <span className="rounded border border-red-800 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase text-red-400">
-              Removed from guild
+              Removed
             </span>
           </div>
         )}
@@ -533,7 +535,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
             <option value="all">All statuses</option>
             <option value="inactive">{characterStatusLabel("inactive")}</option>
             <option value="removed">{characterStatusLabel("removed")}</option>
-            <option value="departed">Removed from guild</option>
           </select>
         </label>
 

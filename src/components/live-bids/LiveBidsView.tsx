@@ -274,13 +274,17 @@ export function LiveBidsView() {
     });
   }, [rounds]);
 
-  // The DO owns stable order: collecting first, then resolved, each by the
-  // round's immutable startedAt. Local hiding only filters that DOM order;
-  // heartbeat and bid updates cannot move cards around.
+  // Keep active rounds first. Resolved cards follow newest-finalized first,
+  // and the grid preserves this DOM order across columns.
   const visibleRounds = useMemo(() => {
-    return rounds.filter((r) =>
-      r.status === "resolved" ? !pendingDismiss.has(r.itemName) : !hiddenCollecting.has(r.itemName),
-    );
+    return rounds
+      .filter((r) => r.status === "resolved" ? !pendingDismiss.has(r.itemName) : !hiddenCollecting.has(r.itemName))
+      .sort((a, b) => {
+        const aResolved = a.status === "resolved";
+        const bResolved = b.status === "resolved";
+        if (aResolved !== bResolved) return aResolved ? 1 : -1;
+        return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+      });
   }, [rounds, pendingDismiss, hiddenCollecting]);
 
   const liveCount = visibleRounds.filter((r) => r.status === "live").length;
@@ -333,9 +337,7 @@ export function LiveBidsView() {
           "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
         </div>
       ) : (
-        // CSS columns preserve source/keyboard order while allowing each
-        // natural-height card to pack independently of its neighbours.
-        <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visibleRounds.map((round) => {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";
@@ -348,7 +350,7 @@ export function LiveBidsView() {
             return (
               <article
                 key={round.itemName}
-                className={`mb-4 inline-flex w-full break-inside-avoid flex-col rounded-xl border align-top ${
+                className={`flex w-full flex-col rounded-xl border ${
                   resolved ? "border-sky-500/25 bg-sky-500/[0.03]" : "border-border bg-neutral-900/30"
                 }`}
               >

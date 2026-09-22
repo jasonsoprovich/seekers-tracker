@@ -20,6 +20,7 @@ export type EpLedgerRow = {
 
 export type GpLedgerRow = {
   id: number;
+  characterId: number | null;
   characterName: string;
   occurredAt: Date;
   itemName: string | null;
@@ -96,6 +97,7 @@ export async function listLedgerRows(
   const rows = await db
     .select({
       id: gpLedger.id,
+      characterId: gpLedger.characterId,
       characterName: characters.name,
       occurredAt: gpLedger.occurredAt,
       itemName: gpLedger.itemName,

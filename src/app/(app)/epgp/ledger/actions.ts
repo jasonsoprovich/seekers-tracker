@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { epLedger, gpLedger, ledgerAuditLog } from "@/db";
+import { characters, epLedger, gpLedger, ledgerAuditLog } from "@/db";
 import { getDb } from "@/lib/db";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
@@ -25,7 +25,7 @@ export type AddLedgerEntryInput = InsertLedgerEntryInput;
 
 export type UpdateLedgerEntryInput =
   | { kind: "ep"; id: number; activity: string; points: number; occurredAt: string; note: string; zone: string; raidDate: string; raidName: string }
-  | { kind: "gp"; id: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate: string; raidName: string };
+  | { kind: "gp"; id: number; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate: string; raidName: string };
 
 function parseOccurredAt(raw: string): Date | null {
   const d = new Date(raw);
@@ -74,16 +74,14 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   if (raidName && !raidDate) return { error: "An event name needs an event date." };
 
   const db = await getDb();
-  // An edit never reassigns the character (that's a delete + re-add), so
-  // the row's own player_id is the only standings that can move.
-  let affectedPlayerId: number | null = null;
-  let affectedCharacterId: number | null = null;
+  const affectedPlayerIds = new Set<number>();
+  const affectedCharacterIds = new Set<number>();
   if (input.kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
-    affectedPlayerId = before.playerId;
-    affectedCharacterId = before.characterId;
-    if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
+    if (before.playerId != null) affectedPlayerIds.add(before.playerId);
+    if (before.characterId != null) affectedCharacterIds.add(before.characterId);
+    if (before.playerId != null) await markStandingsDirty(db, { playerIds: [before.playerId] });
     const [after] = await db
       .update(epLedger)
       .set({
@@ -111,12 +109,22 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
-    affectedPlayerId = before.playerId;
-    affectedCharacterId = before.characterId;
-    if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
+    const [target] = await db
+      .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId, playerId: characters.playerId })
+      .from(characters)
+      .where(eq(characters.id, input.characterId));
+    if (!target) return { error: "Character not found." };
+    const targetCharacterId = target.charType === "alt" && target.mainCharacterId !== null ? target.mainCharacterId : target.id;
+    if (before.playerId != null) affectedPlayerIds.add(before.playerId);
+    if (target.playerId != null) affectedPlayerIds.add(target.playerId);
+    if (before.characterId != null) affectedCharacterIds.add(before.characterId);
+    affectedCharacterIds.add(targetCharacterId);
+    if (affectedPlayerIds.size) await markStandingsDirty(db, { playerIds: [...affectedPlayerIds] });
     const [after] = await db
       .update(gpLedger)
       .set({
+        characterId: targetCharacterId,
+        playerId: target.playerId,
         tier: activityOrTier,
         itemName: input.itemName.trim() || null,
         points: input.points,
@@ -133,8 +141,8 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     await recordSystemEvent(db, await webActor(db, session.user.id), {
       action: "epgp.entry.update",
       targetType: "character",
-      targetId: before.characterId,
-      summary: `GP ledger row #${input.id} edited (${before.points} → ${input.points} ${activityOrTier})`,
+        targetId: targetCharacterId,
+        summary: `GP ledger row #${input.id} edited (${before.points} → ${input.points} ${activityOrTier})`,
       before,
       after,
     });
@@ -147,13 +155,14 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   // Best-effort (task 4.6) — the dirty marker written above the update
   // guarantees the repair pass finishes this even if settleStandings fails.
   let standing: StandingsRow | null = null;
-  if (affectedPlayerId != null) {
-    const settled = await settleStandings(db, { playerIds: [affectedPlayerId] });
-    if (settled) standing = (await getStandingsForPlayers(db, [affectedPlayerId])).get(affectedPlayerId) ?? null;
+  if (affectedPlayerIds.size) {
+    const playerIds = [...affectedPlayerIds];
+    const settled = await settleStandings(db, { playerIds });
+    if (settled) standing = (await getStandingsForPlayers(db, playerIds)).get(playerIds.at(-1)!) ?? null;
   }
   // The edit may have moved this character's most recent ledger row (a
   // date change), which "bump if newer" can't walk back — recompute it.
-  if (affectedCharacterId != null) await recomputeCharacterLastActivity(db, affectedCharacterId);
+  for (const characterId of affectedCharacterIds) await recomputeCharacterLastActivity(db, characterId);
 
   return { standing };
 }
