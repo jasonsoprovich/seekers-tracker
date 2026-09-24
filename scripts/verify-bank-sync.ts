@@ -101,7 +101,25 @@ async function main() {
     result = await setDesignations(db, actor.id, { eqAccountId: accountId }, ["SharedBank1", "SharedBank2"]);
     check(failures, !result.error, `setDesignations accepts SharedBank containers on an account owner (${result.error ?? "ok"})`);
 
+    // Regression: "Mark all Bank slots guild" sends all 30 real Bank
+    // containers in one call (Darkclaw-Inventory.txt has all 30 real —
+    // found via a real click-through 2026-09-24). Each row binds 4
+    // params; an unchunked insert (30 * 4 = 120) blows past D1's 100-param
+    // cap and 500s.
+    const allBankContainers = Array.from({ length: 30 }, (_, i) => `Bank${i + 1}`);
+    result = await setDesignations(db, actor.id, { characterId: muleId }, allBankContainers);
+    check(failures, !result.error, `setDesignations accepts all 30 real Bank containers in one call, unchunked (${result.error ?? "ok"})`);
     let config = await loadBankConfig(db);
+    check(
+      failures,
+      (config.personalDesignations.get(muleId) ?? []).length === 30,
+      `all 30 Bank containers landed (got ${(config.personalDesignations.get(muleId) ?? []).length})`,
+    );
+    // Reset back to the smaller set the rest of this script's scenarios expect.
+    result = await setDesignations(db, actor.id, { characterId: muleId }, ["Bank1", "Bank2"]);
+    check(failures, !result.error, `setDesignations resets back to Bank1/Bank2 (${result.error ?? "ok"})`);
+
+    config = await loadBankConfig(db);
     check(failures, (config.personalDesignations.get(muleId) ?? []).sort().join(",") === "Bank1,Bank2", "loadBankConfig reflects personal designations");
     check(failures, (config.sharedDesignations.get(accountId) ?? []).sort().join(",") === "SharedBank1,SharedBank2", "loadBankConfig reflects shared designations");
     check(failures, config.accountByCharacterId.get(altId)?.id === accountId, "loadBankConfig maps a member character back to its account");

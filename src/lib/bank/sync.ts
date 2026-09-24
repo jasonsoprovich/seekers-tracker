@@ -406,9 +406,17 @@ export async function setDesignations(db: Db, userId: string, owner: Designation
   const whereClause = isShared ? eq(bankSlotDesignations.eqAccountId, owner.eqAccountId) : eq(bankSlotDesignations.characterId, owner.characterId);
 
   await db.delete(bankSlotDesignations).where(whereClause);
-  if (containers.length > 0) {
+  // D1 caps a statement at 100 bound parameters — each row binds 4
+  // (characterId, eqAccountId, container, updatedBy), so a single insert
+  // tops out well under 30 containers. A real character can have up to 30
+  // Bank slots alone (Darkclaw-Inventory.txt has all 30 real) — "mark all
+  // Bank slots guild" alone already blows past the 100-param cap with an
+  // unchunked insert. Chunk like applySync's bank_holdings insert does.
+  const DESIGNATION_CHUNK_SIZE = 20;
+  for (let i = 0; i < containers.length; i += DESIGNATION_CHUNK_SIZE) {
+    const chunk = containers.slice(i, i + DESIGNATION_CHUNK_SIZE);
     await db.insert(bankSlotDesignations).values(
-      containers.map((container) => ({
+      chunk.map((container) => ({
         characterId: isShared ? null : owner.characterId,
         eqAccountId: isShared ? owner.eqAccountId : null,
         container,
