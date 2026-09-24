@@ -6,7 +6,7 @@ import { createAuth } from "@/auth";
 import { timed } from "@/lib/perf";
 import * as schema from "@/db";
 import { apikeys, users } from "@/db";
-import { loadPermissionMatrix, roleCan } from "@/lib/permissions";
+import { loadPermissionMatrix, roleCan, type Capability } from "@/lib/permissions";
 import { recordSystemEvent, type SystemActor } from "@/lib/system-log";
 
 // Auth for /api/officer/* routes, called by the standalone EPGP parser app
@@ -78,6 +78,27 @@ export async function verifyOfficerApiKey(
   }
 
   return { userId: result.key.referenceId };
+}
+
+// A second, narrower capability check for a route whose key holder needs
+// more than plain "epgp.officerApi" — e.g. bank sync, gated separately by
+// "epgp.bank.manage" so a plain officer key without that capability (an
+// admin could in principle lock it down further via the permission matrix)
+// can't push to the guild bank. Callers already have `auth.userId` from
+// requireOfficerApiKey/verifyOfficerApiKey.
+export async function requireOfficerCapability(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  userId: string,
+  capability: Capability,
+): Promise<{ error: string; status: number } | null> {
+  const [[row], matrix] = await Promise.all([
+    db.select({ role: users.role }).from(users).where(eq(users.id, userId)),
+    loadPermissionMatrix(db),
+  ]);
+  if (!roleCan(matrix, row?.role ?? null, capability)) {
+    return { error: "This key's owner does not have permission for this action.", status: 403 };
+  }
+  return null;
 }
 
 // Deletes every app key belonging to a user — call this wherever a user

@@ -78,6 +78,10 @@ export const SYSTEM_EVENTS = {
   "bank.holding.create": { category: "bank", label: "Bank holding added" },
   "bank.holding.update": { category: "bank", label: "Bank holding edited" },
   "bank.holding.delete": { category: "bank", label: "Bank holding deleted" },
+  "bank.import": { category: "bank", label: "Bank inventory synced" },
+  "bank.designations.update": { category: "bank", label: "Bank slot designations changed" },
+  "bank.account.update": { category: "bank", label: "Bank EQ account group changed" },
+  "bank.account.delete": { category: "bank", label: "Bank EQ account group deleted" },
 
   // --- System --------------------------------------------------------
   "system.apikey.revoke": { category: "system", label: "API keys revoked" },

@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { getStandings } from "@/lib/epgp/standings";
 import { characterName } from "@/lib/validate";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "@/lib/eq/enums";
-import { createStandalonePlayer } from "@/lib/players";
+import { assignCharacterToUser, createStandalonePlayer } from "@/lib/players";
 import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 
 // Roster snapshot for the EPGP parser app's local name-matching/validation
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
   return Response.json({ characters: result });
 }
 
-type CreateCharacterBody = { name?: unknown; mainCharacterId?: unknown };
+type CreateCharacterBody = { name?: unknown; mainCharacterId?: unknown; charType?: unknown };
 
 // Same cause-chain walk as characters/actions.ts's isUniqueConstraintError
 // — Drizzle's D1 driver wraps the underlying SQLite error in
@@ -100,7 +100,56 @@ export async function POST(request: Request) {
   if (!nameCheck.ok) return Response.json({ error: nameCheck.error }, { status: 400 });
   const name = nameCheck.value;
 
+  if (body.charType !== undefined && body.charType !== "mule") {
+    return Response.json({ error: '`charType` must be "mule" when provided.' }, { status: 400 });
+  }
+  const isMule = body.charType === "mule";
+
   const db = await getDb();
+
+  // A mule is created for the officer app's Guild Bank tab (PLAN.md §11
+  // Phase 8.4) when an export belongs to a character the roster has never
+  // seen — attached straight to the calling officer's own account, not a
+  // new standalone player, since a guild mule is always that officer's own
+  // character. It never nests under a main the way an alt does.
+  if (isMule) {
+    try {
+      const [created] = await db
+        .insert(characters)
+        .values({ name, class: UNKNOWN_CLASS_ID, race: UNKNOWN_RACE_ID, level: 1, charType: "mule" })
+        .returning();
+
+      const actor = await officerApiActor(db, auth.userId);
+      const attached = await assignCharacterToUser(db, created.id, auth.userId, actor);
+      await recordSystemEvent(db, actor, {
+        action: "characters.create",
+        targetType: "character",
+        targetId: created.id,
+        targetLabel: name,
+        summary: `${name} created as a mule from the officer app's Guild Bank tab`,
+        after: { charType: "mule" },
+      });
+
+      return Response.json(
+        {
+          id: created.id,
+          name: created.name,
+          charType: created.charType,
+          mainCharacterId: null,
+          status: created.status,
+          mainCharacterName: null,
+          priorityRating: null,
+          playerId: attached.ok ? attached.playerId : null,
+        },
+        { status: 201 },
+      );
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        return Response.json({ error: `A character named "${name}" already exists.` }, { status: 409 });
+      }
+      throw err;
+    }
+  }
 
   let mainCharacterId: number | null = null;
   let mainCharacterName: string | null = null;

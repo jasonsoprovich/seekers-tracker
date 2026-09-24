@@ -344,6 +344,13 @@
       "when": 1790001000000,
       "tag": "0048_floor_negative_epgp_balances",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1790282047049,
+      "tag": "0049_bank_eq_accounts_and_designations",
+      "breakpoints": true
     }
   ]
 }

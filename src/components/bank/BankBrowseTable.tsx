@@ -36,6 +36,26 @@ function compare(a: BankHoldingRow, b: BankHoldingRow, key: SortKey): number {
   return String(av).localeCompare(String(bv));
 }
 
+export type LastImportRow = {
+  characterId: number;
+  sourceFile: string | null;
+  rowCount: number;
+  reportsSharedBank: boolean;
+  uploadedByName: string | null;
+  createdAt: string;
+};
+
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 const emptyAddForm: AddHoldingInput = {
   holderName: "",
   category: "item",
@@ -47,7 +67,15 @@ const emptyAddForm: AddHoldingInput = {
   note: "",
 };
 
-export function BankBrowseTable({ holdings, canManage }: { holdings: BankHoldingRow[]; canManage: boolean }) {
+export function BankBrowseTable({
+  holdings,
+  canManage,
+  lastImports,
+}: {
+  holdings: BankHoldingRow[];
+  canManage: boolean;
+  lastImports: LastImportRow[];
+}) {
   const router = useRouter();
   const confirm = useConfirm();
 
@@ -82,6 +110,15 @@ export function BankBrowseTable({ holdings, canManage }: { holdings: BankHolding
   }, [holdings]);
 
   const holderNames = useMemo(() => [...new Set(holdings.map((h) => h.holderName))].sort(), [holdings]);
+  const nameByCharacterId = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const h of holdings) map.set(h.holderCharacterId, h.holderName);
+    return map;
+  }, [holdings]);
+  const sortedLastImports = useMemo(
+    () => [...lastImports].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [lastImports],
+  );
   const classRestrictions = useMemo(
     () => [...new Set(holdings.map((h) => h.classRestriction).filter((c): c is string => !!c))].sort(),
     [holdings],
@@ -182,6 +219,24 @@ export function BankBrowseTable({ holdings, canManage }: { holdings: BankHolding
           <div className="text-lg font-semibold text-neutral-200">{summary.holderCount}</div>
         </div>
       </div>
+
+      {sortedLastImports.length > 0 && (
+        <details className="mb-4 rounded-lg border border-border px-4 py-2 text-sm">
+          <summary className="cursor-pointer select-none text-neutral-400">
+            Synced from {sortedLastImports.length} character{sortedLastImports.length === 1 ? "" : "s"}&apos; inventory exports
+          </summary>
+          <ul className="mt-2 space-y-1 text-neutral-500">
+            {sortedLastImports.map((info) => (
+              <li key={info.characterId}>
+                <span className="text-neutral-300">{nameByCharacterId.get(info.characterId) ?? `#${info.characterId}`}</span> — {info.rowCount} row
+                {info.rowCount === 1 ? "" : "s"}
+                {info.reportsSharedBank && <span className="text-amber-400/80"> · shared bank</span>}, synced {timeAgo(info.createdAt)} by{" "}
+                {info.uploadedByName ?? "an officer"}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">

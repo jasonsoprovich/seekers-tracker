@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BankTabs } from "@/components/bank/BankTabs";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { listBankHoldings } from "@/lib/bank/holdings";
+import { loadBankConfig } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { listSkyBankRewards, listSkyBankStock } from "@/lib/quest-flags/list";
@@ -23,15 +24,24 @@ export default async function BankPage() {
 
   const perms = await getPermissions(session.user.id);
   const db = await getDb();
-  const [holdings, skyRewards, skyStock] = await Promise.all([listBankHoldings(db), listSkyBankRewards(db), listSkyBankStock(db)]);
+  const [holdings, skyRewards, skyStock, bankConfig] = await Promise.all([
+    listBankHoldings(db),
+    listSkyBankRewards(db),
+    listSkyBankStock(db),
+    loadBankConfig(db),
+  ]);
+  const lastImports = [...bankConfig.lastImports.values()].map((info) => ({
+    ...info,
+    createdAt: info.createdAt.toISOString(),
+  }));
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Guild Bank"
-        subtitle="Items, spells, and currency held across the guild's mules, plus the Sky Bank quest-reward catalog. Imported from in-game inventory exports (PLAN.md §11 Phase 8) and the guild's sheet, plus anything an officer's added by hand."
+        subtitle="Items, spells, and currency held across the guild's mules, plus the Sky Bank quest-reward catalog. Synced from in-game inventory exports via the officer app's Guild Bank tab, plus anything an officer's added by hand."
       />
-      <BankTabs holdings={holdings} canManage={perms.can("epgp.bank.manage")} skyRewards={skyRewards} skyStock={skyStock} />
+      <BankTabs holdings={holdings} canManage={perms.can("epgp.bank.manage")} skyRewards={skyRewards} skyStock={skyStock} lastImports={lastImports} />
     </div>
   );
 }

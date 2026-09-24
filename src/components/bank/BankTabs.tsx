@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { BankBrowseTable } from "@/components/bank/BankBrowseTable";
+import { BankBrowseTable, type LastImportRow } from "@/components/bank/BankBrowseTable";
 import { SkyBankSection } from "@/components/bank/SkyBankSection";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
 import type { SkyBankRewardRow, SkyBankStockRow } from "@/lib/quest-flags/list";
@@ -27,11 +27,13 @@ export function BankTabs({
   canManage,
   skyRewards,
   skyStock,
+  lastImports,
 }: {
   holdings: BankHoldingRow[];
   canManage: boolean;
   skyRewards: SkyBankRewardRow[];
   skyStock: SkyBankStockRow[];
+  lastImports: LastImportRow[];
 }) {
   const [active, setActive] = useState<TabKey>("holdings");
 
@@ -54,7 +56,7 @@ export function BankTabs({
         ))}
       </div>
       <div hidden={active !== "holdings"}>
-        <BankBrowseTable holdings={holdings} canManage={canManage} />
+        <BankBrowseTable holdings={holdings} canManage={canManage} lastImports={lastImports} />
       </div>
       <div hidden={active !== "sky"}>
         <SkyBankSection rewards={skyRewards} stock={skyStock} />
