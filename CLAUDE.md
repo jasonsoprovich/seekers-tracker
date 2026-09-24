@@ -334,6 +334,69 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**PLAN.md §11 Phase 8.4 — guild bank sync from real inventory exports,
+2026-09-24 (branch `feature/guild-bank-sync` in both this repo and
+`seekers-epgp-parser`; not merged to `main`, not deployed).** The last open
+Phase 8 task — a real `POST /api/officer/bank/import`-equivalent endpoint —
+is built, plus the per-slot guild/personal designation model §9's addendum
+had left as an open design question.
+
+- **Schema** (migration 0049, local only): `bank_eq_accounts` +
+  `bank_eq_account_characters` group the characters sharing one real EQ
+  login (so a SharedBank/Bank-Coin toggle is set once per account, not once
+  per mule), and `bank_slot_designations` is a sparse "this top-level
+  container is flagged guild" table (CHECK-enforced to exactly one owner —
+  a character for personal `General*`/`Bank1`-30, an account for
+  `SharedBank1`-10). No row means personal — safe by default.
+- **`src/lib/bank/sync.ts`**: `loadBankConfig`, `validateSyncPayload` (the
+  server independently re-checks every row against live designations —
+  never trusts the officer app's own filtering), `applySync`
+  (delete-and-replace per holder, carrying a matching row's `note`/`status`
+  forward across a re-sync) and `previewSync` (identical diff logic, writes
+  nothing). New `/api/officer/bank/{config,designations,accounts,sync}`
+  routes, each additionally gated by `epgp.bank.manage` (new
+  `requireOfficerCapability` helper) on top of the usual officer-key check.
+  `POST /api/officer/characters` gained `charType:"mule"`, attached to the
+  calling officer's own account.
+- **`seekers-epgp-parser`**: `internal/bankexport.Discover` scans the EQ
+  folder for exports; `BuildInventory` turns a parsed export into the
+  Guild Bank tab's display shape (currency dropped entirely, a bag's own
+  descriptor row never a holding — only its contents are);
+  `SharedBankFingerprint` backs the account auto-grouping suggestion;
+  `BuildSyncRows` is the only path that turns a designated-containers set
+  into upload rows. New **Guild Bank** tab: character list grouped by EQ
+  account, per-container guild/personal toggles, an account-group editor,
+  "Create mule" for an unmatched export, and a Preview-then-Sync flow.
+- **Verified**: `npm run verify:bank-sync` (new, 29/29 against local D1 —
+  container-designation enforcement, dry-run writes nothing, a sync
+  replaces stale sheet rows without touching manual/currency rows,
+  idempotent re-sync, note/status carryover, clearing designations empties
+  a holder, account deletion cleanup) plus a full manual HTTP pass against
+  a real local `wrangler dev`/`opennextjs-cloudflare preview` instance with
+  a real minted officer key: created a real mule via the API, designated
+  containers, confirmed the server rejects an undesignated container and a
+  SharedBank row from a non-holder character, ran a real (non-dry-run)
+  sync and confirmed the row landed in `bank_holdings` with the right
+  `import_id`, confirmed `bank_imports` bookkeeping updates on each sync,
+  deleted the EQ account group via the API and confirmed cascade cleanup —
+  all test data removed afterward, local D1 back to its 968-row baseline.
+  Parser side: `go test`/`vet`/`build` clean including new
+  `discover_test.go`/`inventory_test.go`, plus a throwaway test against the
+  real `Darkclaw-Inventory.txt` export (30 real Bank slots, SharedBank
+  correctly capped at 10, bag descriptor rows correctly excluded — deleted
+  before committing, per this repo's own convention). Tracker side: `tsc`,
+  production build, and a wrangler dry-run (2934.69 KiB gzip, under the
+  3072 KiB cap) all clean; the existing `npm run verify` EPGP harness
+  stayed at its documented 9/13 baseline (this branch touches nothing
+  under `src/lib/epgp/**`). Full `wails3 build` succeeded and the built
+  binary launched/ran cleanly in the background.
+- **Not yet done**: no PR opened, not merged, not deployed anywhere;
+  migration 0049 is local-only. No real guild mule exports have been run
+  through it yet — `data/imports/bank/` still only has the two format-
+  reference files. No GUI click-through of the new Guild Bank tab (the
+  manual verification above drove the routes directly with curl, not the
+  Wails app itself).
+
 **Final remediation audit and Phase 4 hardening, 2026-09-14.** Tracker commit
 `acea4fb` is deployed as Worker version
 `461b8656-adf7-4a3e-9783-4b31b4f325e5` after remote migration 0040; parser
