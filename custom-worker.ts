@@ -67,10 +67,13 @@ async function handleLiveBidsWebSocket(request: Request, env: CloudflareEnv): Pr
   }
 
   // Pass the resolved user id to the DO so it can filter this viewer's
-  // dismissed rounds out of every frame on this socket (LT-32). The second
-  // arg copies method + the Upgrade headers; the URL comes from the first.
+  // dismissed rounds out of every frame on this socket (LT-32), and their
+  // linked character names (2026-09-23) so a "limited"/"none" round can
+  // still show them their own bid. The second arg copies method + the
+  // Upgrade headers; the URL comes from the first.
+  const chars = await resolveViewerCharacterNames(db, session.user.id);
   const stub = liveAuctionStub(env);
-  const doUrl = `https://live-auction-session/ws?userId=${encodeURIComponent(session.user.id)}`;
+  const doUrl = `https://live-auction-session/ws?userId=${encodeURIComponent(session.user.id)}&chars=${encodeURIComponent(JSON.stringify(chars))}`;
   return stub.fetch(new Request(doUrl, request));
 }
 
@@ -86,8 +89,11 @@ async function handleLiveBidsState(request: Request, env: CloudflareEnv): Promis
   }
 
   // ?userId= so the DO's snapshot already has this viewer's dismissed
-  // rounds (LT-32) filtered out — same view the WS frames give them.
-  const doUrl = `https://live-auction-session/state?userId=${encodeURIComponent(session.user.id)}`;
+  // rounds (LT-32) filtered out, and ?chars= (2026-09-23) so it can show
+  // their own bid in "limited"/"none" mode — same view the WS frames give
+  // them.
+  const chars = await resolveViewerCharacterNames(db, session.user.id);
+  const doUrl = `https://live-auction-session/state?userId=${encodeURIComponent(session.user.id)}&chars=${encodeURIComponent(JSON.stringify(chars))}`;
   const resp = await liveAuctionStub(env).fetch(doUrl);
   if (!resp.ok) return Response.json({ error: "Live session unavailable." }, { status: 502 });
   return new Response(await resp.text(), { headers: { "Content-Type": "application/json" } });
@@ -528,6 +534,16 @@ function canonicalRedirect(request: Request, url: URL): Response | null {
 // `curl -H 'RSC: 1' /roster` → 200 + that cache header. Speed comes from
 // the server-side fixes (batched writes, standings cache), not from
 // caching auth-gated responses in the browser.
+
+// 2026-09-23 (post-live-test-1 feedback): every character linked to this
+// account — main, alts, mules — so the live-bids Durable Object can show a
+// viewer their OWN bid on an item in "limited"/"none" mode instead of
+// nothing at all. Same ownership column resolveCollectedByName reads, just
+// not narrowed to charType='main'.
+async function resolveViewerCharacterNames(db: ReturnType<typeof drizzle>, userId: string): Promise<string[]> {
+  const rows = await db.select({ name: characters.name }).from(characters).where(eq(characters.ownerId, userId));
+  return rows.map((r) => r.name).filter((n): n is string => !!n);
+}
 
 async function resolveCollectedByName(db: ReturnType<typeof drizzle>, userId: string): Promise<string> {
   const [main] = await db
