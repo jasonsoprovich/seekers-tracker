@@ -25,7 +25,12 @@ test.describe("live bid board", () => {
             {
               itemName: "Collecting Item",
               officerName: "Officer",
-              bids: [bid("Hidden Bidder", "High Bid", 4.2), bid("Another Bidder", "Low Bid", 2.1)],
+              // The server only sends a limited-mode viewer their OWN bids
+              // (2026-09-23) — an empty array here stands in for "this
+              // viewer hasn't bid on this item" while bidCount still
+              // reflects the round's true total.
+              bids: [],
+              bidCount: 2,
               winners: [],
               status: "live",
               lastSeenAt: Date.now(),
@@ -35,6 +40,7 @@ test.describe("live bid board", () => {
               itemName: "Finalized Item",
               officerName: "Officer",
               bids: [bid("Winner", "High Bid", 4.2)],
+              bidCount: 1,
               winners: [bid("Winner", "High Bid", 4.2)],
               status: "resolved",
               lastSeenAt: Date.now(),
@@ -51,33 +57,64 @@ test.describe("live bid board", () => {
     await expect(page.getByRole("heading", { name: "Finalized Item" })).toBeVisible();
   });
 
-  test("uses natural-height columns without changing DOM order", async ({ page }) => {
+  test("grid keeps each card's own height when a neighbor expands", async ({ page }) => {
+    // 2026-09-22 live-test feedback: expanding a resolved card's bid table
+    // used to stretch every other card in its row to match (a plain CSS
+    // grid stretches by default) — a short card grew a block of blank space
+    // at the bottom. Fixed with `items-start` on the grid; this proves it by
+    // measuring a short neighbor's height before and after a long card next
+    // to it expands.
     await disableLiveSocket(page);
+    const longBids = Array.from({ length: 8 }, (_, i) => bid(`Bidder${i}`, "Low Bid", i));
     await page.route("**/api/live-bids/state", (route) =>
       route.fulfill({
         json: {
           type: "state",
           collectingDetail: "full",
           rounds: [
-            { itemName: "First", officerName: "One", bids: [bid("A", "High Bid", 5)], winners: [], status: "live", lastSeenAt: 40, startedAt: 10 },
-            { itemName: "Second", officerName: "Two", bids: [bid("B", "Low Bid", 2), bid("C", "Alt Loot", 1)], winners: [], status: "idle", lastSeenAt: 50, startedAt: 20 },
-            { itemName: "Third", officerName: "Three", bids: [bid("D", "High Bid", 4)], winners: [bid("D", "High Bid", 4)], status: "resolved", lastSeenAt: 60, startedAt: 30 },
+            {
+              itemName: "Short",
+              officerName: "One",
+              bids: [bid("A", "High Bid", 5)],
+              bidCount: 1,
+              winners: [bid("A", "High Bid", 5)],
+              status: "resolved",
+              lastSeenAt: 40,
+              startedAt: 10,
+            },
+            {
+              itemName: "Long",
+              officerName: "Two",
+              bids: longBids,
+              bidCount: longBids.length,
+              winners: [longBids[0]],
+              status: "resolved",
+              lastSeenAt: 50,
+              startedAt: 20,
+            },
           ],
         },
       }),
     );
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/live-bids");
-    await expect(page.locator("article")).toHaveCount(3);
+    await expect(page.locator("article")).toHaveCount(2);
 
-    const layout = await page.locator("article").first().evaluate((article) => ({
-      order: [...article.parentElement!.children].map((element) => element.querySelector("h2")?.textContent),
-      columns: getComputedStyle(article.parentElement!).columnCount,
-      breakInside: getComputedStyle(article).breakInside,
-    }));
-    expect(layout.order).toEqual(["First", "Second", "Third"]);
-    expect(Number(layout.columns)).toBeGreaterThan(1);
-    expect(layout.breakInside).toBe("avoid");
+    const grid = page.locator("article").first().locator("xpath=..");
+    await expect(grid).toHaveCSS("display", "grid");
+    // Chromium reports Tailwind's `items-start` (align-items: start) back as
+    // "flex-start" — the point being tested is that it isn't the grid
+    // default (`stretch`, which is what caused the reported bug).
+    await expect(grid).not.toHaveCSS("align-items", "stretch");
+
+    const shortCard = page.locator("article", { hasText: "Short" });
+    const heightBefore = (await shortCard.boundingBox())!.height;
+
+    await page.locator("article", { hasText: "Long" }).getByRole("button", { name: /Show all \d+ bids/ }).click();
+    await expect(page.getByText(`Bidder${longBids.length - 1}`)).toBeVisible();
+
+    const heightAfter = (await shortCard.boundingBox())!.height;
+    expect(heightAfter).toBe(heightBefore);
   });
 });
 

@@ -30,7 +30,13 @@ type CollectingDetail = "full" | "limited" | "none";
 type RoundView = {
   itemName: string;
   officerName: string;
+  // In "limited"/"none" mode, a still-collecting round's `bids` is already
+  // trimmed server-side to just this viewer's own linked characters (2026-
+  // 09-23 post-live-test-1 feedback) — everyone else's stays hidden, same
+  // as before. `bidCount` always carries the round's TRUE count, which is
+  // what "limited" mode's "N bids received" text reads.
   bids: LiveBidTell[];
+  bidCount: number;
   winners: LiveBidTell[];
   status: LiveStatus;
   lastSeenAt: number;
@@ -337,7 +343,7 @@ export function LiveBidsView() {
           "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visibleRounds.map((round) => {
             const ranked = sortedBids(round.bids);
             const resolved = round.status === "resolved";
@@ -361,25 +367,27 @@ export function LiveBidsView() {
                     </h2>
                     <StatusPill status={round.status} />
                   </div>
-                  {(resolved || collectingDetail === "full") && (
-                    <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xs text-neutral-500">
-                      <span>collected by {round.officerName}</span>
-                      <span className="ml-auto">
-                        {resolved ? "finalized" : "updated"} {relativeTime(round.lastSeenAt, now)}
-                      </span>
-                      {!resolved && (
-                      <button
-                        type="button"
-                        onClick={() => onDismiss(round.itemName, round.status)}
-                        title="Declutters this card for you until it resolves or you refresh — the round keeps running for everyone else"
-                        className="self-center rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60"
-                      >
-                        Hide
-                      </button>
-                      )}
-                    </div>
-                  )}
-                  {showBidCount && <p className="mt-2 text-sm text-neutral-300">{ranked.length} bid{ranked.length === 1 ? "" : "s"} received</p>}
+                  {/* 2026-09-23: shown in every visibility mode now, not just
+                      "full"/resolved — the collecting officer's name isn't
+                      sensitive, and members asked to see who's taking bids
+                      while a round is still open. */}
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xs text-neutral-500">
+                    <span>collected by {round.officerName}</span>
+                    <span className="ml-auto">
+                      {resolved ? "finalized" : "updated"} {relativeTime(round.lastSeenAt, now)}
+                    </span>
+                    {!resolved && (
+                    <button
+                      type="button"
+                      onClick={() => onDismiss(round.itemName, round.status)}
+                      title="Declutters this card for you until it resolves or you refresh — the round keeps running for everyone else"
+                      className="self-center rounded border border-field px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-900/60"
+                    >
+                      Hide
+                    </button>
+                    )}
+                  </div>
+                  {showBidCount && <p className="mt-2 text-sm text-neutral-300">{round.bidCount} bid{round.bidCount === 1 ? "" : "s"} received</p>}
                   {!resolved && collectingDetail === "none" && <p className="mt-2 text-sm text-neutral-300">Bidding is open.</p>}
                   {resolved && (
                     <div className="mt-2 flex items-center gap-2">
@@ -400,6 +408,30 @@ export function LiveBidsView() {
                     </div>
                   )}
                 </header>
+
+                {/* 2026-09-23: in "limited"/"none" mode, the server already
+                    trimmed `round.bids` down to just this viewer's own
+                    linked characters — this is that, not a leak of anyone
+                    else's bid. Lets a member confirm their own bid landed
+                    without the round revealing who's ahead. */}
+                {!resolved && collectingDetail !== "full" && ranked.length > 0 && (
+                  <div className="border-t border-border px-4 py-3">
+                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                      Your bid{ranked.length === 1 ? "" : "s"}
+                    </p>
+                    <div className="space-y-1.5">
+                      {ranked.map((b, i) => (
+                        <div key={`${b.characterName}-${i}`} className="flex items-center gap-3 text-sm">
+                          <span className="min-w-0 flex-1 truncate font-medium text-neutral-200">{b.characterName}</span>
+                          <span className="text-neutral-400">{b.tier}</span>
+                          <span className="tabular-nums text-neutral-400">
+                            {b.priorityRating !== null ? b.priorityRating.toFixed(4) : "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {resolved && ranked.length > 0 && (
                   <button

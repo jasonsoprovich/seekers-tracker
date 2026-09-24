@@ -1,9 +1,25 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { characters, players } from "@/db";
+import { characters, epLedger, players } from "@/db";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { DEFAULT_SETTINGS, getSettingAt } from "@/lib/epgp/settings";
+
+// 2026-09-23: two officers both taking attendance for the same raid (LT-1
+// post-live-test feedback batch). The existing dedupe was an exact
+// occurredAt match — fine for a resubmit of the identical capture, useless
+// against a second officer's own `/who` a few minutes later, which has its
+// own timestamp. A window is the fix; ±60 min per the guild's own call
+// (long enough to cover Start/Mid/End of one raid, short enough that two
+// genuinely separate raids the same night don't collide).
+export const ATTENDANCE_DEDUPE_WINDOW_MS = 60 * 60 * 1000;
+
+export function attendanceDedupeWindow(occurredAt: Date): { start: Date; end: Date } {
+  return {
+    start: new Date(occurredAt.getTime() - ATTENDANCE_DEDUPE_WINDOW_MS),
+    end: new Date(occurredAt.getTime() + ATTENDANCE_DEDUPE_WINDOW_MS),
+  };
+}
 
 // PLAN.md §4h: the minimum-attendance rule applies to the attendance-capture
 // path only — a "/who guild" snapshot producing one of these four
@@ -35,6 +51,30 @@ export async function checkMinAttendance(
 
   if (attendeeCount >= required) return { ok: true };
   return { ok: false, count: attendeeCount, required, shortfall: required - attendeeCount };
+}
+
+export type ExistingEventLead = { recipientName: string; enteredBy: string | null };
+
+// Event Lead should go out once per raid moment, regardless of which
+// officer's capture happens to submit it or who they name. The sourceKey
+// unique index (attendance-event-lead:v2:...) already blocks the exact
+// same (activity, occurredAt, recipient) triple; this catches the more
+// likely real case — two officers' captures of the same raid land a few
+// minutes apart, so their occurredAt values differ and the sourceKey never
+// collides. Matches ANY recipient in the window, on purpose: the question
+// is "has this raid's Event Lead already been awarded," not "did this
+// exact player already get it."
+export async function findExistingEventLead(db: ReturnType<typeof drizzle>, activity: string, occurredAt: Date): Promise<ExistingEventLead | null> {
+  if (!ATTENDANCE_GATED_ACTIVITIES.has(activity)) return null;
+  const { start, end } = attendanceDedupeWindow(occurredAt);
+  const [row] = await db
+    .select({ recipientName: characters.name, enteredBy: epLedger.enteredBy })
+    .from(epLedger)
+    .innerJoin(characters, eq(characters.id, epLedger.characterId))
+    .where(and(eq(epLedger.activity, "Event Lead"), eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lte(epLedger.occurredAt, end)))
+    .orderBy(epLedger.occurredAt)
+    .limit(1);
+  return row ? { recipientName: row.recipientName, enteredBy: row.enteredBy } : null;
 }
 
 export type PreparedEventLeadAward = {

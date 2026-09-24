@@ -1,8 +1,14 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { characters, epLedger } from "@/db";
-import { checkMinAttendance, insertPreparedEventLeadAward, prepareEventLeadAward } from "@/lib/epgp/attendance";
+import {
+  attendanceDedupeWindow,
+  checkMinAttendance,
+  findExistingEventLead,
+  insertPreparedEventLeadAward,
+  prepareEventLeadAward,
+} from "@/lib/epgp/attendance";
 import { getDb } from "@/lib/db";
 import { insertEpLedgerBatch } from "@/lib/epgp/ledger-entry";
 import { nameRaidFromCapture } from "@/lib/epgp/raids";
@@ -35,10 +41,12 @@ type AttendanceRequestBody = {
 // app's Attendance tab (2026-09-09 sim feedback: after Clear all + a
 // re-capture of the same log lines, the app happily let a Raid-Start be
 // re-submitted — the server deduped it to 0 rows, but nothing warned the
-// officer up front). The POST dedupe key is (playerId, activity,
-// occurredAt); this mirrors it at the capture level — any `source='parse'`
-// ep_ledger row with this exact activity + occurredAt means the whole
-// capture would be a no-op.
+// officer up front). 2026-09-23: widened from an exact occurredAt match to
+// a ±60 min window — the real failure mode this caught (two officers, same
+// raid) has two different timestamps, one per officer's own `/who`. Any
+// `source='parse'` ep_ledger row for this activity within the window means
+// at least part of this capture would be a no-op; `enteredBy` names who
+// already has it, so the app can say so instead of just a count.
 export async function GET(request: Request) {
   const auth = await requireOfficerApiKey(request);
   if ("error" in auth) {
@@ -54,14 +62,46 @@ export async function GET(request: Request) {
   if (!dateCheck.ok) {
     return Response.json({ error: dateCheck.error }, { status: 400 });
   }
+  const occurredAt = dateCheck.value;
+  const { start, end } = attendanceDedupeWindow(occurredAt);
 
   const db = await getDb();
-  const [row] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(epLedger)
-    .where(and(eq(epLedger.activity, activityCheck.value), eq(epLedger.occurredAt, dateCheck.value), eq(epLedger.source, "parse")));
-  const count = row?.count ?? 0;
-  return Response.json({ exists: count > 0, count });
+  const windowClause = and(
+    eq(epLedger.activity, activityCheck.value),
+    gte(epLedger.occurredAt, start),
+    lte(epLedger.occurredAt, end),
+    eq(epLedger.source, "parse"),
+  );
+  const [countRow] = await db.select({ count: sql<number>`count(*)` }).from(epLedger).where(windowClause);
+  const count = countRow?.count ?? 0;
+  // Two queries rather than one — SQLite's "bare column beside an aggregate,
+  // no GROUP BY" behavior doesn't reliably respect ORDER BY for which row's
+  // columns come back, and this only runs once per pre-submit check, not in
+  // a hot loop.
+  const [earliest] = count > 0
+    ? await db.select({ enteredBy: epLedger.enteredBy, occurredAt: epLedger.occurredAt }).from(epLedger).where(windowClause).orderBy(epLedger.occurredAt).limit(1)
+    : [];
+
+  let enteredByName: string | null = null;
+  if (earliest?.enteredBy) {
+    const actor = await officerApiActor(db, earliest.enteredBy);
+    enteredByName = actor.label;
+  }
+
+  const eventLead = await findExistingEventLead(db, activityCheck.value, occurredAt);
+  let eventLeadEnteredByName: string | null = null;
+  if (eventLead?.enteredBy) {
+    const actor = await officerApiActor(db, eventLead.enteredBy);
+    eventLeadEnteredByName = actor.label;
+  }
+
+  return Response.json({
+    exists: count > 0,
+    count,
+    enteredBy: enteredByName,
+    occurredAt: earliest?.occurredAt ? earliest.occurredAt.toISOString() : null,
+    eventLead: eventLead ? { recipientName: eventLead.recipientName, enteredByName: eventLeadEnteredByName } : null,
+  });
 }
 
 // Bulk EP award from the officer app's Attendance capture (one "/who
@@ -162,9 +202,16 @@ export async function POST(request: Request) {
   // attendance-taker isn't always the actual leader — see
   // prepareEventLeadAward's doc comment for why this is safe to accept from
   // the client).
-  const eventLeadPreparation = awardEventLead
-    ? await prepareEventLeadAward(db, auth.userId, activity, occurredAt, eventLeadCharacterName)
-    : null;
+  //
+  // 2026-09-23: checked against findExistingEventLead FIRST — if this raid
+  // moment already has an Event Lead (any recipient, any officer, within
+  // the ±60 min dedupe window), skip awarding a second one outright rather
+  // than resolving a recipient and relying on the sourceKey to silently
+  // no-op it. The attendance rows below still land regardless.
+  const existingEventLead = awardEventLead ? await findExistingEventLead(db, activity, occurredAt) : null;
+  const existingEventLeadEnteredByName = existingEventLead?.enteredBy ? (await officerApiActor(db, existingEventLead.enteredBy)).label : null;
+  const eventLeadPreparation =
+    awardEventLead && !existingEventLead ? await prepareEventLeadAward(db, auth.userId, activity, occurredAt, eventLeadCharacterName) : null;
   if (eventLeadPreparation && !eventLeadPreparation.ok) {
     return Response.json({ error: eventLeadPreparation.error }, { status: 422 });
   }
@@ -211,11 +258,16 @@ export async function POST(request: Request) {
     resolved.push({ name, characterId: c.id, playerKey: c.playerId ?? c.id, playerId: c.playerId });
   }
 
-  // Rows already on the ledger for this exact (activity, occurredAt), for
-  // any player / character in this capture — one query.
+  // Rows already on the ledger for this activity within the ±60 min dedupe
+  // window (2026-09-23: was an exact occurredAt match — see
+  // attendanceDedupeWindow's comment for why that missed a second officer's
+  // own capture of the same raid), for any player / character in this
+  // capture — one query. Scoped to source='parse' so a manual correction
+  // entered for the same activity/night doesn't block a real capture.
   const existingPlayerIds = new Set<number>();
   const existingCharacterIds = new Set<number>();
   if (resolved.length > 0) {
+    const { start: windowStart, end: windowEnd } = attendanceDedupeWindow(occurredAt);
     const pids = [...new Set(resolved.map((r) => r.playerId).filter((v): v is number => v != null))];
     const cids = [...new Set(resolved.filter((r) => r.playerId == null).map((r) => r.characterId))];
     const lookups: Promise<{ playerId: number | null; characterId: number | null }[]>[] = [];
@@ -224,7 +276,15 @@ export async function POST(request: Request) {
         db
           .select({ playerId: epLedger.playerId, characterId: epLedger.characterId })
           .from(epLedger)
-          .where(and(eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt), inArray(epLedger.playerId, pids.slice(i, i + 90)))),
+          .where(
+            and(
+              eq(epLedger.activity, activity),
+              gte(epLedger.occurredAt, windowStart),
+              lte(epLedger.occurredAt, windowEnd),
+              eq(epLedger.source, "parse"),
+              inArray(epLedger.playerId, pids.slice(i, i + 90)),
+            ),
+          ),
       );
     }
     for (let i = 0; i < cids.length; i += 90) {
@@ -232,7 +292,15 @@ export async function POST(request: Request) {
         db
           .select({ playerId: epLedger.playerId, characterId: epLedger.characterId })
           .from(epLedger)
-          .where(and(eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt), inArray(epLedger.characterId, cids.slice(i, i + 90)))),
+          .where(
+            and(
+              eq(epLedger.activity, activity),
+              gte(epLedger.occurredAt, windowStart),
+              lte(epLedger.occurredAt, windowEnd),
+              eq(epLedger.source, "parse"),
+              inArray(epLedger.characterId, cids.slice(i, i + 90)),
+            ),
+          ),
       );
     }
     for (const existing of await Promise.all(lookups)) {
@@ -254,7 +322,7 @@ export async function POST(request: Request) {
     const alreadyRecorded = r.playerId != null ? existingPlayerIds.has(r.playerId) : existingCharacterIds.has(r.characterId);
     if (alreadyRecorded) {
       duplicates.push(r.name);
-      console.warn(`attendance: skipped "${r.name}" — player ${r.playerKey} already has an "${activity}" row at ${occurredAtIso} (duplicate capture?)`);
+      console.warn(`attendance: skipped "${r.name}" — player ${r.playerKey} already has an "${activity}" row within 60 min of ${occurredAtIso} (duplicate capture?)`);
       continue;
     }
     seenPlayerKeys.add(r.playerKey);
@@ -327,6 +395,13 @@ export async function POST(request: Request) {
       inserted,
       eventLeadInserted,
       eventLeadCharacterName: eventLeadInserted ? eventLeadPreparation?.award.characterName : undefined,
+      // Set when awardEventLead was true but this raid moment already has
+      // one (any recipient, within the ±60 min window) — the app can tell
+      // the officer "Event Lead already went to X" instead of quietly
+      // dropping the request.
+      eventLeadSkipped: existingEventLead
+        ? { recipientName: existingEventLead.recipientName, enteredByName: existingEventLeadEnteredByName }
+        : undefined,
       unmatched,
       duplicates,
       standings,

@@ -77,6 +77,11 @@ type RoundView = {
   itemName: string;
   officerName: string;
   bids: LiveBidTell[];
+  // The round's TRUE bid count, independent of how many of `bids` this
+  // viewer actually got (see stateMessageFor's per-viewer filtering below).
+  // "limited" mode's "N bids received" text reads this instead of
+  // `bids.length` for exactly that reason.
+  bidCount: number;
   winners: LiveBidTell[];
   status: LiveStatus;
   lastSeenAt: number;
@@ -126,6 +131,22 @@ function isPushBody(v: unknown): v is ValidPushBody {
 
 function key(itemName: string): string {
   return itemName.trim().toLowerCase();
+}
+
+// custom-worker.ts sends the viewer's linked character names as a
+// URL-encoded JSON array (`?chars=`) alongside `?userId=` on both /ws and
+// /state, resolved the same way resolveCollectedByName does (characters
+// owned by this account). Malformed/absent input is just "no characters" —
+// never a hard error, since this only gates a display nicety.
+function parseViewerChars(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === "string" && v.length > 0).map((v) => v.toLowerCase());
+  } catch {
+    return [];
+  }
 }
 
 // ctx.storage key prefix for a persisted round. Since 2026-09-10 EVERY
@@ -233,22 +254,27 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       }
       // custom-worker.ts resolves the session and appends ?userId= so the
       // DO can filter this viewer's dismissed rounds out of every frame it
-      // sends this socket. Stashed as a hibernation-durable attachment
-      // (LT-32) — read back in broadcast().
+      // sends this socket, and ?chars= (2026-09-23, post-live-test-1
+      // feedback) with that account's linked character names so a
+      // "limited"/"none" round can still show the viewer their OWN bid.
+      // Both stashed as a hibernation-durable attachment (LT-32) — read
+      // back in broadcast().
       const userId = url.searchParams.get("userId") ?? undefined;
+      const chars = parseViewerChars(url.searchParams.get("chars"));
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       // Hibernatable — quiet viewers don't keep this DO billed as active.
       this.ctx.acceptWebSocket(server);
-      if (userId) server.serializeAttachment({ userId });
-      server.send(JSON.stringify(this.stateMessageFor(userId)));
+      if (userId || chars.length) server.serializeAttachment({ userId, chars });
+      server.send(JSON.stringify(this.stateMessageFor(userId, chars)));
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/state" && request.method === "GET") {
       await this.purgeRounds(this.sweep());
       const userId = url.searchParams.get("userId") ?? undefined;
-      return Response.json(this.stateMessageFor(userId));
+      const chars = parseViewerChars(url.searchParams.get("chars"));
+      return Response.json(this.stateMessageFor(userId, chars));
     }
 
     if (url.pathname === "/config" && request.method === "GET") {
@@ -713,9 +739,20 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
   }
 
   // The board as one viewer sees it: rounds they've dismissed (LT-32) are
-  // filtered out. `userId` undefined ⇒ no filtering (an un-attributed
-  // socket, or a direct call without ?userId=).
-  private stateMessageFor(userId: string | undefined): ServerMessage {
+  // filtered out. `userId` undefined ⇒ no dismiss filtering (an
+  // un-attributed socket, or a direct call without ?userId=).
+  //
+  // 2026-09-23 (post-live-test-1 feedback): in "limited"/"none" mode, a
+  // still-collecting round's `bids` is trimmed to only entries whose
+  // characterName is one of this viewer's own linked characters (`chars`,
+  // lowercased) — the officer taking bids, and everyone else in "full" mode,
+  // still gets the real list; a resolved round is always shown in full
+  // regardless of mode (per-viewer trimming would be pointless once winners
+  // are public). `bidCount` always carries the ROUND's true count so
+  // "limited" mode's "N bids received" text isn't affected by how many of
+  // those bids this particular viewer can see.
+  private stateMessageFor(userId: string | undefined, chars: string[] = []): ServerMessage {
+    const charSet = chars.length ? new Set(chars) : null;
     // Collecting rounds precede resolved rounds; each group keeps immutable
     // creation order. Heartbeats and bid updates never move a card.
     const rounds: RoundView[] = visibleLiveBidRounds(
@@ -723,35 +760,50 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         .filter(([k]) => !this.isDismissedBy(userId, k))
         .map(([, r]) => r),
     )
-      .map((r) => ({
-        itemName: r.itemName,
-        officerName: r.officerName,
-        bids: r.bids,
-        winners: r.winners,
-        status: this.statusOf(r),
-        lastSeenAt: r.state === "resolved" ? r.resolvedAt : r.lastSeenAt,
-        startedAt: r.startedAt,
-      }));
+      .map((r) => {
+        const status = this.statusOf(r);
+        const trimToOwnCharacters = this.collectingDetail !== "full" && status !== "resolved";
+        const bids = trimToOwnCharacters
+          ? charSet
+            ? r.bids.filter((b) => charSet.has(b.characterName.toLowerCase()))
+            : []
+          : r.bids;
+        return {
+          itemName: r.itemName,
+          officerName: r.officerName,
+          bids,
+          bidCount: r.bids.length,
+          winners: r.winners,
+          status,
+          lastSeenAt: r.state === "resolved" ? r.resolvedAt : r.lastSeenAt,
+          startedAt: r.startedAt,
+        };
+      });
     return { type: "state", rounds, collectingDetail: this.collectingDetail };
   }
 
   private broadcast() {
-    // Each socket carries its viewer's userId as a hibernation-durable
-    // attachment (see /ws). Serialize one frame per distinct dismiss view —
-    // in practice most viewers have dismissed nothing and share a single
-    // frame; only the few with active dismissals cost an extra JSON.stringify.
+    // Each socket carries its viewer's userId + linked character names as a
+    // hibernation-durable attachment (see /ws). Serialize one frame per
+    // distinct (userId, chars) pair — in practice most viewers share one
+    // frame in "full" mode; the per-viewer cost only shows up in
+    // "limited"/"none" mode, where it's the whole point.
     const frames = new Map<string, string>();
     for (const ws of this.ctx.getWebSockets()) {
       let userId: string | undefined;
+      let chars: string[] = [];
       try {
-        userId = (ws.deserializeAttachment() as { userId?: string } | null)?.userId;
+        const attached = ws.deserializeAttachment() as { userId?: string; chars?: string[] } | null;
+        userId = attached?.userId;
+        chars = Array.isArray(attached?.chars) ? attached.chars : [];
       } catch {
         userId = undefined;
+        chars = [];
       }
-      const cacheKey = userId ?? "";
+      const cacheKey = `${userId ?? ""}|${chars.join(",")}`;
       let encoded = frames.get(cacheKey);
       if (encoded === undefined) {
-        encoded = JSON.stringify(this.stateMessageFor(userId));
+        encoded = JSON.stringify(this.stateMessageFor(userId, chars));
         frames.set(cacheKey, encoded);
       }
       try {
