@@ -397,6 +397,50 @@ had left as an open design question.
   manual verification above drove the routes directly with curl, not the
   Wails app itself).
 
+**Guild bank sync — first real click-through, 2026-09-24 (same branch,
+`feature/guild-bank-sync`, still local-only).** The user ran the actual
+built app against a real local server and Darkclaw's real inventory
+export (not the curl-driven HTTP pass above) — found and fixed two real
+bugs neither that pass nor the unit tests had exercised, both narrow
+enough that the automated suite's existing coverage genuinely couldn't
+have caught them:
+- **`setDesignations`'s insert wasn't chunked.** "Mark all Bank slots
+  guild" on a character with a full 30-slot bank (Darkclaw has all 30
+  real) sent one insert with 120 bound params — over D1's 100 cap, so it
+  500'd. Every earlier test only ever exercised 2-3 containers at once.
+  Fixed (commit `1112432`) the same way `applySync`'s own bulk insert
+  already was; added a 30-container regression check to
+  `verify:bank-sync` (now 32/32).
+- **A real item's `Count/Charges` can legitimately be `0`.** Some
+  single, non-stacking items (Darkclaw's export has two "Forge of
+  Icewell Arms") aren't charge-based and Zeal writes `0` there — not
+  just for a genuinely empty slot (`Empty` name, already dropped). The
+  parser passed that `0` straight through and the server correctly
+  rejected the whole sync with a 400. `pq-companion`'s own reader.go
+  (what this package was ported from) already coerces `count==0` to `1`
+  for exactly this reason — the port missed it. Fixed in
+  `seekers-epgp-parser` commit `aae0d39`, verified against all 457 real
+  holdings in Darkclaw's export.
+- Also added, from the same session: collapsible Bags/Bank/Shared Bank
+  sections (parser commit `d1f980e`), and a confirm-before-flagging
+  dialog for a SharedBank container or a non-mule character's personal
+  container (`Mark all Bank slots guild` always confirms) — plus a
+  persistent in-app note and an "empty — bag moved?" badge addressing
+  (partially — see below) the real open question the session surfaced.
+- **Real open limitation, not yet resolved**: a designation is tied to
+  the top-level *slot* ("Bank3"), not the bag object sitting in it. If
+  an officer moves a guild bag to a different Bank/Bags slot in-game,
+  the old slot stays flagged (now holding something else, or nothing)
+  and the new slot isn't — nothing detects this automatically, since two
+  bags of the same type are indistinguishable in the export. Needs
+  officer input on how often this actually happens before deciding
+  whether it's worth building real bag-identity tracking, or just a
+  documented process rule. Full writeup + 3 candidate fixes:
+  https://claude.ai/artifact/TxQZM3baZsEeKDHBe15fZb (also linked from
+  PLAN.md §9) — **keep this page current** (republish the same URL,
+  reading it back first) rather than letting it drift from what's
+  actually true, since it's what gets shown to officers.
+
 **Final remediation audit and Phase 4 hardening, 2026-09-14.** Tracker commit
 `acea4fb` is deployed as Worker version
 `461b8656-adf7-4a3e-9783-4b31b4f325e5` after remote migration 0040; parser
