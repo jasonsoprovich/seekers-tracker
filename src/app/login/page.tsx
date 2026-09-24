@@ -1,13 +1,23 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { DiscordSignInButton } from "@/components/auth/DiscordSignInButton";
 import { sanitizeSignInDestination } from "@/lib/auth-redirect";
+import { getSession } from "@/lib/session";
 
 type LoginSearchParams = { next?: string | string[] };
 
+// 2026-09-23 (post-live-test-1 feedback): an already-signed-in visitor
+// hitting /login directly (a bookmark, a stale tab) used to render the sign-
+// in button anyway, which always starts a brand-new Discord OAuth round trip
+// — see DiscordSignInButton's own comment for why that's the confusing part,
+// not session expiry. If they're already signed in, skip the button
+// entirely and send them straight to where they were headed.
 export default async function LoginPage({ searchParams }: { searchParams: Promise<LoginSearchParams> }) {
   const { next } = await searchParams;
   const destination = sanitizeSignInDestination(next);
+  const session = await getSession();
+  if (session) redirect(destination);
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#090b07] px-6 text-center text-[#d8cda6]">

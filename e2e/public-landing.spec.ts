@@ -157,3 +157,29 @@ test("protected routes send unauthenticated visitors back through login", async 
   await page.goto("/epgp/ledger?type=bids");
   await expect(page).toHaveURL(/\/login\?next=%2Fepgp%2Fledger%3Ftype%3Dbids$/);
 });
+
+test.describe("already signed in", () => {
+  // 2026-09-23 post-live-test-1 feedback: clicking "Member sign in" on the
+  // homepage, or landing on /login directly, always forced a fresh Discord
+  // OAuth round trip even when the visitor's session was still good — see
+  // DiscordSignInButton's own comment. Both should now skip Discord
+  // entirely and go straight to where the member was headed.
+  test.use({ storageState: "e2e/.auth/member.json" });
+
+  test("homepage sign-in button skips Discord and goes straight in", async ({ page }) => {
+    let hitDiscordSignIn = false;
+    await page.route("**/api/auth/sign-in/social", (route) => {
+      hitDiscordSignIn = true;
+      return route.continue();
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Member sign in" }).click();
+    await expect(page).toHaveURL(/\/characters$/);
+    expect(hitDiscordSignIn).toBe(false);
+  });
+
+  test("/login redirects an already signed-in visitor to their destination", async ({ page }) => {
+    await page.goto("/login?next=%2Froster");
+    await expect(page).toHaveURL(/\/roster$/);
+  });
+});
