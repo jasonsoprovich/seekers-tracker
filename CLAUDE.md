@@ -425,9 +425,36 @@ linked from PLAN.md §9) for the officer-facing writeup, and
   `vet`/`test`, a full frontend `tsc`+`vite build`, and a complete
   `wails3 build` all clean on the parser side, with the built binary
   launched and confirmed not crashing (headless smoke check).
-  **Not yet GUI-click-through-tested** — same gap the 09-24 session's own
-  two real bugs came from; do that before showing this to officers again.
   Migration 0050 is local-only.
+
+**GUI click-through, 2026-09-25 (same session/branch) — found and fixed
+one real bug, confirmed everything else clean.** Ran the actual rebuilt
+officer app against a real local `wrangler dev`/`opennextjs-cloudflare
+preview` server (port 8787) and Darkclaw's real export
+(`~/Downloads/GuildBankTest/`), with a real minted local officer API key
+(`auth.api.createApiKey` via a throwaway script, deleted after — same
+mint-directly-against-local-D1 pattern used throughout this project's
+history). Verified live: per-item checkboxes toggle and persist without
+touching other flags (confirmed server-side via `/api/officer/bank/
+config` after each click, not just visually); "Mark all Bags guild"; the
+non-mule confirm dialog; a real simulated bag move (edited the export
+file's Location columns by hand, relabeling two containers) correctly
+producing a warning with an ambiguous 3-candidate pick list (Bank8's
+"Deluxe Toolbox" really does exist at three other real containers in
+Darkclaw's own bank — genuine ambiguity, not a test artifact); and the
+rewritten Preview Sync dialog (collapsible per-character cards, one item
+per line with its location). **Found one real bug**: "Move flag to X"
+seeded the new position's expected-item baseline with the OLD slot's
+current occupant instead of the identity actually being tracked —
+`app.go`'s `ResolveBankMove` conflated Found (correct for "keep") with
+Expected (needed for "move"). Fixed same session (parser commit
+`4b188f3`) and re-verified against the identical repro on the rebuilt
+app: the warning now clears cleanly with no follow-on mismatch. See
+`../seekers-epgp-parser`'s own CLAUDE.md for the full gotcha writeup.
+Local D1 test designations and the officer's own `config.json` (backed
+up before, restored after) were left exactly as found; the throwaway API
+key was deleted; the export file's `.bak-pre-move-test` backup was
+restored over it and removed.
 
 **PLAN.md §11 Phase 8.4 — guild bank sync from real inventory exports,
 2026-09-24 (branch `feature/guild-bank-sync` in both this repo and
