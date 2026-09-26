@@ -30,10 +30,24 @@
 // with a real bank_imports row) for every holder it's about to touch, then
 // inserts the freshly parsed set. Safe to re-run after a fresh sheet
 // export.
+//
+// 2026-09-25 addition, for the sheet→sync transition: a holder that has
+// EVER completed a real sync (has any `bank_imports` row at all) is now
+// left alone entirely — no DELETE, no INSERT — even on a re-run of this
+// script. Once an officer starts syncing a mule from the app, the sheet's
+// old numbers for that mule are stale by definition and must never come
+// back; a real sync already replaces a holder's `source='import'` rows
+// regardless of `import_id` (src/lib/bank/sync.ts's applySync), so without
+// this guard a later sheet re-import would resurrect exactly the rows the
+// sync just replaced. The guard is baked into the emitted SQL itself (a
+// `NOT IN (SELECT character_id FROM bank_imports)` clause), so it's safe
+// even if this script's D1 read below can't run; the read is purely to
+// report which holders are being skipped, not what enforces the skip.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import ExcelJS from "exceljs";
+import { getPlatformProxy } from "wrangler";
 
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
 
@@ -339,21 +353,26 @@ async function main() {
     );
   }
 
-  out.push("\n-- Delete this script's own previously-imported rows for every holder it's about to touch.");
-  out.push("-- Scoped to source='import' AND import_id IS NULL so a real Zeal-export import (task 8.4) is never touched.");
+  // A holder with ANY bank_imports row has completed a real sync — never
+  // touch it again from the sheet, see the header comment above.
+  out.push("\n-- Delete this script's own previously-imported rows for every holder it's about to touch,");
+  out.push("-- but never for a holder that has completed a real sync (has any bank_imports row) —");
+  out.push("-- see this file's header comment for why (2026-09-25 sheet-to-sync transition).");
+  out.push("-- Scoped to source='import' AND import_id IS NULL so a real Zeal-export import is never touched.");
   for (const holderName of holderNames) {
     out.push(
       `DELETE FROM bank_holdings WHERE source = 'import' AND import_id IS NULL AND holder_character_id = ` +
-        `(SELECT id FROM characters WHERE name = ${sqlStr(holderName)} COLLATE NOCASE);`,
+        `(SELECT id FROM characters WHERE name = ${sqlStr(holderName)} COLLATE NOCASE AND id NOT IN (SELECT character_id FROM bank_imports));`,
     );
   }
 
   out.push("\n-- bank_holdings (Spell Bank + Item Bank tabs, PLAN.md §3/§4f/§11 Phase 8 task 8.2)");
+  out.push("-- Same synced-holder guard as the deletes above — id NOT IN (SELECT character_id FROM bank_imports).");
   for (const r of rows) {
     out.push(
       `INSERT INTO bank_holdings (holder_character_id, category, container, slot_index, item_name, quantity, class_restriction, status, note, source, updated_at)\n` +
         `SELECT id, ${sqlStr(r.category)}, ${sqlStr(r.container)}, ${r.slotIndex}, ${sqlStr(r.itemName)}, ${r.quantity}, ${sqlStr(r.classRestriction)}, ${sqlStr(r.status)}, ${sqlStr(r.note)}, 'import', unixepoch()\n` +
-        `FROM characters WHERE name = ${sqlStr(r.holderName)} COLLATE NOCASE;`,
+        `FROM characters WHERE name = ${sqlStr(r.holderName)} COLLATE NOCASE AND id NOT IN (SELECT character_id FROM bank_imports);`,
     );
   }
 
@@ -362,6 +381,36 @@ async function main() {
   console.log(`\nWrote ${outPath}.`);
   console.log(`Apply with: wrangler d1 execute seekers-of-souls --local --file=${outPath.replace(process.cwd() + "/", "")}`);
   console.log(`\n${holderNames.length} distinct holder(s): ${holderNames.join(", ")}`);
+
+  // Best-effort report of which of those holders will actually be skipped
+  // by the NOT IN guard above — informational only, the guard baked into
+  // the emitted SQL is what actually enforces this regardless of whether
+  // this read succeeds.
+  try {
+    const proxy = await getPlatformProxy({ configPath: "wrangler.jsonc" });
+    try {
+      const db = proxy.env.DATABASE as unknown as { prepare: (q: string) => { bind: (...a: unknown[]) => { all: () => Promise<{ results: unknown[] }> } } };
+      const synced: string[] = [];
+      for (const holderName of holderNames) {
+        const { results } = await db
+          .prepare(
+            `SELECT 1 FROM bank_imports WHERE character_id = (SELECT id FROM characters WHERE name = ? COLLATE NOCASE) LIMIT 1`,
+          )
+          .bind(holderName)
+          .all();
+        if (results.length > 0) synced.push(holderName);
+      }
+      if (synced.length > 0) {
+        console.log(`\n${synced.length} holder(s) already have a real sync on local D1 and will be SKIPPED by the emitted SQL: ${synced.join(", ")}`);
+      } else {
+        console.log(`\nNo holder in this sheet has a real sync yet on local D1 — nothing will be skipped.`);
+      }
+    } finally {
+      await proxy.dispose();
+    }
+  } catch (err) {
+    console.log(`\n(Could not check local D1 for already-synced holders — the emitted SQL's own guard still applies. ${(err as Error).message})`);
+  }
 }
 
 if (!existsSync(resolve(filePath!))) {

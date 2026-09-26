@@ -1,6 +1,7 @@
 "use server";
 
 import { createManualHolding, deleteManualHolding, updateHolding, type HoldingMutationResult } from "@/lib/bank/holdings";
+import { retireSheetRows } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -25,7 +26,7 @@ function parseOptionalInt(raw: string): number | undefined {
 
 export type AddHoldingInput = {
   holderName: string;
-  category: "item" | "spell" | "currency";
+  category: "item" | "spell";
   itemName: string;
   itemId: string;
   quantity: string;
@@ -35,6 +36,10 @@ export type AddHoldingInput = {
 };
 
 // PLAN.md §11 task 8.6 — manual add/edit for items no export captures.
+// Currency is never an option here (2026-09-25: nobody, officers
+// included, needs it visible) — `category` is item/spell only at the
+// type level, and createManualHolding's own signature matches, so a
+// currency row can't be created through this path even by a stale client.
 export async function addManualHoldingAction(input: AddHoldingInput): Promise<HoldingMutationResult> {
   const auth = await requireManager();
   if ("error" in auth) return auth;
@@ -97,5 +102,29 @@ export async function deleteHoldingAction(id: number): Promise<HoldingMutationRe
       summary: `Bank holding #${id} deleted`,
     });
   }
+  return result;
+}
+
+// 2026-09-25 sheet-to-sync transition: an officer can manually retire the
+// old Google-Sheet-imported rows (source='import', import_id NULL) for one
+// holder, or every remaining one at once — for a mule that will never be
+// synced from the app (retired, reassigned, etc.), or just to clean up
+// ahead of an officer getting to it. A holder's first real sync already
+// does this automatically (src/lib/bank/sync.ts's applySync); this is only
+// for the ones that won't get one.
+export async function retireSheetRowsAction(holderCharacterId: number | "all"): Promise<{ error?: string; removed?: number }> {
+  const auth = await requireManager();
+  if ("error" in auth) return auth;
+
+  const db = await getDb();
+  const result = await retireSheetRows(db, holderCharacterId);
+  await recordSystemEvent(db, await webActor(db, auth.userId), {
+    action: "bank.sheet_rows.retire",
+    targetType: "bank_holdings",
+    summary:
+      holderCharacterId === "all"
+        ? `Retired all remaining sheet-imported bank rows (${result.removed} row(s))`
+        : `Retired sheet-imported bank rows for character #${holderCharacterId} (${result.removed} row(s))`,
+  });
   return result;
 }

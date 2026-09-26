@@ -1,8 +1,10 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
+import { alias } from "drizzle-orm/sqlite-core";
 
-import { bankHoldings, characters } from "@/db";
+import { bankHoldings, characters, players } from "@/db";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
+import { isNoDropItem } from "@/lib/eqstat/item-nodrop";
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -11,7 +13,14 @@ export type BankHoldingRow = {
   holderCharacterId: number;
   holderName: string;
   holderCharType: "main" | "alt" | "mule";
-  category: "item" | "spell" | "currency";
+  // The main character tied to the holder's account, if any — 2026-09-25
+  // officer feedback: "Darkseller may be a mule for the main character
+  // Darkmule" — members need to know who to actually contact. Resolved
+  // characters.player_id -> players.main_character_id -> characters.name;
+  // null when the holder has no player account at all (never synced/
+  // claimed) or that player has no main set yet.
+  ownerMainName: string | null;
+  category: "item" | "spell";
   container: string;
   slotIndex: number;
   itemName: string;
@@ -21,21 +30,37 @@ export type BankHoldingRow = {
   status: "guild_bank" | "reserved";
   note: string | null;
   source: "manual" | "import";
+  // source='import' with a NULL import_id is a row that came from the old
+  // Google Sheet migration (scripts/import-bank-tabs.ts), never from a
+  // real officer-app sync (which always sets import_id) — surfaced so
+  // officers can tell which numbers are still pre-transition.
+  fromSheet: boolean;
+  // True when itemId resolves to a Quarm NO DROP item — see
+  // src/lib/eqstat/item-nodrop.ts. Always false when itemId is null
+  // (sheet/manual rows never captured one).
+  noDrop: boolean;
 };
 
-// PLAN.md §11 task 8.5 — every holding, joined with its holder character so
-// the browse table can show/filter by name and char type without a second
-// round trip. No status filter here (both guild_bank and reserved come
-// back) — the browse table defaults to hiding "reserved" client-side, same
-// pattern as RosterTable's default-active status filter, so an officer
-// fixing a misclassification can still switch to see everything.
+const mainCharacters = alias(characters, "main_characters");
+
+// PLAN.md §11 task 8.5 — every holding, joined with its holder character
+// (and, transitively, the holder's account's main character) so the
+// browse table can show/filter by name, char type, and account owner
+// without extra round trips. Currency is excluded entirely (2026-09-25:
+// nobody needs it visible; migration 0050 already purged existing rows,
+// this is belt-and-suspenders against a stray future write). No status
+// filter here (both guild_bank and reserved come back) — the browse table
+// defaults to hiding "reserved" client-side, same pattern as
+// RosterTable's default-active status filter, so an officer fixing a
+// misclassification can still switch to see everything.
 export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
-  return db
+  const rows = await db
     .select({
       id: bankHoldings.id,
       holderCharacterId: bankHoldings.holderCharacterId,
       holderName: characters.name,
       holderCharType: characters.charType,
+      ownerMainName: mainCharacters.name,
       category: bankHoldings.category,
       container: bankHoldings.container,
       slotIndex: bankHoldings.slotIndex,
@@ -46,15 +71,26 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
       status: bankHoldings.status,
       note: bankHoldings.note,
       source: bankHoldings.source,
+      importId: bankHoldings.importId,
     })
     .from(bankHoldings)
     .innerJoin(characters, eq(bankHoldings.holderCharacterId, characters.id))
+    .leftJoin(players, eq(characters.playerId, players.id))
+    .leftJoin(mainCharacters, eq(players.mainCharacterId, mainCharacters.id))
+    .where(ne(bankHoldings.category, "currency"))
     .orderBy(characters.name, bankHoldings.container, bankHoldings.slotIndex);
+
+  return rows.map((row) => ({
+    ...row,
+    category: row.category as "item" | "spell",
+    fromSheet: row.source === "import" && row.importId === null,
+    noDrop: isNoDropItem(row.itemId),
+  }));
 }
 
 export type CreateManualHoldingInput = {
   holderName: string;
-  category: "item" | "spell" | "currency";
+  category: "item" | "spell";
   itemName: string;
   itemId?: number;
   quantity: number;
