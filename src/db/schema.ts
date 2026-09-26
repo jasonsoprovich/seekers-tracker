@@ -1116,16 +1116,30 @@ export const bankEqAccountCharacters = sqliteTable("bank_eq_account_characters",
     .references(() => bankEqAccounts.id, { onDelete: "cascade" }),
 });
 
-// Which top-level bag/bank slots (PLAN.md §9 addendum) an officer has
-// flagged as guild property, so the parser app only ever uploads their
-// contents — a row existing here means "guild"; no row means "personal,
-// never synced." Exactly one of characterId/eqAccountId is set: a personal
-// container (General*/Bank1-30) is flagged per character, a SharedBank
-// container is flagged once for the whole account group (bankEqAccounts)
-// since its contents are shared. container is the same string
-// bank_holdings.container uses ("General1", "Bank12", "SharedBank2", or a
-// non-bag location like "Bank-Coin" is never valid here — currency is never
-// synced, see bank/sync.ts's container allowlist).
+// Which top-level bag/bank slots — or, since the 2026-09-25 officer-feedback
+// pass, individual items within a bag — an officer has flagged as guild
+// property, so the parser app only ever uploads their contents. A row
+// existing here means "guild"; no row means "personal, never synced."
+// Exactly one of characterId/eqAccountId is set: a personal container
+// (General*/Bank1-30) is flagged per character, a SharedBank container is
+// flagged once for the whole account group (bankEqAccounts) since its
+// contents are shared. container is the same string bank_holdings.container
+// uses ("General1", "Bank12", "SharedBank2", or a non-bag location like
+// "Bank-Coin" is never valid here — currency is never synced, see
+// bank/sync.ts's container allowlist).
+//
+// slotIndex mirrors bank_holdings.slot_index: 0 flags the WHOLE container
+// (the bag object and everything in it, or the single loose item sitting
+// directly in that top-level slot); 1..N flags only the item at that one
+// bag slot. A slot-0 flag implies every sub-slot; an officer normally sets
+// one or the other for a given container, not both, though nothing enforces
+// that — BuildSyncRows treats a slot-0 flag as a superset.
+//
+// expectedItemId/expectedItemName record what actually sat at this position
+// the last time it was flagged or synced (the bag itself, for slotIndex 0)
+// — the baseline internal/bankexport/moves.go compares the current export
+// against to detect a bag that's been moved or swapped. Both null until the
+// first scan/sync sets them.
 export const bankSlotDesignations = sqliteTable(
   "bank_slot_designations",
   {
@@ -1133,6 +1147,9 @@ export const bankSlotDesignations = sqliteTable(
     characterId: integer("character_id").references(() => characters.id, { onDelete: "cascade" }),
     eqAccountId: integer("eq_account_id").references(() => bankEqAccounts.id, { onDelete: "cascade" }),
     container: text("container").notNull(),
+    slotIndex: integer("slot_index").notNull().default(0),
+    expectedItemId: integer("expected_item_id"),
+    expectedItemName: text("expected_item_name"),
     updatedBy: text("updated_by")
       .notNull()
       .references(() => users.id),
@@ -1145,8 +1162,16 @@ export const bankSlotDesignations = sqliteTable(
       "bank_slot_designations_owner_xor",
       sql`(${table.characterId} IS NULL) != (${table.eqAccountId} IS NULL)`,
     ),
-    uniqueIndex("bank_slot_designations_character_container_unique").on(table.characterId, table.container),
-    uniqueIndex("bank_slot_designations_eq_account_container_unique").on(table.eqAccountId, table.container),
+    uniqueIndex("bank_slot_designations_character_container_slot_unique").on(
+      table.characterId,
+      table.container,
+      table.slotIndex,
+    ),
+    uniqueIndex("bank_slot_designations_eq_account_container_slot_unique").on(
+      table.eqAccountId,
+      table.container,
+      table.slotIndex,
+    ),
   ],
 );
 
