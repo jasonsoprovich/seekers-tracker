@@ -334,6 +334,101 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Guild bank sync — 2026-09-25 officer/bank-team feedback pass, same
+branch (`feature/guild-bank-sync`, both repos; still local-only; migration
+0050 local-only).** Jason demoed the 09-24 build to the officers and the
+guild bank team; this is what they asked for, all built and
+unit/integration-tested this session — see the status artifact
+(https://claude.ai/artifact/TxQZM3baZsEeKDHBe15fZb, kept current, also
+linked from PLAN.md §9) for the officer-facing writeup, and
+`../seekers-epgp-parser`'s own CLAUDE.md for the parser-side detail.
+- **Per-item designation.** `bank_slot_designations` gained `slot_index`
+  (0 = whole container, N = one item inside a bag) plus
+  `expected_item_id`/`expected_item_name` — the move-detection baseline
+  below. `src/lib/bank/sync.ts`'s `setDesignations` became
+  `updateDesignations` (`set`/`add`/`remove`): the officer app's
+  per-checkbox toggles now use `add`/`remove`, touching only the one
+  position — this is the actual fix for the 09-24 session's own
+  "designation tied to the slot" framing being incomplete: the deeper bug
+  was that every toggle PUT the WHOLE rebuilt set from the current scan,
+  silently dropping a flag on any container missing from that scan (a
+  moved bag's now-empty old slot, for instance). `add`/`remove` structurally
+  can't do that. `validateSyncPayload` now checks a row against either a
+  slot-0 (whole-container) or exact-slot designation.
+- **Bag/item-move detection — resolves the 09-24 session's own headline
+  open question**, confirmed with Jason as detect + suggest + block:
+  `../seekers-epgp-parser`'s new `internal/bankexport.DetectMoves` compares
+  every designated position's `expected_item_id`/`name` against a fresh
+  scan; a mismatch searches for a single plausible match (personal bags
+  never cross into SharedBank) — one match is a one-click "move flag"
+  suggestion, 2+ identical matches (real Darkclaw data has five "Hand Made
+  Backpack" bags) are left as a pick list, zero matches falls back to the
+  same "empty — bag moved?" indicator as before. `applySync` now takes an
+  `occupants` list and refreshes every matching designation's
+  `expected_*` in the same batch, so the baseline follows every real sync.
+  A character with ANY unresolved warning is excluded from sync entirely
+  (`buildBankSyncHolders`) until resolved via the new `ResolveBankMove`
+  (always a single remove-then-add designations call — move/keep/unflag
+  share one code path).
+- **Sheet-to-sync transition.** `scripts/import-bank-tabs.ts` now skips a
+  holder outright — no delete, no insert — if it has EVER completed a real
+  sync (`NOT IN (SELECT character_id FROM bank_imports)`, baked into the
+  emitted SQL itself, not just app-level logic), so re-running the sheet
+  import can never resurrect rows a real sync already replaced.
+  `listBankHoldings` gained `fromSheet` (a grey "Sheet" pill on `/bank`),
+  and a new `retireSheetRows(db, characterId | "all")` backs officer-facing
+  per-holder and "retire all remaining" controls.
+- **Currency purged, everywhere.** Migration 0050
+  `DELETE FROM bank_holdings WHERE category='currency'`; the manual-add
+  form (`actions.ts`/`createManualHolding`) no longer accepts the category
+  at all; `/bank`'s "Total currency" card is gone. "No one, officers
+  included, needs this info."
+- **NO DROP flag.** New `src/data/item-nodrop.json` (9,994 ids,
+  `scripts/gen-item-nodrop.sh`, sourced from pq-companion's bundled
+  `quarm.db` — confirmed `nodrop = 0` means NO DROP, the opposite of what
+  the schema doc's own prose implies, by cross-checking pq-companion's own
+  `HideNoDrop` filter) + `src/lib/eqstat/item-nodrop.ts`. A red "No drop"
+  pill plus a "Hide NO DROP" filter on `/bank`.
+- **Main/owner column.** `listBankHoldings` now left-joins
+  `characters -> players -> the player's main character` for
+  `ownerMainName`, shown next to Holder on `/bank` — "Darkseller may be a
+  mule for the main character Darkmule... members know who to contact."
+- **Duplicate items merged.** `BankBrowseTable` groups rows by
+  `category + (itemId ?? lowercased itemName)` into one expandable row
+  with a summed quantity — non-stacking spells were showing as many
+  identical rows.
+- **Sky Bank folded back out of `/bank`.** No reliable class/quest signal
+  to separate it, so those items are now ordinary `bank_holdings` rows.
+  `BankTabs.tsx` deleted; `sky_bank_rewards`/`sky_bank_stock` and `/keys`
+  untouched.
+- **Readable sync preview.** The officer app's Preview/Sync dialog is now
+  one collapsible card per character (a first-ever sync starts collapsed
+  to just its counts), added/removed grouped by item name with a summed
+  quantity and locations instead of one comma-joined string, a large-
+  removal flag, and a filter box past 40 diff rows.
+- **"Under construction" banner** on `/bank`, gated by
+  `src/lib/bank/constants.ts`'s `BANK_UNDER_CONSTRUCTION` — flip off once
+  officer testing + the sheet-to-sync transition are done.
+- **Rode along, unrelated to the bank**: EPGP Ledger's Totals tab hides
+  departed players by default (a "Show departed" toggle); the ledger's
+  EP/GP/Bids/Totals/Audit search is now 350ms-debounced instead of
+  Enter-only, matching Roster's own live search (the server-side
+  LIMIT/OFFSET query itself is unchanged — still one query per pause in
+  typing).
+- **Verified**: `verify:bank-sync` 44/44 (was 32/32) against local D1;
+  new Go `moves_test.go` (6 synthetic scenarios) plus a throwaway real-data
+  test against Darkclaw's actual export (a simulated Bank1<->Bank2 swap
+  correctly came back ambiguous against the file's real duplicate bags —
+  deleted before committing, per this repo's own convention); `tsc`, full
+  webpack production build, and a `wrangler deploy --dry-run` (2978.45 KiB
+  gzip, under the 3072 KiB cap) all clean on the tracker side; `go build`/
+  `vet`/`test`, a full frontend `tsc`+`vite build`, and a complete
+  `wails3 build` all clean on the parser side, with the built binary
+  launched and confirmed not crashing (headless smoke check).
+  **Not yet GUI-click-through-tested** — same gap the 09-24 session's own
+  two real bugs came from; do that before showing this to officers again.
+  Migration 0050 is local-only.
+
 **PLAN.md §11 Phase 8.4 — guild bank sync from real inventory exports,
 2026-09-24 (branch `feature/guild-bank-sync` in both this repo and
 `seekers-epgp-parser`; not merged to `main`, not deployed).** The last open
