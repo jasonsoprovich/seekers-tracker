@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { fieldClasses } from "@/components/ui/Field";
@@ -17,19 +17,32 @@ import { fieldClasses } from "@/components/ui/Field";
 // typing cadence without feeling laggy.
 const DEBOUNCE_MS = 350;
 
+// Real regression, found 2026-09-26 while building an unrelated feature
+// that reused this component: this used to take a `buildHref: (q: string)
+// => string` prop, built server-side by the page component and handed
+// down. A Server Component can't pass a plain function to a Client
+// Component like this one — functions aren't serializable across that
+// boundary (only "use server" Server Actions are) — so every render of
+// this component threw "Functions cannot be passed directly to Client
+// Components" and 500'd the whole page. This had shipped on
+// feature/guild-bank-sync, never merged to main, and was never actually
+// browser-verified (CLAUDE.md logs it as a same-session "rode along,
+// unrelated" addition, verified only by tsc/build — and next lint, which
+// would normally flag exactly this, has been broken in this repo since
+// before this component existed). Fixed by having the component build its
+// own next-URL client-side (usePathname/useSearchParams, both ordinary
+// client hooks reading the browser's current location) instead of being
+// handed one from the server — no function ever crosses the RSC boundary.
 export function LedgerSearchBox({
   initialQuery,
   placeholder,
-  buildHref,
 }: {
   initialQuery: string;
   placeholder: string;
-  // Given the next query string, returns the full /epgp/ledger?... URL
-  // (tab kept, page reset to 1) — the page component already owns that
-  // logic (pageHref) and this component shouldn't have to re-derive it.
-  buildHref: (q: string) => string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [value, setValue] = useState(initialQuery);
   const [isPending, startTransition] = useTransition();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,10 +54,21 @@ export function LedgerSearchBox({
     setValue(initialQuery);
   }, [initialQuery]);
 
+  // Keeps every other current param (tab/type) untouched, sets/clears q,
+  // and resets page to 1 — the same contract the old server-built
+  // buildHref had, just derived from the browser's own current URL.
+  function hrefFor(q: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (q) params.set("q", q);
+    else params.delete("q");
+    params.set("page", "1");
+    return `${pathname}?${params.toString()}`;
+  }
+
   function commit(q: string) {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     startTransition(() => {
-      router.replace(buildHref(q));
+      router.replace(hrefFor(q));
     });
   }
 

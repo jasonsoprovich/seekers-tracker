@@ -185,12 +185,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         </div>
 
         {activeTab.searchPlaceholder && (
-          <LedgerSearchBox
-            key={type}
-            initialQuery={term}
-            placeholder={activeTab.searchPlaceholder}
-            buildHref={(q) => pageHref({ q, page: 1 })}
-          />
+          <LedgerSearchBox key={type} initialQuery={term} placeholder={activeTab.searchPlaceholder} />
         )}
       </div>
 
