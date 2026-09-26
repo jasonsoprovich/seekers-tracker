@@ -1,11 +1,12 @@
 import { requireOfficerApiKey, requireOfficerCapability } from "@/lib/api-key-auth";
-import { applySync, loadBankConfig, previewSync, validateSyncPayload, type SyncHolderInput, type SyncRowInput } from "@/lib/bank/sync";
+import { applySync, loadBankConfig, previewSync, validateSyncPayload, type OccupantInput, type SyncHolderInput, type SyncRowInput } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 import { LIMITS } from "@/lib/validate";
 
 type RowBody = { container?: unknown; slotIndex?: unknown; category?: unknown; itemName?: unknown; itemId?: unknown; quantity?: unknown };
-type HolderBody = { characterId?: unknown; sourceFile?: unknown; reportsSharedBank?: unknown; rows?: unknown };
+type OccupantBody = { container?: unknown; slotIndex?: unknown; itemId?: unknown; itemName?: unknown };
+type HolderBody = { characterId?: unknown; sourceFile?: unknown; reportsSharedBank?: unknown; rows?: unknown; occupants?: unknown };
 type SyncBody = { dryRun?: unknown; holders?: unknown };
 
 function parseRow(raw: RowBody, index: number): { ok: true; value: SyncRowInput } | { ok: false; error: string } {
@@ -36,6 +37,20 @@ function parseRow(raw: RowBody, index: number): { ok: true; value: SyncRowInput 
   };
 }
 
+function parseOccupant(raw: OccupantBody, index: number): { ok: true; value: OccupantInput } | { ok: false; error: string } {
+  if (typeof raw.container !== "string" || raw.container.length === 0) return { ok: false, error: `occupants[${index}].container is required.` };
+  if (typeof raw.slotIndex !== "number" || !Number.isInteger(raw.slotIndex) || raw.slotIndex < 0) {
+    return { ok: false, error: `occupants[${index}].slotIndex must be a non-negative integer.` };
+  }
+  if (raw.itemId !== null && raw.itemId !== undefined && (typeof raw.itemId !== "number" || !Number.isInteger(raw.itemId))) {
+    return { ok: false, error: `occupants[${index}].itemId must be an integer or null.` };
+  }
+  if (typeof raw.itemName !== "string" || raw.itemName.length === 0 || raw.itemName.length > LIMITS.itemName) {
+    return { ok: false, error: `occupants[${index}].itemName is required (max ${LIMITS.itemName} chars).` };
+  }
+  return { ok: true, value: { container: raw.container, slotIndex: raw.slotIndex, itemId: raw.itemId ?? null, itemName: raw.itemName } };
+}
+
 function parseHolder(raw: HolderBody, index: number): { ok: true; value: SyncHolderInput } | { ok: false; error: string } {
   if (typeof raw.characterId !== "number" || !Number.isInteger(raw.characterId)) {
     return { ok: false, error: `holders[${index}].characterId must be an integer.` };
@@ -48,12 +63,22 @@ function parseHolder(raw: HolderBody, index: number): { ok: true; value: SyncHol
   }
   if (!Array.isArray(raw.rows)) return { ok: false, error: `holders[${index}].rows must be an array.` };
   if (raw.rows.length > 300) return { ok: false, error: `holders[${index}].rows exceeds the maximum row count.` };
+  const rawOccupants = raw.occupants ?? [];
+  if (!Array.isArray(rawOccupants)) return { ok: false, error: `holders[${index}].occupants must be an array.` };
+  if (rawOccupants.length > 300) return { ok: false, error: `holders[${index}].occupants exceeds the maximum count.` };
 
   const rows: SyncRowInput[] = [];
   for (let i = 0; i < raw.rows.length; i++) {
     const parsed = parseRow(raw.rows[i] as RowBody, i);
     if (!parsed.ok) return { ok: false, error: `holders[${index}].${parsed.error}` };
     rows.push(parsed.value);
+  }
+
+  const occupants: OccupantInput[] = [];
+  for (let i = 0; i < rawOccupants.length; i++) {
+    const parsed = parseOccupant(rawOccupants[i] as OccupantBody, i);
+    if (!parsed.ok) return { ok: false, error: `holders[${index}].${parsed.error}` };
+    occupants.push(parsed.value);
   }
 
   return {
@@ -63,6 +88,7 @@ function parseHolder(raw: HolderBody, index: number): { ok: true; value: SyncHol
       sourceFile: raw.sourceFile ?? null,
       reportsSharedBank: raw.reportsSharedBank,
       rows,
+      occupants,
     },
   };
 }
@@ -113,7 +139,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "One or more rows are not designated as guild bank.", details: validationErrors }, { status: 422 });
   }
 
-  const result = body.dryRun ? await previewSync(db, holders) : await applySync(db, auth.userId, holders);
+  const result = body.dryRun ? await previewSync(db, holders) : await applySync(db, auth.userId, holders, config);
 
   if (!body.dryRun) {
     const actor = await officerApiActor(db, auth.userId);

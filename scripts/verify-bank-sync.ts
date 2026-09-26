@@ -1,11 +1,14 @@
 // PLAN.md §9/§11 Phase 8.4 — guild bank sync end-to-end verification.
+// Extended 2026-09-25 for the officer-feedback pass: per-item (sub-slot)
+// designation, add/remove without clobbering other flags, occupant-driven
+// expected_* refresh, the currency purge, and retireSheetRows.
 //
 // Exercises src/lib/bank/sync.ts's real functions (loadBankConfig,
-// setDesignations, saveEqAccount, deleteEqAccount, validateSyncPayload,
-// previewSync, applySync) against local D1, same pattern as
-// verify-guild-removal.ts: synthetic users/characters/holdings, snapshotted
-// first and restored in a `finally` regardless of outcome. Never point this
-// at remote D1 (PLAN.md §5).
+// updateDesignations, saveEqAccount, deleteEqAccount, validateSyncPayload,
+// previewSync, applySync, retireSheetRows) against local D1, same pattern
+// as verify-guild-removal.ts: synthetic users/characters/holdings,
+// snapshotted first and restored in a `finally` regardless of outcome.
+// Never point this at remote D1 (PLAN.md §5).
 //
 // Usage:
 //   npx tsx scripts/verify-bank-sync.ts
@@ -23,8 +26,9 @@ import {
   deleteEqAccount,
   loadBankConfig,
   previewSync,
+  retireSheetRows,
   saveEqAccount,
-  setDesignations,
+  updateDesignations,
   validateSyncPayload,
   type SyncHolderInput,
 } from "../src/lib/bank/sync";
@@ -53,7 +57,7 @@ async function makeCharacter(db: Db, name: string, opts: { charType?: "main" | "
 
 async function holdingsFor(db: Db, characterId: number) {
   return db
-    .select({ container: bankHoldings.container, slotIndex: bankHoldings.slotIndex, itemName: bankHoldings.itemName, category: bankHoldings.category, status: bankHoldings.status, note: bankHoldings.note, source: bankHoldings.source })
+    .select({ container: bankHoldings.container, slotIndex: bankHoldings.slotIndex, itemName: bankHoldings.itemName, category: bankHoldings.category, status: bankHoldings.status, note: bankHoldings.note, source: bankHoldings.source, importId: bankHoldings.importId })
     .from(bankHoldings)
     .where(eq(bankHoldings.holderCharacterId, characterId));
 }
@@ -82,10 +86,10 @@ async function main() {
     // Scenario 1: designations round-trip and EQ account grouping.
     // ---------------------------------------------------------------
     console.log("\nScenario 1: designations + EQ account group");
-    let result = await setDesignations(db, actor.id, { characterId: muleId }, ["Bank1", "Bank2"]);
-    check(failures, !result.error, `setDesignations accepts personal containers (${result.error ?? "ok"})`);
-    result = await setDesignations(db, actor.id, { characterId: muleId }, ["SharedBank2"]);
-    check(failures, !!result.error, "setDesignations refuses a SharedBank container on a personal owner");
+    let result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: [{ container: "Bank1", slotIndex: 0 }, { container: "Bank2", slotIndex: 0 }] });
+    check(failures, !result.error, `updateDesignations accepts personal containers (${result.error ?? "ok"})`);
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: [{ container: "SharedBank2", slotIndex: 0 }] });
+    check(failures, !!result.error, "updateDesignations refuses a SharedBank container on a personal owner");
 
     const accountResult = await saveEqAccount(db, actor.id, {
       label: "Verify Account",
@@ -98,17 +102,17 @@ async function main() {
     const badHolder = await saveEqAccount(db, actor.id, { label: "Bad", characterIds: [muleId], sharedBankHolderCharacterId: soloId });
     check(failures, !!badHolder.error, "saveEqAccount refuses a holder that isn't a member of its own group");
 
-    result = await setDesignations(db, actor.id, { eqAccountId: accountId }, ["SharedBank1", "SharedBank2"]);
-    check(failures, !result.error, `setDesignations accepts SharedBank containers on an account owner (${result.error ?? "ok"})`);
+    result = await updateDesignations(db, actor.id, { eqAccountId: accountId }, { set: [{ container: "SharedBank1", slotIndex: 0 }, { container: "SharedBank2", slotIndex: 0 }] });
+    check(failures, !result.error, `updateDesignations accepts SharedBank containers on an account owner (${result.error ?? "ok"})`);
 
     // Regression: "Mark all Bank slots guild" sends all 30 real Bank
     // containers in one call (Darkclaw-Inventory.txt has all 30 real —
-    // found via a real click-through 2026-09-24). Each row binds 4
-    // params; an unchunked insert (30 * 4 = 120) blows past D1's 100-param
+    // found via a real click-through 2026-09-24). Each row binds several
+    // params; an unchunked insert (30 rows) blows past D1's 100-param
     // cap and 500s.
-    const allBankContainers = Array.from({ length: 30 }, (_, i) => `Bank${i + 1}`);
-    result = await setDesignations(db, actor.id, { characterId: muleId }, allBankContainers);
-    check(failures, !result.error, `setDesignations accepts all 30 real Bank containers in one call, unchunked (${result.error ?? "ok"})`);
+    const allBankContainers = Array.from({ length: 30 }, (_, i) => ({ container: `Bank${i + 1}`, slotIndex: 0 }));
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: allBankContainers });
+    check(failures, !result.error, `updateDesignations accepts all 30 real Bank containers in one call, unchunked (${result.error ?? "ok"})`);
     let config = await loadBankConfig(db);
     check(
       failures,
@@ -116,23 +120,71 @@ async function main() {
       `all 30 Bank containers landed (got ${(config.personalDesignations.get(muleId) ?? []).length})`,
     );
     // Reset back to the smaller set the rest of this script's scenarios expect.
-    result = await setDesignations(db, actor.id, { characterId: muleId }, ["Bank1", "Bank2"]);
-    check(failures, !result.error, `setDesignations resets back to Bank1/Bank2 (${result.error ?? "ok"})`);
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: [{ container: "Bank1", slotIndex: 0 }, { container: "Bank2", slotIndex: 0 }] });
+    check(failures, !result.error, `updateDesignations resets back to Bank1/Bank2 (${result.error ?? "ok"})`);
 
     config = await loadBankConfig(db);
-    check(failures, (config.personalDesignations.get(muleId) ?? []).sort().join(",") === "Bank1,Bank2", "loadBankConfig reflects personal designations");
-    check(failures, (config.sharedDesignations.get(accountId) ?? []).sort().join(",") === "SharedBank1,SharedBank2", "loadBankConfig reflects shared designations");
+    check(
+      failures,
+      (config.personalDesignations.get(muleId) ?? []).map((s) => s.container).sort().join(",") === "Bank1,Bank2",
+      "loadBankConfig reflects personal designations",
+    );
+    check(
+      failures,
+      (config.sharedDesignations.get(accountId) ?? []).map((s) => s.container).sort().join(",") === "SharedBank1,SharedBank2",
+      "loadBankConfig reflects shared designations",
+    );
     check(failures, config.accountByCharacterId.get(altId)?.id === accountId, "loadBankConfig maps a member character back to its account");
 
     // ---------------------------------------------------------------
-    // Scenario 2: validateSyncPayload rejects undesignated/wrong-holder rows.
+    // Scenario 1b: per-item (sub-slot) designation, and add/remove leave
+    // OTHER flags untouched — the real bug found 2026-09-24: the old
+    // toggle always PUT the whole rebuilt set, so a flag on a container
+    // missing from the current export (e.g. its bag moved away) silently
+    // vanished on the next click.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 1b: sub-slot designation + add/remove don't clobber other flags");
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { add: [{ container: "Bank3", slotIndex: 2, expectedItemId: 500, expectedItemName: "Sub-slot Item" }] });
+    check(failures, !result.error, `add accepts a sub-slot position (${result.error ?? "ok"})`);
+    config = await loadBankConfig(db);
+    const bank3Slots = config.personalDesignations.get(muleId) ?? [];
+    check(failures, bank3Slots.some((s) => s.container === "Bank3" && s.slotIndex === 2), "the sub-slot designation landed");
+    check(failures, bank3Slots.some((s) => s.container === "Bank1" && s.slotIndex === 0), "add left Bank1 (added earlier via set) untouched");
+    check(failures, bank3Slots.some((s) => s.container === "Bank2" && s.slotIndex === 0), "add left Bank2 untouched");
+
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { remove: [{ container: "Bank3", slotIndex: 2 }] });
+    check(failures, !result.error, `remove accepts a sub-slot position (${result.error ?? "ok"})`);
+    config = await loadBankConfig(db);
+    const afterRemove = config.personalDesignations.get(muleId) ?? [];
+    check(failures, !afterRemove.some((s) => s.container === "Bank3" && s.slotIndex === 2), "the sub-slot designation is gone after remove");
+    check(failures, afterRemove.some((s) => s.container === "Bank1" && s.slotIndex === 0), "remove left Bank1 untouched");
+    check(failures, afterRemove.length === 2, `exactly the original 2 designations remain (got ${afterRemove.length})`);
+
+    // A designation that's missing from the current export (simulating a
+    // moved/empty bag) must survive an add/remove call that never mentions
+    // it — this is the actual regression, not just "did the API accept a
+    // sub-slot", so add something else and confirm Bank1/Bank2 are still
+    // there afterward.
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { add: [{ container: "Bank4", slotIndex: 0 }] });
+    check(failures, !result.error, "add accepts another container");
+    config = await loadBankConfig(db);
+    const afterSecondAdd = (config.personalDesignations.get(muleId) ?? []).map((s) => s.container).sort();
+    check(failures, afterSecondAdd.join(",") === "Bank1,Bank2,Bank4", `Bank1/Bank2 survived an unrelated add (got ${afterSecondAdd.join(",")})`);
+    result = await updateDesignations(db, actor.id, { characterId: muleId }, { remove: [{ container: "Bank4", slotIndex: 0 }] });
+    check(failures, !result.error, "remove cleans up Bank4");
+
+    // ---------------------------------------------------------------
+    // Scenario 2: validateSyncPayload rejects undesignated/wrong-holder rows,
+    // and a slot-0 designation covers every sub-slot in that container.
     // ---------------------------------------------------------------
     console.log("\nScenario 2: server-side payload validation");
+    config = await loadBankConfig(db);
     const undesignatedRow: SyncHolderInput = {
       characterId: muleId,
       sourceFile: "Test-Inventory.txt",
       reportsSharedBank: false,
       rows: [{ container: "Bank5", slotIndex: 0, category: "item", itemName: "Undesignated Item", itemId: 999, quantity: 1 }],
+      occupants: [],
     };
     let errors = validateSyncPayload([undesignatedRow], config);
     check(failures, errors.length === 1, "validateSyncPayload rejects a row in an undesignated container");
@@ -142,6 +194,7 @@ async function main() {
       sourceFile: "Alt-Inventory.txt",
       reportsSharedBank: true,
       rows: [{ container: "SharedBank1", slotIndex: 1, category: "item", itemName: "Shared Item", itemId: 111, quantity: 1 }],
+      occupants: [],
     };
     errors = validateSyncPayload([wrongHolderShared], config);
     check(failures, errors.length === 1, "validateSyncPayload rejects SharedBank rows from a non-holder character");
@@ -155,9 +208,10 @@ async function main() {
         { container: "Bank1", slotIndex: 1, category: "item", itemName: "Test Potion", itemId: 301, quantity: 5 },
         { container: "SharedBank1", slotIndex: 1, category: "item", itemName: "Shared Item A", itemId: 401, quantity: 2 },
       ],
+      occupants: [{ container: "Bank1", slotIndex: 0, itemId: 300, itemName: "Test Ore" }],
     };
     errors = validateSyncPayload([validPayload], config);
-    check(failures, errors.length === 0, "validateSyncPayload accepts a fully-designated payload");
+    check(failures, errors.length === 0, "validateSyncPayload accepts a fully-designated payload (Bank1's slot-0 flag covers its sub-slots)");
 
     // ---------------------------------------------------------------
     // Scenario 3: dry-run writes nothing.
@@ -171,38 +225,43 @@ async function main() {
     check(failures, afterDryRun.length === 0, "dry-run wrote nothing to bank_holdings");
 
     // ---------------------------------------------------------------
-    // Scenario 4: a real sync writes rows, leaves manual/currency rows
-    // alone, and re-syncing is idempotent.
+    // Scenario 4: a real sync writes rows, leaves manual rows alone
+    // (currency rows can no longer exist at all — migration 0050 purged
+    // them and the manual-add form no longer offers the category), and
+    // re-syncing is idempotent.
     // ---------------------------------------------------------------
-    console.log("\nScenario 4: real sync + manual/currency rows preserved + idempotent re-sync");
+    console.log("\nScenario 4: real sync + manual rows preserved + idempotent re-sync");
     await db.insert(bankHoldings).values([
       { holderCharacterId: muleId, category: "item", container: "Manual", slotIndex: 1, itemName: "Hand-added item", quantity: 1, status: "guild_bank", source: "manual" },
-      { holderCharacterId: muleId, category: "currency", container: "Bank-Coin", slotIndex: 0, itemName: "Currency", quantity: 5000, status: "guild_bank", source: "import" },
-      // Simulates a leftover row from the old spreadsheet import (source=import, no import_id) at the SAME slot the real sync will also write — proves it gets replaced, not duplicated.
-      { holderCharacterId: muleId, category: "item", container: "Bank1", slotIndex: 0, itemName: "Stale Sheet Item", quantity: 1, status: "reserved", note: "from the old sheet", source: "import" },
+      // Simulates a leftover row from the old spreadsheet import (source=import, import_id NULL) at the SAME slot the real sync will also write — proves it gets replaced, not duplicated.
+      { holderCharacterId: muleId, category: "item", container: "Bank1", slotIndex: 0, itemName: "Stale Sheet Item", quantity: 1, status: "reserved", note: "from the old sheet", source: "import", importId: null },
     ]);
 
-    const applied1 = await applySync(db, actor.id, [validPayload]);
+    let applied1 = await applySync(db, actor.id, [validPayload], config);
     check(failures, applied1.diffs[0]?.added.length === 2, `first sync adds the 2 new rows not already present (got ${applied1.diffs[0]?.added.length})`);
 
     const afterSync1 = await holdingsFor(db, muleId);
-    check(failures, afterSync1.length === 5, `5 rows exist after sync: 3 imported (the stale sheet row was replaced, not added alongside) + 1 manual + 1 currency (untouched) (got ${afterSync1.length})`);
+    check(failures, afterSync1.length === 4, `4 rows exist after sync: 3 imported (the stale sheet row was replaced, not added alongside) + 1 manual (got ${afterSync1.length})`);
     const manualRow = afterSync1.find((r) => r.source === "manual");
     check(failures, manualRow?.itemName === "Hand-added item", "the manual row survived the sync untouched");
-    const currencyRow = afterSync1.find((r) => r.category === "currency");
-    check(failures, currencyRow?.itemName === "Currency", "the currency row survived the sync untouched");
     const bank1Slot0 = afterSync1.find((r) => r.container === "Bank1" && r.slotIndex === 0);
     check(failures, bank1Slot0?.itemName === "Test Ore", "the stale sheet row at Bank1 slot 0 was replaced by the real synced item");
 
+    // The occupant sent in validPayload should have refreshed Bank1's
+    // expected_item_id/expected_item_name.
+    config = await loadBankConfig(db);
+    const bank1Designation = (config.personalDesignations.get(muleId) ?? []).find((s) => s.container === "Bank1" && s.slotIndex === 0);
+    check(failures, bank1Designation?.expectedItemId === 300 && bank1Designation?.expectedItemName === "Test Ore", "applySync refreshed the designation's expected occupant from the sync's occupants list");
+
     // Re-sync the identical payload: idempotent, no changes.
-    const applied2 = await applySync(db, actor.id, [validPayload]);
+    const applied2 = await applySync(db, actor.id, [validPayload], config);
     check(
       failures,
       applied2.diffs[0]?.added.length === 0 && applied2.diffs[0]?.removed.length === 0 && applied2.diffs[0]?.changed.length === 0,
       `re-syncing the identical payload is a no-op (added=${applied2.diffs[0]?.added.length} removed=${applied2.diffs[0]?.removed.length} changed=${applied2.diffs[0]?.changed.length})`,
     );
     const afterSync2 = await holdingsFor(db, muleId);
-    check(failures, afterSync2.length === 5, "row count unchanged after an idempotent re-sync");
+    check(failures, afterSync2.length === 4, "row count unchanged after an idempotent re-sync");
 
     // ---------------------------------------------------------------
     // Scenario 5: status/note carry over on a matching (container, slot).
@@ -212,7 +271,7 @@ async function main() {
       .update(bankHoldings)
       .set({ status: "reserved", note: "officer's own stash, not guild's" })
       .where(and(eq(bankHoldings.holderCharacterId, muleId), eq(bankHoldings.container, "Bank1"), eq(bankHoldings.slotIndex, 1)));
-    const applied3 = await applySync(db, actor.id, [validPayload]);
+    const applied3 = await applySync(db, actor.id, [validPayload], config);
     check(failures, applied3.diffs[0]?.unchanged === 3, "re-sync sees the annotated row as unchanged (item identity/qty didn't change)");
     const afterAnnotate = await holdingsFor(db, muleId);
     const annotatedRow = afterAnnotate.find((r) => r.container === "Bank1" && r.slotIndex === 1);
@@ -220,15 +279,40 @@ async function main() {
 
     // ---------------------------------------------------------------
     // Scenario 6: clearing all designations and re-syncing empties the
-    // holder (except manual/currency rows).
+    // holder (except manual rows).
     // ---------------------------------------------------------------
     console.log("\nScenario 6: clearing designations empties the holder on next sync");
-    const emptyPayload: SyncHolderInput = { characterId: muleId, sourceFile: "VerifyMule-Inventory.txt", reportsSharedBank: true, rows: [] };
-    const applied4 = await applySync(db, actor.id, [emptyPayload]);
+    const emptyPayload: SyncHolderInput = { characterId: muleId, sourceFile: "VerifyMule-Inventory.txt", reportsSharedBank: true, rows: [], occupants: [] };
+    const applied4 = await applySync(db, actor.id, [emptyPayload], config);
     check(failures, applied4.diffs[0]?.removed.length === 3, `clearing to zero rows removes all 3 previously-synced rows (got ${applied4.diffs[0]?.removed.length})`);
     const afterClear = await holdingsFor(db, muleId);
-    check(failures, afterClear.length === 2, `only the manual + currency rows remain (got ${afterClear.length})`);
-    check(failures, afterClear.every((r) => r.source === "manual" || r.category === "currency"), "every remaining row is manual or currency");
+    check(failures, afterClear.length === 1, `only the manual row remains (got ${afterClear.length})`);
+    check(failures, afterClear.every((r) => r.source === "manual"), "every remaining row is manual");
+
+    // ---------------------------------------------------------------
+    // Scenario 6b: currency is purged and can never be listed.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 6b: currency rows are gone and never re-appear");
+    const currencyCheck = await db.select({ id: bankHoldings.id }).from(bankHoldings).where(eq(bankHoldings.category, "currency"));
+    check(failures, currencyCheck.length === 0, "no currency rows exist anywhere after migration 0050's purge");
+
+    // ---------------------------------------------------------------
+    // Scenario 6c: retireSheetRows removes only source=import rows with a
+    // NULL import_id, never a real synced row or a manual one.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 6c: retireSheetRows");
+    await db.insert(bankHoldings).values([
+      { holderCharacterId: soloId, category: "item", container: "Bank1", slotIndex: 0, itemName: "Sheet-only item A", quantity: 1, status: "guild_bank", source: "import", importId: null },
+      { holderCharacterId: soloId, category: "item", container: "Bank2", slotIndex: 0, itemName: "Sheet-only item B", quantity: 1, status: "guild_bank", source: "import", importId: null },
+    ]);
+    const soloBeforeRetire = await holdingsFor(db, soloId);
+    check(failures, soloBeforeRetire.length === 2, "two sheet rows exist for the solo character before retiring");
+    const retireOne = await retireSheetRows(db, soloId);
+    check(failures, retireOne.removed === 2, `retireSheetRows(soloId) removed exactly its 2 sheet rows (got ${retireOne.removed})`);
+    const soloAfterRetire = await holdingsFor(db, soloId);
+    check(failures, soloAfterRetire.length === 0, "the solo character's holdings are empty after retiring");
+    const muleAfterRetire = await holdingsFor(db, muleId);
+    check(failures, muleAfterRetire.length === 1 && muleAfterRetire[0].source === "manual", "retiring a different holder's sheet rows left the mule's manual row alone");
 
     // ---------------------------------------------------------------
     // Scenario 7: deleteEqAccount cleans up its designations/membership.

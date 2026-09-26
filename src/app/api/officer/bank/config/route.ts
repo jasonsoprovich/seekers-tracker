@@ -23,5 +23,6 @@ export async function GET(request: Request) {
     sharedDesignations: Object.fromEntries(config.sharedDesignations),
     accounts: config.accounts,
     lastImports: Object.fromEntries([...config.lastImports].map(([id, info]) => [id, { ...info, createdAt: info.createdAt.toISOString() }])),
+    syncedContents: Object.fromEntries(config.syncedContents),
   });
 }
