@@ -26,13 +26,23 @@ const DEFAULT_ACTIVE_WINDOW = "90d";
 // see getTotalsRows), last activity, EP, GP, priority.
 export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; searching?: boolean }) {
   const [activeFilter, setActiveFilter] = useState<string>(DEFAULT_ACTIVE_WINDOW);
+  // 2026-09-25 officer feedback: departed characters aren't relevant by
+  // default (their EP is zeroed anyway, per the departure policy — see
+  // memory seekers-departure-policy) but officers occasionally want to
+  // check one. Off by default; "inactive" players still show either way —
+  // only "departed" is filtered by this toggle.
+  const [showDeparted, setShowDeparted] = useState(false);
 
   const filtered = useMemo(() => {
     const ms = ACTIVE_WINDOWS.find((w) => w.key === activeFilter)?.ms ?? null;
-    if (ms === null) return rows;
-    const cutoff = Date.now() - ms;
-    return rows.filter((r) => r.lastActivityAt !== null && new Date(r.lastActivityAt).getTime() >= cutoff);
-  }, [rows, activeFilter]);
+    let result = rows;
+    if (ms !== null) {
+      const cutoff = Date.now() - ms;
+      result = result.filter((r) => r.lastActivityAt !== null && new Date(r.lastActivityAt).getTime() >= cutoff);
+    }
+    if (!showDeparted) result = result.filter((r) => r.playerStatus !== "departed");
+    return result;
+  }, [rows, activeFilter, showDeparted]);
 
   type Col = "main" | "lastActivity" | "ep" | "epDecay" | "gp" | "gpDecay" | "priority";
   const { sorted, sort, toggle } = useTableSort<TotalsRow, Col>(filtered, {
@@ -57,6 +67,10 @@ export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; se
               </option>
             ))}
           </select>
+        </label>
+        <label className="flex items-center gap-1.5 pb-1.5 text-sm text-neutral-400">
+          <input type="checkbox" checked={showDeparted} onChange={(e) => setShowDeparted(e.target.checked)} />
+          Show departed
         </label>
         <span className="pb-1.5 text-xs text-neutral-500">
           {filtered.length} of {rows.length} player{rows.length === 1 ? "" : "s"}
