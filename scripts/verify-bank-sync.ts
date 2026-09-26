@@ -20,7 +20,8 @@ import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
-import { bankHoldings, characters, users } from "../src/db";
+import { bankAuditLog, bankHoldings, characters, users } from "../src/db";
+import { createManualHolding, deleteManualHolding, updateHolding } from "../src/lib/bank/holdings";
 import {
   applySync,
   deleteEqAccount,
@@ -337,6 +338,95 @@ async function main() {
       .from(characters)
       .where(inArray(characters.id, [muleId, soloId, altId]));
     check(failures, remainingCharacterIds.length === 3, "deleting the account did not delete its member characters");
+
+    // ---------------------------------------------------------------
+    // Scenario 8: item-level audit trail (bank_audit_log) — both the
+    // sync path (applySync's buildSyncAuditRows) and the manual add/
+    // edit/delete path (holdings.ts), which no other verify script
+    // exercises at all.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 8: item-level audit trail (bank_audit_log)");
+    async function auditRowsFor(characterId: number) {
+      return db.select().from(bankAuditLog).where(eq(bankAuditLog.holderCharacterId, characterId)).orderBy(bankAuditLog.id);
+    }
+
+    // Bank1 slot 0 is still a valid personal designation for muleId (set
+    // in Scenario 1, reset after the 30-container regression check).
+    const auditPayload: SyncHolderInput = {
+      characterId: muleId,
+      sourceFile: "VerifyMule-Inventory.txt",
+      reportsSharedBank: false,
+      rows: [{ container: "Bank1", slotIndex: 0, category: "item", itemName: "Audit Test Item", itemId: 999, quantity: 1 }],
+      occupants: [],
+    };
+    config = await loadBankConfig(db);
+    await applySync(db, actor.id, [auditPayload], config);
+    let auditRows = await auditRowsFor(muleId);
+    const createRow = auditRows.find((r) => r.action === "create" && r.itemName === "Audit Test Item");
+    check(failures, !!createRow, "syncing a brand-new item writes a 'create' bank_audit_log row");
+    check(failures, createRow?.source === "sync" && createRow?.before === null, "the create row is source='sync' with a null before");
+    check(
+      failures,
+      (createRow?.after as { itemName?: string; quantity?: number } | null)?.itemName === "Audit Test Item" &&
+        (createRow?.after as { quantity?: number } | null)?.quantity === 1,
+      "the create row's after snapshot matches the synced item",
+    );
+
+    // Update: same slot, quantity changes 1 -> 5.
+    config = await loadBankConfig(db);
+    await applySync(db, actor.id, [{ ...auditPayload, rows: [{ ...auditPayload.rows[0], quantity: 5 }] }], config);
+    auditRows = await auditRowsFor(muleId);
+    const updateRow = auditRows.find((r) => r.action === "update" && r.itemName === "Audit Test Item");
+    check(
+      failures,
+      (updateRow?.before as { quantity?: number } | null)?.quantity === 1 && (updateRow?.after as { quantity?: number } | null)?.quantity === 5,
+      "a quantity change on the next sync writes an 'update' row with the correct before/after",
+    );
+
+    // Delete: the item drops out of the next sync entirely.
+    config = await loadBankConfig(db);
+    await applySync(db, actor.id, [{ ...auditPayload, rows: [] }], config);
+    auditRows = await auditRowsFor(muleId);
+    const deleteRow = auditRows.find((r) => r.action === "delete" && r.itemName === "Audit Test Item");
+    check(
+      failures,
+      deleteRow?.source === "sync" && deleteRow?.after === null && (deleteRow?.before as { quantity?: number } | null)?.quantity === 5,
+      "removing the item on the next sync writes a 'delete' row with the last-known (qty 5) snapshot",
+    );
+
+    // Manual add/edit/delete — the other write path into the same table.
+    const [{ name: muleName }] = await db.select({ name: characters.name }).from(characters).where(eq(characters.id, muleId));
+    const manualCreate = await createManualHolding(
+      db,
+      { holderName: muleName, category: "item", itemName: "Manual Audit Item", quantity: 2, status: "guild_bank" },
+      actor.id,
+    );
+    check(failures, manualCreate.id !== undefined, `createManualHolding succeeds (${manualCreate.error ?? "ok"})`);
+    let manualAuditRows = await auditRowsFor(muleId);
+    const manualCreateRow = manualAuditRows.find((r) => r.action === "create" && r.itemName === "Manual Audit Item");
+    check(failures, manualCreateRow?.source === "manual" && manualCreateRow?.holdingId === manualCreate.id, "a manual add writes a 'create' row with source='manual' and the real holding id");
+
+    const manualUpdate = await updateHolding(db, manualCreate.id!, { status: "reserved", quantity: 3 }, actor.id);
+    check(failures, !manualUpdate.error, `updateHolding succeeds (${manualUpdate.error ?? "ok"})`);
+    manualAuditRows = await auditRowsFor(muleId);
+    const manualUpdateRow = manualAuditRows.find((r) => r.action === "update" && r.itemName === "Manual Audit Item");
+    check(
+      failures,
+      (manualUpdateRow?.before as { quantity?: number; status?: string } | null)?.quantity === 2 &&
+        (manualUpdateRow?.after as { quantity?: number; status?: string } | null)?.quantity === 3 &&
+        (manualUpdateRow?.after as { status?: string } | null)?.status === "reserved",
+      "a manual edit writes an 'update' row with the real before/after (qty 2→3, status→reserved)",
+    );
+
+    const manualDelete = await deleteManualHolding(db, manualCreate.id!, actor.id);
+    check(failures, !manualDelete.error, `deleteManualHolding succeeds (${manualDelete.error ?? "ok"})`);
+    manualAuditRows = await auditRowsFor(muleId);
+    const manualDeleteRow = manualAuditRows.find((r) => r.action === "delete" && r.itemName === "Manual Audit Item");
+    check(
+      failures,
+      manualDeleteRow?.after === null && (manualDeleteRow?.before as { quantity?: number } | null)?.quantity === 3,
+      "a manual delete writes a 'delete' row with the last-known (qty 3) snapshot and a null after",
+    );
 
     if (failures.n > 0) {
       console.error(`\n${failures.n} check(s) failed.`);

@@ -1175,6 +1175,57 @@ export const bankSlotDesignations = sqliteTable(
   ],
 );
 
+// Item-level history for the guild bank — deliberately its OWN table, not
+// a row shape shared with ledger_audit_log (EP/GP) or folded into
+// system_event_log (the generic admin-only debugging log, which already
+// gets one coarse "N holders, M rows synced" summary per sync via
+// bank.import — see src/lib/system-log/events.ts). Every real sync writes
+// one row here PER ITEM added/removed/changed (src/lib/bank/sync.ts's
+// applySync), and every manual add/edit/delete (src/lib/bank/holdings.ts)
+// writes one too — so "what's actually in the guild bank, and who put it
+// there or took it out" has a real per-item trail, member-visible on
+// /bank's own Audit tab, the same transparency posture as the EPGP
+// ledger's Audit Trail.
+//
+// No FK on holdingId — a delete's (or a sync's replace-away's) audit row
+// must survive after the bank_holdings row it describes is gone, same
+// reasoning as ledgerAuditLog.ledgerId. holderCharacterId DOES have a real
+// FK: characters are never hard-deleted in this app (see
+// removeMemberFromGuild's history), so it's safe to join on and gives the
+// read side a holder name/filter without parsing JSON. itemName is
+// likewise denormalized (not just inside before/after) so it survives a
+// delete and is directly searchable/sortable.
+export const bankAuditLog = sqliteTable(
+  "bank_audit_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    holdingId: integer("holding_id"),
+    holderCharacterId: integer("holder_character_id")
+      .notNull()
+      .references(() => characters.id),
+    itemName: text("item_name").notNull(),
+    action: text("action", { enum: ["create", "update", "delete"] }).notNull(),
+    // Whether this row came from a real officer-app sync (applySync) or a
+    // manual add/edit/delete on /bank — the one bank-specific dimension
+    // ledger_audit_log has no equivalent of.
+    source: text("source", { enum: ["manual", "sync"] }).notNull(),
+    changedBy: text("changed_by").references(() => users.id),
+    changedAt: integer("changed_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Whole-row JSON snapshots, not a per-field diff — same convention as
+    // ledgerAuditLog.before/after. create: before null. delete: after
+    // null. update: both set, only what's actually different is
+    // highlighted at the read side.
+    before: text("before", { mode: "json" }),
+    after: text("after", { mode: "json" }),
+  },
+  (table) => [
+    index("bank_audit_log_holder_idx").on(table.holderCharacterId),
+    index("bank_audit_log_changed_at_idx").on(table.changedAt),
+  ],
+);
+
 // Admin-tunable overrides for src/lib/permissions/capabilities.ts's
 // CAPABILITY_GROUPS registry. Deliberately sparse: a row exists only where
 // an admin has changed a (capability, role) pair away from the registry's

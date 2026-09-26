@@ -3,6 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 
 import { bankHoldings, characters, players } from "@/db";
+import { recordBankAuditRow, type BankHoldingSnapshot } from "@/lib/bank/audit";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { isNoDropItem } from "@/lib/eqstat/item-nodrop";
 
@@ -111,7 +112,31 @@ export type HoldingMutationResult = { error?: string; id?: number };
 // holds without the caller having to pick a slot number.
 const manualContainer = "Manual";
 
-export async function createManualHolding(db: Db, input: CreateManualHoldingInput): Promise<HoldingMutationResult> {
+type HoldingSnapshotSource = {
+  container: string;
+  slotIndex: number;
+  category: "item" | "spell" | "currency";
+  itemName: string;
+  itemId: number | null;
+  quantity: number;
+  status: "guild_bank" | "reserved";
+  note: string | null;
+};
+
+function snapshotOf(row: HoldingSnapshotSource): BankHoldingSnapshot {
+  return {
+    container: row.container,
+    slotIndex: row.slotIndex,
+    category: row.category,
+    itemName: row.itemName,
+    itemId: row.itemId,
+    quantity: row.quantity,
+    status: row.status,
+    note: row.note,
+  };
+}
+
+export async function createManualHolding(db: Db, input: CreateManualHoldingInput, changedBy: string): Promise<HoldingMutationResult> {
   const itemName = input.itemName.trim();
   if (!itemName) return { error: "Item name is required." };
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) return { error: "Quantity must be a positive number." };
@@ -141,6 +166,17 @@ export async function createManualHolding(db: Db, input: CreateManualHoldingInpu
     })
     .returning();
 
+  await recordBankAuditRow(db, {
+    holdingId: row.id,
+    holderCharacterId,
+    itemName: row.itemName,
+    action: "create",
+    source: "manual",
+    changedBy,
+    before: null,
+    after: snapshotOf(row),
+  });
+
   return { id: row.id };
 }
 
@@ -155,17 +191,31 @@ export async function updateHolding(
   db: Db,
   id: number,
   input: { status: "guild_bank" | "reserved"; quantity: number; note?: string },
+  changedBy: string,
 ): Promise<HoldingMutationResult> {
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) return { error: "Quantity must be a positive number." };
 
-  const result = await db
+  const [before] = await db.select().from(bankHoldings).where(eq(bankHoldings.id, id));
+  if (!before) return { error: "Not found." };
+
+  const [after] = await db
     .update(bankHoldings)
     .set({ status: input.status, quantity: input.quantity, note: input.note?.trim() || null, updatedAt: new Date() })
     .where(eq(bankHoldings.id, id))
-    .returning({ id: bankHoldings.id });
+    .returning();
 
-  if (result.length === 0) return { error: "Not found." };
-  return { id: result[0].id };
+  await recordBankAuditRow(db, {
+    holdingId: id,
+    holderCharacterId: after.holderCharacterId,
+    itemName: after.itemName,
+    action: "update",
+    source: "manual",
+    changedBy,
+    before: snapshotOf(before),
+    after: snapshotOf(after),
+  });
+
+  return { id: after.id };
 }
 
 // Only a manual row can be deleted here. An imported row's lifecycle is
@@ -173,12 +223,24 @@ export async function updateHolding(
 // would just get silently recreated (or not, if the mule's export
 // genuinely dropped the item) on the next import, so it's not a real
 // delete and shouldn't be offered as one.
-export async function deleteManualHolding(db: Db, id: number): Promise<HoldingMutationResult> {
-  const [existing] = await db.select({ source: bankHoldings.source }).from(bankHoldings).where(eq(bankHoldings.id, id));
+export async function deleteManualHolding(db: Db, id: number, changedBy: string): Promise<HoldingMutationResult> {
+  const [existing] = await db.select().from(bankHoldings).where(eq(bankHoldings.id, id));
   if (!existing) return { error: "Not found." };
   if (existing.source !== "manual") {
     return { error: "Only manually-added rows can be deleted here — an imported row is corrected by re-importing that character's export." };
   }
   await db.delete(bankHoldings).where(eq(bankHoldings.id, id));
+
+  await recordBankAuditRow(db, {
+    holdingId: id,
+    holderCharacterId: existing.holderCharacterId,
+    itemName: existing.itemName,
+    action: "delete",
+    source: "manual",
+    changedBy,
+    before: snapshotOf(existing),
+    after: null,
+  });
+
   return {};
 }

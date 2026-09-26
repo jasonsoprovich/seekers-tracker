@@ -3,6 +3,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bankEqAccountCharacters, bankEqAccounts, bankHoldings, bankImports, bankSlotDesignations, characters, users } from "@/db";
+import { bankAuditStatements, type BankAuditInsert } from "@/lib/bank/audit";
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -287,6 +288,7 @@ export function validateSyncPayload(holders: SyncHolderInput[], config: BankSync
 type ExistingHoldingRow = {
   container: string;
   slotIndex: number;
+  category: "item" | "spell" | "currency";
   itemName: string;
   itemId: number | null;
   quantity: number;
@@ -339,6 +341,73 @@ function diffHolder(characterId: number, existing: ExistingHoldingRow[], incomin
   return { characterId, added, removed, changed, unchanged };
 }
 
+// The item-level audit trail for one holder's sync — same key-matching
+// logic as diffHolder above but with the full snapshot bank_audit_log
+// needs (category/itemId/status/note), not the trimmed shape the officer
+// app's preview UI reads. Kept separate rather than widening diffHolder's
+// own return type: that type is also the JSON contract
+// /api/officer/bank/sync returns to the parser app, and this doesn't need
+// to touch it. carriesOver mirrors applySync's own insert logic exactly
+// (below) so a "changed" row's audited `after` matches what actually got
+// written, not a guess.
+function buildSyncAuditRows(characterId: number, existing: ExistingHoldingRow[], incoming: SyncRowInput[], changedBy: string): BankAuditInsert[] {
+  const existingByKey = new Map(existing.map((r) => [slotKey(r.container, r.slotIndex), r]));
+  const incomingByKey = new Map(incoming.map((r) => [slotKey(r.container, r.slotIndex), r]));
+  const rows: BankAuditInsert[] = [];
+
+  for (const [key, row] of incomingByKey) {
+    const prior = existingByKey.get(key);
+    if (!prior) {
+      rows.push({
+        holderCharacterId: characterId,
+        itemName: row.itemName,
+        action: "create",
+        source: "sync",
+        changedBy,
+        before: null,
+        after: { container: row.container, slotIndex: row.slotIndex, category: row.category, itemName: row.itemName, itemId: row.itemId, quantity: row.quantity, status: "guild_bank", note: null },
+      });
+      continue;
+    }
+    if (prior.itemName !== row.itemName || prior.itemId !== row.itemId || prior.quantity !== row.quantity) {
+      const carriesOver = prior.itemId === row.itemId && prior.itemName === row.itemName;
+      rows.push({
+        holderCharacterId: characterId,
+        itemName: row.itemName,
+        action: "update",
+        source: "sync",
+        changedBy,
+        before: { container: prior.container, slotIndex: prior.slotIndex, category: prior.category, itemName: prior.itemName, itemId: prior.itemId, quantity: prior.quantity, status: prior.status, note: prior.note },
+        after: {
+          container: row.container,
+          slotIndex: row.slotIndex,
+          category: row.category,
+          itemName: row.itemName,
+          itemId: row.itemId,
+          quantity: row.quantity,
+          status: carriesOver ? prior.status : "guild_bank",
+          note: carriesOver ? prior.note : null,
+        },
+      });
+    }
+  }
+
+  for (const [key, prior] of existingByKey) {
+    if (incomingByKey.has(key)) continue;
+    rows.push({
+      holderCharacterId: characterId,
+      itemName: prior.itemName,
+      action: "delete",
+      source: "sync",
+      changedBy,
+      before: { container: prior.container, slotIndex: prior.slotIndex, category: prior.category, itemName: prior.itemName, itemId: prior.itemId, quantity: prior.quantity, status: prior.status, note: prior.note },
+      after: null,
+    });
+  }
+
+  return rows;
+}
+
 // D1 caps a statement at 100 bound parameters. Each inserted row binds 8
 // values (holderCharacterId, category, container, slotIndex, itemName,
 // itemId, quantity, status, note, source, importId — status/note/source
@@ -381,6 +450,7 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
       .select({
         container: bankHoldings.container,
         slotIndex: bankHoldings.slotIndex,
+        category: bankHoldings.category,
         itemName: bankHoldings.itemName,
         itemId: bankHoldings.itemId,
         quantity: bankHoldings.quantity,
@@ -397,6 +467,7 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
       );
 
     diffs.push(diffHolder(holder.characterId, existing, holder.rows));
+    const auditRows = buildSyncAuditRows(holder.characterId, existing, holder.rows, userId);
 
     const existingByKey = new Map(existing.map((r) => [slotKey(r.container, r.slotIndex), r]));
 
@@ -455,6 +526,11 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
       );
     }
 
+    // Item-level audit trail (bank_audit_log) — chunked into the SAME
+    // batch as this holder's holdings delete+insert, so it commits
+    // atomically with the sync it describes.
+    statements.push(...bankAuditStatements(db, auditRows));
+
     if (statements.length === 1) {
       await db.batch([statements[0]] as [BatchItem<"sqlite">]);
     } else {
@@ -472,6 +548,7 @@ export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<A
       .select({
         container: bankHoldings.container,
         slotIndex: bankHoldings.slotIndex,
+        category: bankHoldings.category,
         itemName: bankHoldings.itemName,
         itemId: bankHoldings.itemId,
         quantity: bankHoldings.quantity,

@@ -45,16 +45,20 @@ export async function addManualHoldingAction(input: AddHoldingInput): Promise<Ho
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  const result = await createManualHolding(db, {
-    holderName: input.holderName,
-    category: input.category,
-    itemName: input.itemName,
-    itemId: parseOptionalInt(input.itemId),
-    quantity: Number(input.quantity),
-    classRestriction: input.classRestriction || undefined,
-    status: input.status,
-    note: input.note || undefined,
-  });
+  const result = await createManualHolding(
+    db,
+    {
+      holderName: input.holderName,
+      category: input.category,
+      itemName: input.itemName,
+      itemId: parseOptionalInt(input.itemId),
+      quantity: Number(input.quantity),
+      classRestriction: input.classRestriction || undefined,
+      status: input.status,
+      note: input.note || undefined,
+    },
+    auth.userId,
+  );
   if (result.id != null) {
     await recordSystemEvent(db, await webActor(db, auth.userId), {
       action: "bank.holding.create",
@@ -75,7 +79,7 @@ export async function updateHoldingAction(id: number, input: EditHoldingInput): 
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  const result = await updateHolding(db, id, { status: input.status, quantity: Number(input.quantity), note: input.note || undefined });
+  const result = await updateHolding(db, id, { status: input.status, quantity: Number(input.quantity), note: input.note || undefined }, auth.userId);
   if (result.id != null) {
     await recordSystemEvent(db, await webActor(db, auth.userId), {
       action: "bank.holding.update",
@@ -93,7 +97,7 @@ export async function deleteHoldingAction(id: number): Promise<HoldingMutationRe
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  const result = await deleteManualHolding(db, id);
+  const result = await deleteManualHolding(db, id, auth.userId);
   if (!result.error) {
     await recordSystemEvent(db, await webActor(db, auth.userId), {
       action: "bank.holding.delete",
