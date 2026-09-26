@@ -344,6 +344,27 @@
       "when": 1790001000000,
       "tag": "0048_floor_negative_epgp_balances",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1790282047049,
+      "tag": "0049_bank_eq_accounts_and_designations",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1790355447944,
+      "tag": "0050_good_nitro",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1790441663320,
+      "tag": "0051_thick_sasquatch",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, primaryKey, index, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  primaryKey,
+  index,
+  uniqueIndex,
+  check,
+  type AnySQLiteColumn,
+} from "drizzle-orm/sqlite-core";
 
 // Core fields (email, emailVerified, username/name, avatarUrl/image,
 // createdAt, updatedAt) are required by better-auth's user model — see
@@ -1064,6 +1074,155 @@ export const bankHoldings = sqliteTable(
       table.container,
       table.slotIndex,
     ),
+  ],
+);
+
+// Guild bank sync (PLAN.md §9/§11 Phase 8.4): groups the characters that
+// share one real EQ login account, so that account's SharedBank*/Bank-Coin
+// rows (confirmed account-wide, not per-character — bankHoldings' own
+// comment above) are stored once, under one designated holder, instead of
+// once per mule sharing the account. The officer app auto-suggests a group
+// by comparing SharedBank fingerprints across exports and the officer
+// confirms it here — see bankSlotDesignations below for how a SharedBank
+// container gets flagged guild vs personal for the whole group at once.
+export const bankEqAccounts = sqliteTable("bank_eq_accounts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  label: text("label").notNull(),
+  // The character bank_holdings.holder_character_id uses for this group's
+  // SharedBank1-10/Bank-Coin rows. Must be one of this group's own
+  // characters (enforced in application code, not a DB constraint — SQLite
+  // has no easy cross-table check for "is a member of").
+  sharedBankHolderCharacterId: integer("shared_bank_holder_character_id")
+    .notNull()
+    .references(() => characters.id),
+  updatedBy: text("updated_by")
+    .notNull()
+    .references(() => users.id),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// One row per character belonging to a bank_eq_accounts group. A character
+// can belong to at most one account (PK on characterId alone, not a
+// composite) — matches the real world (one EQ login per character) and
+// keeps "which account is this mule on" a single lookup.
+export const bankEqAccountCharacters = sqliteTable("bank_eq_account_characters", {
+  characterId: integer("character_id")
+    .primaryKey()
+    .references(() => characters.id),
+  eqAccountId: integer("eq_account_id")
+    .notNull()
+    .references(() => bankEqAccounts.id, { onDelete: "cascade" }),
+});
+
+// Which top-level bag/bank slots — or, since the 2026-09-25 officer-feedback
+// pass, individual items within a bag — an officer has flagged as guild
+// property, so the parser app only ever uploads their contents. A row
+// existing here means "guild"; no row means "personal, never synced."
+// Exactly one of characterId/eqAccountId is set: a personal container
+// (General*/Bank1-30) is flagged per character, a SharedBank container is
+// flagged once for the whole account group (bankEqAccounts) since its
+// contents are shared. container is the same string bank_holdings.container
+// uses ("General1", "Bank12", "SharedBank2", or a non-bag location like
+// "Bank-Coin" is never valid here — currency is never synced, see
+// bank/sync.ts's container allowlist).
+//
+// slotIndex mirrors bank_holdings.slot_index: 0 flags the WHOLE container
+// (the bag object and everything in it, or the single loose item sitting
+// directly in that top-level slot); 1..N flags only the item at that one
+// bag slot. A slot-0 flag implies every sub-slot; an officer normally sets
+// one or the other for a given container, not both, though nothing enforces
+// that — BuildSyncRows treats a slot-0 flag as a superset.
+//
+// expectedItemId/expectedItemName record what actually sat at this position
+// the last time it was flagged or synced (the bag itself, for slotIndex 0)
+// — the baseline internal/bankexport/moves.go compares the current export
+// against to detect a bag that's been moved or swapped. Both null until the
+// first scan/sync sets them.
+export const bankSlotDesignations = sqliteTable(
+  "bank_slot_designations",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    characterId: integer("character_id").references(() => characters.id, { onDelete: "cascade" }),
+    eqAccountId: integer("eq_account_id").references(() => bankEqAccounts.id, { onDelete: "cascade" }),
+    container: text("container").notNull(),
+    slotIndex: integer("slot_index").notNull().default(0),
+    expectedItemId: integer("expected_item_id"),
+    expectedItemName: text("expected_item_name"),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => users.id),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    check(
+      "bank_slot_designations_owner_xor",
+      sql`(${table.characterId} IS NULL) != (${table.eqAccountId} IS NULL)`,
+    ),
+    uniqueIndex("bank_slot_designations_character_container_slot_unique").on(
+      table.characterId,
+      table.container,
+      table.slotIndex,
+    ),
+    uniqueIndex("bank_slot_designations_eq_account_container_slot_unique").on(
+      table.eqAccountId,
+      table.container,
+      table.slotIndex,
+    ),
+  ],
+);
+
+// Item-level history for the guild bank — deliberately its OWN table, not
+// a row shape shared with ledger_audit_log (EP/GP) or folded into
+// system_event_log (the generic admin-only debugging log, which already
+// gets one coarse "N holders, M rows synced" summary per sync via
+// bank.import — see src/lib/system-log/events.ts). Every real sync writes
+// one row here PER ITEM added/removed/changed (src/lib/bank/sync.ts's
+// applySync), and every manual add/edit/delete (src/lib/bank/holdings.ts)
+// writes one too — so "what's actually in the guild bank, and who put it
+// there or took it out" has a real per-item trail, member-visible on
+// /bank's own Audit tab, the same transparency posture as the EPGP
+// ledger's Audit Trail.
+//
+// No FK on holdingId — a delete's (or a sync's replace-away's) audit row
+// must survive after the bank_holdings row it describes is gone, same
+// reasoning as ledgerAuditLog.ledgerId. holderCharacterId DOES have a real
+// FK: characters are never hard-deleted in this app (see
+// removeMemberFromGuild's history), so it's safe to join on and gives the
+// read side a holder name/filter without parsing JSON. itemName is
+// likewise denormalized (not just inside before/after) so it survives a
+// delete and is directly searchable/sortable.
+export const bankAuditLog = sqliteTable(
+  "bank_audit_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    holdingId: integer("holding_id"),
+    holderCharacterId: integer("holder_character_id")
+      .notNull()
+      .references(() => characters.id),
+    itemName: text("item_name").notNull(),
+    action: text("action", { enum: ["create", "update", "delete"] }).notNull(),
+    // Whether this row came from a real officer-app sync (applySync) or a
+    // manual add/edit/delete on /bank — the one bank-specific dimension
+    // ledger_audit_log has no equivalent of.
+    source: text("source", { enum: ["manual", "sync"] }).notNull(),
+    changedBy: text("changed_by").references(() => users.id),
+    changedAt: integer("changed_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Whole-row JSON snapshots, not a per-field diff — same convention as
+    // ledgerAuditLog.before/after. create: before null. delete: after
+    // null. update: both set, only what's actually different is
+    // highlighted at the read side.
+    before: text("before", { mode: "json" }),
+    after: text("after", { mode: "json" }),
+  },
+  (table) => [
+    index("bank_audit_log_holder_idx").on(table.holderCharacterId),
+    index("bank_audit_log_changed_at_idx").on(table.changedAt),
   ],
 );
 

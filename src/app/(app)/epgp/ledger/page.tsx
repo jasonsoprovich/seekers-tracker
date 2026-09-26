@@ -6,10 +6,10 @@ import { redirect } from "next/navigation";
 import { AddLedgerEntryForm } from "@/components/epgp/AddLedgerEntryForm";
 import { AuditLogTable, type AuditLogRow } from "@/components/epgp/AuditLogTable";
 import { BidHistoryTable } from "@/components/epgp/BidHistoryTable";
+import { LedgerSearchBox } from "@/components/epgp/LedgerSearchBox";
 import { LedgerTable, type EpRow, type GpRow } from "@/components/epgp/LedgerTable";
 import { TotalsTable } from "@/components/epgp/TotalsTable";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { fieldClasses } from "@/components/ui/Field";
 import { characters, epgpPointValues, gpLedger, ledgerAuditLog, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { getTotalsRows, listBidHistory, listLedgerRows } from "@/lib/epgp/ledger-list";
@@ -185,21 +185,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         </div>
 
         {activeTab.searchPlaceholder && (
-          <form method="get" className="flex items-end gap-2">
-            <input type="hidden" name="type" value={type} />
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Search</span>
-              <input type="text" name="q" defaultValue={term} placeholder={activeTab.searchPlaceholder} className={`${fieldClasses({ size: "sm" })} w-56`} />
-            </label>
-            <button type="submit" className="rounded-md border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60">
-              Search
-            </button>
-            {term && (
-              <Link href={pageHref({ q: "", page: 1 })} className="rounded-md border border-field px-3 py-1.5 text-sm font-medium text-neutral-300 hover:bg-neutral-900/60">
-                Clear filters
-              </Link>
-            )}
-          </form>
+          <LedgerSearchBox key={type} initialQuery={term} placeholder={activeTab.searchPlaceholder} />
         )}
       </div>
 

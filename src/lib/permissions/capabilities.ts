@@ -137,8 +137,8 @@ export const CAPABILITIES = {
   },
   "epgp.bank.manage": {
     group: "EPGP",
-    label: "Manage Sky Bank holdings",
-    description: "Add, edit, or remove guild bank inventory rows.",
+    label: "Manage guild bank holdings",
+    description: "Add, edit, or remove guild bank inventory rows, including syncing them from the officer app's inventory exports.",
     defaults: ["officer", "leader"],
   },
   "epgp.officerApi": {
