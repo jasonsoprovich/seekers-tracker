@@ -1,0 +1,1 @@
+ALTER TABLE `bank_audit_log` ADD `note` text;

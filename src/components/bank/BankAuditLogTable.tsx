@@ -14,6 +14,7 @@ export type BankAuditLogRow = {
   changedByName: string | null;
   before: unknown;
   after: unknown;
+  note: string | null;
 };
 
 // Fields worth showing in the trail, in display order — mirrors
@@ -60,6 +61,15 @@ const ACTION_STYLE: Record<BankAuditLogRow["action"], string> = {
   delete: "text-red-400",
 };
 
+// Guild-bank-appropriate language for officers, not raw CRUD verbs — the
+// stored `action` value (schema.ts's bank_audit_log.action enum) is
+// unchanged, this is a display-only relabel.
+const ACTION_LABEL: Record<BankAuditLogRow["action"], string> = {
+  create: "Add",
+  update: "Edit",
+  delete: "Remove",
+};
+
 const SOURCE_LABEL: Record<BankAuditLogRow["source"], string> = {
   sync: "Officer app sync",
   manual: "Manual entry",
@@ -96,6 +106,7 @@ export function BankAuditLogTable({ rows }: { rows: BankAuditLogRow[] }) {
             <SortableTh className="px-3 py-2" label="Holder" sortKey="holder" sort={sort} onSort={toggle} />
             <SortableTh className="px-3 py-2" label="Item" sortKey="item" sort={sort} onSort={toggle} />
             <th className="px-3 py-2 font-medium">Change</th>
+            <th className="px-3 py-2 font-medium">Note</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -106,7 +117,7 @@ export function BankAuditLogTable({ rows }: { rows: BankAuditLogRow[] }) {
                 <td className="px-3 py-2 whitespace-nowrap text-neutral-400">{guildDateTime(r.changedAt)}</td>
                 <td className="px-3 py-2 font-medium">{r.changedByName ?? "—"}</td>
                 <td className="px-3 py-2 text-neutral-400">{SOURCE_LABEL[r.source]}</td>
-                <td className={`px-3 py-2 font-medium ${ACTION_STYLE[r.action]}`}>{r.action}</td>
+                <td className={`px-3 py-2 font-medium ${ACTION_STYLE[r.action]}`}>{ACTION_LABEL[r.action]}</td>
                 <td className="px-3 py-2">{r.holderName}</td>
                 <td className="px-3 py-2">{r.itemName}</td>
                 <td className="px-3 py-2 text-neutral-300">
@@ -119,12 +130,13 @@ export function BankAuditLogTable({ rows }: { rows: BankAuditLogRow[] }) {
                     ))}
                   </div>
                 </td>
+                <td className="px-3 py-2 text-neutral-400">{r.note ?? "—"}</td>
               </tr>
             );
           })}
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={7} className="px-3 py-6 text-center text-neutral-500">
+              <td colSpan={8} className="px-3 py-6 text-center text-neutral-500">
                 No bank changes recorded for this filter.
               </td>
             </tr>

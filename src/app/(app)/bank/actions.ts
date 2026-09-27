@@ -33,6 +33,9 @@ export type AddHoldingInput = {
   classRestriction: string;
   status: "guild_bank" | "reserved";
   note: string;
+  // Audit-log context, e.g. "donated by Thoric" — distinct from `note`
+  // above, which is the holding's own persistent note.
+  auditNote: string;
 };
 
 // PLAN.md §11 task 8.6 — manual add/edit for items no export captures.
@@ -56,6 +59,7 @@ export async function addManualHoldingAction(input: AddHoldingInput): Promise<Ho
       classRestriction: input.classRestriction || undefined,
       status: input.status,
       note: input.note || undefined,
+      auditNote: input.auditNote || undefined,
     },
     auth.userId,
   );
@@ -72,14 +76,19 @@ export async function addManualHoldingAction(input: AddHoldingInput): Promise<Ho
   return result;
 }
 
-export type EditHoldingInput = { status: "guild_bank" | "reserved"; quantity: string; note: string };
+export type EditHoldingInput = { status: "guild_bank" | "reserved"; quantity: string; note: string; auditNote: string };
 
 export async function updateHoldingAction(id: number, input: EditHoldingInput): Promise<HoldingMutationResult> {
   const auth = await requireManager();
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  const result = await updateHolding(db, id, { status: input.status, quantity: Number(input.quantity), note: input.note || undefined }, auth.userId);
+  const result = await updateHolding(
+    db,
+    id,
+    { status: input.status, quantity: Number(input.quantity), note: input.note || undefined, auditNote: input.auditNote || undefined },
+    auth.userId,
+  );
   if (result.id != null) {
     await recordSystemEvent(db, await webActor(db, auth.userId), {
       action: "bank.holding.update",
@@ -92,12 +101,12 @@ export async function updateHoldingAction(id: number, input: EditHoldingInput): 
   return result;
 }
 
-export async function deleteHoldingAction(id: number): Promise<HoldingMutationResult> {
+export async function deleteHoldingAction(id: number, auditNote?: string): Promise<HoldingMutationResult> {
   const auth = await requireManager();
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  const result = await deleteManualHolding(db, id, auth.userId);
+  const result = await deleteManualHolding(db, id, auth.userId, auditNote);
   if (!result.error) {
     await recordSystemEvent(db, await webActor(db, auth.userId), {
       action: "bank.holding.delete",

@@ -41,6 +41,10 @@ export type BankAuditInsert = {
   changedBy: string;
   before: BankHoldingSnapshot | null;
   after: BankHoldingSnapshot | null;
+  // Officer-entered context for this specific event — e.g. "donated by
+  // Thoric" on a create, "given to Kessra" on a delete. Manual rows only;
+  // a sync-sourced row never carries one (see schema.ts's column comment).
+  note?: string | null;
 };
 
 // For a single mutation outside an existing db.batch() (the manual add/
@@ -59,6 +63,7 @@ export async function recordBankAuditRow(db: Db, row: BankAuditInsert): Promise<
     changedBy: row.changedBy,
     before: row.before,
     after: row.after,
+    note: row.note ?? null,
   });
 }
 
@@ -88,6 +93,7 @@ export function bankAuditStatements(db: Db, rows: BankAuditInsert[]): BatchItem<
           changedBy: row.changedBy,
           before: row.before,
           after: row.after,
+          note: row.note ?? null,
         })),
       ),
     );
@@ -106,6 +112,7 @@ export type BankAuditRow = {
   changedByName: string | null;
   before: unknown;
   after: unknown;
+  note: string | null;
 };
 
 // Backs /bank's Audit tab — member-visible, same transparency posture as
@@ -129,6 +136,7 @@ export async function listBankAuditLog(
         like(sql`lower(coalesce(${changedByName}, ''))`, `%${term}%`),
         like(sql`lower(${bankAuditLog.action})`, `%${term}%`),
         like(sql`lower(${bankAuditLog.source})`, `%${term}%`),
+        like(sql`lower(coalesce(${bankAuditLog.note}, ''))`, `%${term}%`),
       )
     : undefined;
 
@@ -144,6 +152,7 @@ export async function listBankAuditLog(
       changedByName,
       before: bankAuditLog.before,
       after: bankAuditLog.after,
+      note: bankAuditLog.note,
     })
     .from(bankAuditLog)
     .innerJoin(characters, eq(characters.id, bankAuditLog.holderCharacterId))

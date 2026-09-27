@@ -5,7 +5,7 @@ import { Fragment, useMemo, useState } from "react";
 
 import { addManualHoldingAction, deleteHoldingAction, retireSheetRowsAction, updateHoldingAction, type AddHoldingInput } from "@/app/(app)/bank/actions";
 import { Button } from "@/components/ui/Button";
-import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useConfirm, useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
 
@@ -59,6 +59,7 @@ const emptyAddForm: AddHoldingInput = {
   classRestriction: "",
   status: "guild_bank",
   note: "",
+  auditNote: "",
 };
 
 // ---------------------------------------------------------------------
@@ -170,11 +171,11 @@ export function BankBrowseTable({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const confirmWith = useConfirmWith();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [holderFilter, setHolderFilter] = useState<string>("all");
-  const [classFilter, setClassFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("guild_bank");
   const [hideNoDrop, setHideNoDrop] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("holderName");
@@ -189,6 +190,7 @@ export function BankBrowseTable({
   const [editStatus, setEditStatus] = useState<"guild_bank" | "reserved">("guild_bank");
   const [editQuantity, setEditQuantity] = useState("1");
   const [editNote, setEditNote] = useState("");
+  const [editAuditNote, setEditAuditNote] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [retiringId, setRetiringId] = useState<number | "all" | null>(null);
 
@@ -212,11 +214,6 @@ export function BankBrowseTable({
     () => [...lastImports].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [lastImports],
   );
-  const classRestrictions = useMemo(
-    () => [...new Set(holdings.map((h) => h.classRestriction).filter((c): c is string => !!c))].sort(),
-    [holdings],
-  );
-
   // 2026-09-25 sheet-to-sync transition: holders that still have a sheet-
   // imported row (source='import', importId null — see holdings.ts's
   // fromSheet). A holder's first real sync already clears these
@@ -240,12 +237,11 @@ export function BankBrowseTable({
       }
       if (categoryFilter !== "all" && h.category !== categoryFilter) return false;
       if (holderFilter !== "all" && h.holderName !== holderFilter) return false;
-      if (classFilter !== "all" && h.classRestriction !== classFilter) return false;
       if (statusFilter !== "all" && h.status !== statusFilter) return false;
       if (hideNoDrop && h.noDrop) return false;
       return true;
     });
-  }, [holdings, search, categoryFilter, holderFilter, classFilter, statusFilter, hideNoDrop]);
+  }, [holdings, search, categoryFilter, holderFilter, statusFilter, hideNoDrop]);
 
   const groups = useMemo(() => buildGroups(filteredRows), [filteredRows]);
   const sortedGroups = useMemo(() => {
@@ -290,13 +286,14 @@ export function BankBrowseTable({
     setEditStatus(row.status);
     setEditQuantity(String(row.quantity));
     setEditNote(row.note ?? "");
+    setEditAuditNote("");
     setEditError(null);
   }
 
   async function saveEdit(id: number) {
     setPending(true);
     setEditError(null);
-    const outcome = await updateHoldingAction(id, { status: editStatus, quantity: editQuantity, note: editNote });
+    const outcome = await updateHoldingAction(id, { status: editStatus, quantity: editQuantity, note: editNote, auditNote: editAuditNote });
     setPending(false);
     if (outcome.error) {
       setEditError(outcome.error);
@@ -307,15 +304,16 @@ export function BankBrowseTable({
   }
 
   async function onDelete(row: BankHoldingRow) {
-    const ok = await confirm({
+    const result = await confirmWith({
       title: "Remove holding?",
       message: `Remove "${row.itemName}" from ${row.holderName}'s manual entries?`,
       confirmLabel: "Remove",
       danger: true,
+      textInput: { label: "Note (optional) — e.g. who received this item", placeholder: "Given to…" },
     });
-    if (!ok) return;
+    if (!result.ok) return;
     setPending(true);
-    const outcome = await deleteHoldingAction(row.id);
+    const outcome = await deleteHoldingAction(row.id, result.note || undefined);
     setPending(false);
     if (outcome.error) {
       alert(outcome.error);
@@ -345,10 +343,10 @@ export function BankBrowseTable({
     router.refresh();
   }
 
-  function renderRowCells(row: BankHoldingRow, isEditing: boolean) {
+  function renderRowCells(row: BankHoldingRow, isEditing: boolean, isNested = false) {
     return (
       <>
-        <td className="px-3 py-2 font-medium">{row.holderName}</td>
+        <td className={`py-2 font-medium ${isNested ? "border-l-2 border-l-emerald-700/50 pl-6 pr-3" : "px-3"}`}>{row.holderName}</td>
         <td className="px-3 py-2 text-neutral-400">{row.ownerMainName ?? "—"}</td>
         <td className="px-3 py-2 text-neutral-400 capitalize">{row.category}</td>
         <td className="px-3 py-2">
@@ -394,7 +392,6 @@ export function BankBrowseTable({
           )}
         </td>
         <td className="px-3 py-2 text-neutral-500">{formatLocation(row.container, row.slotIndex)}</td>
-        <td className="px-3 py-2 text-neutral-500">{row.classRestriction ?? "—"}</td>
         <td className="px-3 py-2 text-neutral-500">
           {isEditing ? (
             <input value={editNote} onChange={(e) => setEditNote(e.target.value)} className={`${fieldClasses({ size: "sm" })} w-32`} />
@@ -406,6 +403,13 @@ export function BankBrowseTable({
           <td className="px-3 py-2">
             {isEditing ? (
               <div className="flex items-center gap-2">
+                <input
+                  value={editAuditNote}
+                  onChange={(e) => setEditAuditNote(e.target.value)}
+                  placeholder="Audit note (optional)"
+                  title="Context for this edit's audit-log entry — e.g. who donated it"
+                  className={`${fieldClasses({ size: "sm" })} w-32`}
+                />
                 <Button type="button" size="sm" onClick={() => saveEdit(row.id)} disabled={pending}>
                   Save
                 </Button>
@@ -432,7 +436,7 @@ export function BankBrowseTable({
     );
   }
 
-  const totalColumns = 1 + COLUMNS.length + 3 + (canManage ? 1 : 0);
+  const totalColumns = 1 + COLUMNS.length + 2 + (canManage ? 1 : 0);
 
   return (
     <div>
@@ -519,18 +523,6 @@ export function BankBrowseTable({
             {holderNames.map((name) => (
               <option key={name} value={name}>
                 {name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-neutral-400">Class</span>
-          <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className={fieldClasses({ size: "sm" })}>
-            <option value="all">All classes</option>
-            {classRestrictions.map((c) => (
-              <option key={c} value={c}>
-                {c}
               </option>
             ))}
           </select>
@@ -640,6 +632,16 @@ export function BankBrowseTable({
               className={fieldClasses({ size: "sm" })}
             />
           </label>
+          <label className="flex flex-1 min-w-[160px] flex-col gap-1 text-sm">
+            <span className="text-neutral-400">Audit note (optional)</span>
+            <input
+              value={addForm.auditNote}
+              onChange={(e) => setAddForm({ ...addForm, auditNote: e.target.value })}
+              placeholder="e.g. donated by…"
+              title="Context for this add's audit-log entry — e.g. who donated it"
+              className={fieldClasses({ size: "sm" })}
+            />
+          </label>
           <Button type="submit" size="sm" disabled={pending}>
             {pending ? "Saving…" : "Add"}
           </Button>
@@ -661,7 +663,6 @@ export function BankBrowseTable({
                 </th>
               ))}
               <th className="px-3 py-2 font-medium">Location</th>
-              <th className="px-3 py-2 font-medium">Class</th>
               <th className="px-3 py-2 font-medium">Note</th>
               {canManage && <th className="px-3 py-2 font-medium">Actions</th>}
             </tr>
@@ -722,7 +723,6 @@ export function BankBrowseTable({
                       )}
                     </td>
                     <td className="px-3 py-2 text-neutral-500">{g.rows.length} slots</td>
-                    <td className="px-3 py-2 text-neutral-500">{g.classMixed ? "mixed" : (g.classRestriction ?? "—")}</td>
                     <td className="px-3 py-2 text-neutral-500">—</td>
                     {canManage && <td className="px-3 py-2 text-neutral-600">expand to edit</td>}
                   </tr>
@@ -730,9 +730,9 @@ export function BankBrowseTable({
                     g.rows.map((row) => {
                       const isEditing = editingId === row.id;
                       return (
-                        <tr key={row.id} className="bg-neutral-950/10 text-neutral-300">
+                        <tr key={row.id} className="bg-neutral-900/30 text-neutral-300">
                           <td className="px-2 py-2" />
-                          {renderRowCells(row, isEditing)}
+                          {renderRowCells(row, isEditing, true)}
                         </tr>
                       );
                     })}

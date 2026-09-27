@@ -17,9 +17,13 @@ export type BankHoldingRow = {
   // The main character tied to the holder's account, if any — 2026-09-25
   // officer feedback: "Darkseller may be a mule for the main character
   // Darkmule" — members need to know who to actually contact. Resolved
-  // characters.player_id -> players.main_character_id -> characters.name;
-  // null when the holder has no player account at all (never synced/
-  // claimed) or that player has no main set yet.
+  // characters.player_id -> players.main_character_id -> characters.name,
+  // falling back to the holder's own characters.main_character_id ->
+  // characters.name when that chain comes up empty (see listBankHoldings'
+  // comment on that fallback — a real, not-uncommon split where a
+  // character's player_id points at a different players row than the one
+  // its owner actually logged in under). Null only when NEITHER resolves —
+  // the holder has no player account and no direct main pointer at all.
   ownerMainName: string | null;
   category: "item" | "spell";
   container: string;
@@ -43,6 +47,18 @@ export type BankHoldingRow = {
 };
 
 const mainCharacters = alias(characters, "main_characters");
+// Fallback path for listBankHoldings' Main column — see its comment.
+// Roster's own alt→main grouping already learned this lesson (2026-08-29,
+// "Alt→main roster grouping fix" in this repo's CLAUDE.md): a character's
+// OWN main_character_id is the more direct, always-current signal for
+// "who does this belong to," whereas the player_id -> players.main_
+// character_id chain can drift when a character's player_id points at a
+// different players row than the one its owner's login actually resolved
+// to (a real, not-uncommon split — resolvePlayerForUser/attachCharacterTo
+// Player don't guarantee every character on an account shares one players
+// row). Both chains are tried; the direct one wins when the indirect one
+// comes up empty.
+const directMainCharacters = alias(characters, "direct_main_characters");
 
 // PLAN.md §11 task 8.5 — every holding, joined with its holder character
 // (and, transitively, the holder's account's main character) so the
@@ -61,7 +77,7 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
       holderCharacterId: bankHoldings.holderCharacterId,
       holderName: characters.name,
       holderCharType: characters.charType,
-      ownerMainName: mainCharacters.name,
+      ownerMainName: sql<string | null>`coalesce(${mainCharacters.name}, ${directMainCharacters.name})`,
       category: bankHoldings.category,
       container: bankHoldings.container,
       slotIndex: bankHoldings.slotIndex,
@@ -78,6 +94,7 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
     .innerJoin(characters, eq(bankHoldings.holderCharacterId, characters.id))
     .leftJoin(players, eq(characters.playerId, players.id))
     .leftJoin(mainCharacters, eq(players.mainCharacterId, mainCharacters.id))
+    .leftJoin(directMainCharacters, eq(characters.mainCharacterId, directMainCharacters.id))
     .where(ne(bankHoldings.category, "currency"))
     .orderBy(characters.name, bankHoldings.container, bankHoldings.slotIndex);
 
@@ -98,6 +115,10 @@ export type CreateManualHoldingInput = {
   classRestriction?: string;
   status: "guild_bank" | "reserved";
   note?: string;
+  // Context for the audit-log row itself (e.g. "donated by Thoric") —
+  // distinct from `note` above, which is the holding's own persistent
+  // note shown on /bank.
+  auditNote?: string;
 };
 
 export type HoldingMutationResult = { error?: string; id?: number };
@@ -175,6 +196,7 @@ export async function createManualHolding(db: Db, input: CreateManualHoldingInpu
     changedBy,
     before: null,
     after: snapshotOf(row),
+    note: input.auditNote?.trim() || null,
   });
 
   return { id: row.id };
@@ -190,7 +212,7 @@ export async function createManualHolding(db: Db, input: CreateManualHoldingInpu
 export async function updateHolding(
   db: Db,
   id: number,
-  input: { status: "guild_bank" | "reserved"; quantity: number; note?: string },
+  input: { status: "guild_bank" | "reserved"; quantity: number; note?: string; auditNote?: string },
   changedBy: string,
 ): Promise<HoldingMutationResult> {
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) return { error: "Quantity must be a positive number." };
@@ -213,6 +235,7 @@ export async function updateHolding(
     changedBy,
     before: snapshotOf(before),
     after: snapshotOf(after),
+    note: input.auditNote?.trim() || null,
   });
 
   return { id: after.id };
@@ -223,7 +246,7 @@ export async function updateHolding(
 // would just get silently recreated (or not, if the mule's export
 // genuinely dropped the item) on the next import, so it's not a real
 // delete and shouldn't be offered as one.
-export async function deleteManualHolding(db: Db, id: number, changedBy: string): Promise<HoldingMutationResult> {
+export async function deleteManualHolding(db: Db, id: number, changedBy: string, auditNote?: string): Promise<HoldingMutationResult> {
   const [existing] = await db.select().from(bankHoldings).where(eq(bankHoldings.id, id));
   if (!existing) return { error: "Not found." };
   if (existing.source !== "manual") {
@@ -240,6 +263,7 @@ export async function deleteManualHolding(db: Db, id: number, changedBy: string)
     changedBy,
     before: snapshotOf(existing),
     after: null,
+    note: auditNote?.trim() || null,
   });
 
   return {};

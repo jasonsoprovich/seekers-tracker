@@ -1219,6 +1219,14 @@ export const bankAuditLog = sqliteTable(
     // highlighted at the read side.
     before: text("before", { mode: "json" }),
     after: text("after", { mode: "json" }),
+    // Officer-entered context for a manual add/edit/delete — e.g. who
+    // donated an item that was added, or who received one that was
+    // removed. Distinct from bank_holdings.note (the holding's own,
+    // persistent note, captured into before/after above): this is a note
+    // about the AUDIT EVENT itself, entered at the moment of the action.
+    // Null on every sync-sourced row — a real sync writes dozens of rows
+    // per holder with no officer present to annotate any of them.
+    note: text("note"),
   },
   (table) => [
     index("bank_audit_log_holder_idx").on(table.holderCharacterId),

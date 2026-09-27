@@ -15,11 +15,16 @@ export type ConfirmOptions = {
   // Its final state comes back through useConfirmWith(); plain
   // useConfirm() callers ignore it.
   checkbox?: { label: string; defaultChecked?: boolean };
+  // Optional free-text field inside the dialog (e.g. "who received this
+  // item?" on a bank-holding delete). Its final value comes back through
+  // useConfirmWith(); plain useConfirm() callers ignore it. Same
+  // alongside-yes/no shape as `checkbox` above.
+  textInput?: { label: string; placeholder?: string };
 };
 
-export type ConfirmResult = { ok: boolean; checked: boolean };
+export type ConfirmResult = { ok: boolean; checked: boolean; note: string };
 
-type ConfirmState = ConfirmOptions & { resolve: (value: ConfirmResult) => void; checked: boolean };
+type ConfirmState = ConfirmOptions & { resolve: (value: ConfirmResult) => void; checked: boolean; note: string };
 
 const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<ConfirmResult>) | null>(null);
 
@@ -53,7 +58,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback((opts: ConfirmOptions) => {
     return new Promise<ConfirmResult>((resolve) => {
-      setState({ ...opts, resolve, checked: opts.checkbox?.defaultChecked ?? false });
+      setState({ ...opts, resolve, checked: opts.checkbox?.defaultChecked ?? false, note: "" });
     });
   }, []);
 
@@ -69,7 +74,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 
   function settle(ok: boolean) {
     setState((current) => {
-      current?.resolve({ ok, checked: current.checked });
+      current?.resolve({ ok, checked: current.checked, note: current.note });
       return null;
     });
   }
@@ -110,10 +115,26 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                 {state.checkbox.label}
               </label>
             )}
+            {state.textInput && (
+              <label className="mt-3 flex flex-col gap-1 text-sm text-neutral-300">
+                {state.textInput.label}
+                <input
+                  type="text"
+                  autoFocus
+                  value={state.note}
+                  placeholder={state.textInput.placeholder}
+                  onChange={(e) => {
+                    const note = e.target.value;
+                    setState((current) => (current ? { ...current, note } : current));
+                  }}
+                  className="rounded-md border border-field bg-neutral-950 px-2.5 py-1.5 text-sm text-neutral-100 outline-none focus:border-accent"
+                />
+              </label>
+            )}
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
-                autoFocus
+                autoFocus={!state.textInput}
                 onClick={() => settle(false)}
                 className="rounded-full border border-field px-4 py-1.5 text-sm font-medium text-neutral-300 transition-colors hover:border-neutral-500"
               >
