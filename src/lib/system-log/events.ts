@@ -82,7 +82,7 @@ export const SYSTEM_EVENTS = {
   "bank.designations.update": { category: "bank", label: "Bank slot designations changed" },
   "bank.account.update": { category: "bank", label: "Bank EQ account group changed" },
   "bank.account.delete": { category: "bank", label: "Bank EQ account group deleted" },
-  "bank.sheet_rows.retire": { category: "bank", label: "Sheet-imported bank rows retired" },
+  "bank.unverified.remove": { category: "bank", label: "Unverified bank item(s) removed" },
 
   // --- System --------------------------------------------------------
   "system.apikey.revoke": { category: "system", label: "API keys revoked" },

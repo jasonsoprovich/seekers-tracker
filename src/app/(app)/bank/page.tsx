@@ -6,9 +6,8 @@ import { BankBrowseTable } from "@/components/bank/BankBrowseTable";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { fieldClasses } from "@/components/ui/Field";
 import { listBankAuditLog } from "@/lib/bank/audit";
-import { BANK_UNDER_CONSTRUCTION } from "@/lib/bank/constants";
 import { listBankHoldings } from "@/lib/bank/holdings";
-import { loadBankConfig } from "@/lib/bank/sync";
+import { hasUnverifiedBankRows, loadBankConfig } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -34,19 +33,27 @@ type SearchParams = { tab?: string; q?: string; page?: string };
 //
 // "Audit" (2026-09-26) is the item-level history behind these numbers —
 // every add/remove/change a real sync or a manual edit has made
-// (bank_audit_log, src/lib/bank/audit.ts). Member-visible like the tab
-// next to it, and deliberately its OWN table/query — see that schema
-// comment for why this isn't the EPGP ledger's Audit Trail or the
-// admin-only System Log.
+// (bank_audit_log, src/lib/bank/audit.ts). Officer/leader/admin-only as of
+// 2026-09-27 (epgp.bank.audit.view — Jason's own call: "for now lets leave
+// this as visible to only officers, guild leaders and admin," reachable
+// for members later via a one-capability-default flip, not a rewrite of
+// this page). Deliberately its OWN table/query — see that schema comment
+// for why this isn't the EPGP ledger's Audit Trail or the admin-only
+// System Log.
 export default async function BankPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
   const perms = await getPermissions(session.user.id);
+  const canViewAudit = perms.can("epgp.bank.audit.view");
   const db = await getDb();
 
   const { tab: tabParam, q = "", page: pageParam } = await searchParams;
-  const tab: TabType = tabParam === "audit" ? "audit" : "browse";
+  // Never trust the requested tab alone — a member hand-editing ?tab=audit
+  // into the URL falls back to Browse server-side, same as every other
+  // capability gate in this app (the tab link below is also just hidden,
+  // belt-and-suspenders, not the actual enforcement).
+  const tab: TabType = tabParam === "audit" && canViewAudit ? "audit" : "browse";
   const page = Math.max(1, Number(pageParam) || 1);
   const term = q.trim();
 
@@ -61,8 +68,12 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
   let holdings: Awaited<ReturnType<typeof listBankHoldings>> = [];
   let lastImports: { characterId: number; sourceFile: string | null; rowCount: number; reportsSharedBank: boolean; uploadedByName: string | null; createdAt: string }[] = [];
-  let auditRows: Awaited<ReturnType<typeof listBankAuditLog>>["rows"] = [];
+  let auditBatches: Awaited<ReturnType<typeof listBankAuditLog>>["batches"] = [];
   let hasNext = false;
+
+  // Needed on every tab, not just Browse — the "under construction" banner
+  // renders above the tab content regardless of which one is active.
+  const underConstruction = await hasUnverifiedBankRows(db);
 
   if (tab === "browse") {
     const [holdingRows, bankConfig] = await Promise.all([listBankHoldings(db), loadBankConfig(db)]);
@@ -70,7 +81,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
     lastImports = [...bankConfig.lastImports.values()].map((info) => ({ ...info, createdAt: info.createdAt.toISOString() }));
   } else {
     const result = await listBankAuditLog(db, { q: term, page, pageSize: PAGE_SIZE });
-    auditRows = result.rows;
+    auditBatches = result.batches;
     hasNext = result.hasNext;
   }
 
@@ -80,7 +91,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         title="Guild Bank"
         subtitle="Items and spells held across the guild's mules. Synced from in-game inventory exports via the officer app's Guild Bank tab, plus anything an officer's added by hand."
       />
-      {BANK_UNDER_CONSTRUCTION && (
+      {underConstruction && (
         <div className="mb-4 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
           <span className="font-semibold">Guild bank under construction</span> — items may not be fully in sync while the
           transition from the old spreadsheet to live officer syncs is in progress.
@@ -89,7 +100,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
       <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          {(["browse", "audit"] as const).map((t) => (
+          {(["browse", ...(canViewAudit ? (["audit"] as const) : [])] as const).map((t) => (
             <Link
               key={t}
               href={pageHref({ tab: t, page: 1, q: "" })}
@@ -119,7 +130,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
       <div className="mt-4">
         {tab === "browse" && <BankBrowseTable holdings={holdings} canManage={perms.can("epgp.bank.manage")} lastImports={lastImports} />}
-        {tab === "audit" && <BankAuditLogTable rows={auditRows} />}
+        {tab === "audit" && <BankAuditLogTable batches={auditBatches} />}
       </div>
 
       {tab === "audit" && (

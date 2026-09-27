@@ -1064,6 +1064,26 @@ export const bankHoldings = sqliteTable(
     note: text("note"),
     source: text("source", { enum: ["manual", "import"] }).notNull(),
     importId: integer("import_id").references(() => bankImports.id),
+    // The sheet's original comma-list location string for this row
+    // ("Bank3-Slot2") — only ever set on a sheet-migrated row
+    // (import-bank-tabs.ts). Migration 0053 moved every sheet/manual row's
+    // container to "Sheet"/"Manual" (a running per-holder slot_index, not a
+    // real bag position) so an unverified row can never collide with a real
+    // synced row landing in the same physical slot; this column is what
+    // lets sync.ts's reconcileUnverified still recognize "this sheet row
+    // and this incoming synced row are probably the same physical item"
+    // even though their container/slotIndex no longer literally match.
+    legacyLocation: text("legacy_location"),
+    // Set by applySync when a holder's sync completes and this row (a sheet
+    // or manual row still unverified) didn't match anything in the new
+    // sync — an officer needs to either flag the right bag and re-sync, or
+    // remove the row with a note (2026-09-27 officer feedback: never
+    // silently delete). Cleared the moment a later sync DOES match it.
+    // NULL for a genuinely verified row, or a sheet/manual row that simply
+    // hasn't been through a sync of this holder yet (see holdings.ts/
+    // sync.ts's "unverified state" resolution — pending vs not-found is a
+    // read-time distinction, not a separate column).
+    notFoundSince: integer("not_found_since", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -1204,7 +1224,13 @@ export const bankAuditLog = sqliteTable(
       .notNull()
       .references(() => characters.id),
     itemName: text("item_name").notNull(),
-    action: text("action", { enum: ["create", "update", "delete"] }).notNull(),
+    // "verify" (2026-09-27): a sync matched this item against an existing
+    // unverified sheet/manual row instead of that row being a plain
+    // delete and the synced item a plain create — before/after carry the
+    // unverified snapshot and the newly-synced snapshot respectively, so
+    // the audit trail reads "sheet item confirmed by sync," not
+    // "removed" + "added" as two unrelated events.
+    action: text("action", { enum: ["create", "update", "delete", "verify"] }).notNull(),
     // Whether this row came from a real officer-app sync (applySync) or a
     // manual add/edit/delete on /bank — the one bank-specific dimension
     // ledger_audit_log has no equivalent of.
@@ -1213,6 +1239,13 @@ export const bankAuditLog = sqliteTable(
     changedAt: integer("changed_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    // Groups every row written by one sync or one bulk action so the Audit
+    // tab can show one collapsed summary ("Darkclaw synced: 380 verified,
+    // 20 added, 3 removed, 5 not found") instead of hundreds of individual
+    // rows — 2026-09-27 officer feedback ("its just a lot of entries").
+    // NULL on a pre-2026-09-27 row (shown flat, ungrouped) and on a single
+    // one-off manual edit (nothing to group it with).
+    batchId: text("batch_id"),
     // Whole-row JSON snapshots, not a per-field diff — same convention as
     // ledgerAuditLog.before/after. create: before null. delete: after
     // null. update: both set, only what's actually different is
@@ -1231,6 +1264,7 @@ export const bankAuditLog = sqliteTable(
   (table) => [
     index("bank_audit_log_holder_idx").on(table.holderCharacterId),
     index("bank_audit_log_changed_at_idx").on(table.changedAt),
+    index("bank_audit_log_batch_idx").on(table.batchId),
   ],
 );
 

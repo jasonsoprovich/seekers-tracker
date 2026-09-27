@@ -141,6 +141,19 @@ export const CAPABILITIES = {
     description: "Add, edit, or remove guild bank inventory rows, including syncing them from the officer app's inventory exports.",
     defaults: ["officer", "leader"],
   },
+  "epgp.bank.audit.view": {
+    group: "EPGP",
+    label: "View guild bank audit log",
+    description: "See the guild bank's item-level Audit tab on /bank — who added, removed, or verified which item and when.",
+    // 2026-09-27: kept officer+ only for now, deliberately narrower than the
+    // EP/GP ledger's own Audit Trail (member-visible since 2026-08-25) —
+    // Jason's own call: "at some point we may want to reveal this to the
+    // members ... but for now lets leave this as visible to only officers,
+    // guild leaders and admin." Flipping this to member-visible later is a
+    // one-line default change here (or an admin toggle on the permissions
+    // matrix), not a code change to the Audit tab itself.
+    defaults: ["officer", "leader"],
+  },
   "epgp.officerApi": {
     group: "EPGP",
     label: "Use the officer desktop app (API key)",

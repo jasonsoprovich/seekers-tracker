@@ -28,6 +28,13 @@ export type BankHoldingRow = {
   category: "item" | "spell";
   container: string;
   slotIndex: number;
+  // The original sheet position ("Bank3-Slot2") for a sheet-migrated row —
+  // migration 0053 moved container/slotIndex to a synthetic "Sheet" +
+  // running counter, so this is what the Location column actually shows
+  // for one of these rows instead of the meaningless synthetic slot. Null
+  // for every other row (a real synced position, or a manual/no-location
+  // sheet row).
+  legacyLocation: string | null;
   itemName: string;
   itemId: number | null;
   quantity: number;
@@ -44,6 +51,14 @@ export type BankHoldingRow = {
   // src/lib/eqstat/item-nodrop.ts. Always false when itemId is null
   // (sheet/manual rows never captured one).
   noDrop: boolean;
+  // 2026-09-27 unverified-item tracking (src/lib/bank/sync.ts's
+  // reconcileUnverified). null = a real synced row, nothing to show.
+  // "sheet"/"manual" = still waiting on this holder's first sync.
+  // "not_found" = a real sync of this holder ran and couldn't match it —
+  // needs officer review. Officer-only in the UI (BankBrowseTable gates
+  // this on canManage) — members see every row exactly the same either
+  // way, no badges, nothing missing.
+  unverifiedState: "sheet" | "manual" | "not_found" | null;
 };
 
 const mainCharacters = alias(characters, "main_characters");
@@ -81,6 +96,7 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
       category: bankHoldings.category,
       container: bankHoldings.container,
       slotIndex: bankHoldings.slotIndex,
+      legacyLocation: bankHoldings.legacyLocation,
       itemName: bankHoldings.itemName,
       itemId: bankHoldings.itemId,
       quantity: bankHoldings.quantity,
@@ -89,6 +105,7 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
       note: bankHoldings.note,
       source: bankHoldings.source,
       importId: bankHoldings.importId,
+      notFoundSince: bankHoldings.notFoundSince,
     })
     .from(bankHoldings)
     .innerJoin(characters, eq(bankHoldings.holderCharacterId, characters.id))
@@ -98,12 +115,19 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
     .where(ne(bankHoldings.category, "currency"))
     .orderBy(characters.name, bankHoldings.container, bankHoldings.slotIndex);
 
-  return rows.map((row) => ({
-    ...row,
-    category: row.category as "item" | "spell",
-    fromSheet: row.source === "import" && row.importId === null,
-    noDrop: isNoDropItem(row.itemId),
-  }));
+  return rows.map((row) => {
+    const isSheet = row.source === "import" && row.importId === null;
+    const isManual = row.source === "manual";
+    const unverifiedState: BankHoldingRow["unverifiedState"] =
+      row.notFoundSince !== null ? "not_found" : isSheet ? "sheet" : isManual ? "manual" : null;
+    return {
+      ...row,
+      category: row.category as "item" | "spell",
+      fromSheet: isSheet,
+      noDrop: isNoDropItem(row.itemId),
+      unverifiedState,
+    };
+  });
 }
 
 export type CreateManualHoldingInput = {

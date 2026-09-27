@@ -1,14 +1,17 @@
 // PLAN.md §9/§11 Phase 8.4 — guild bank sync end-to-end verification.
 // Extended 2026-09-25 for the officer-feedback pass: per-item (sub-slot)
 // designation, add/remove without clobbering other flags, occupant-driven
-// expected_* refresh, the currency purge, and retireSheetRows.
+// expected_* refresh, the currency purge, and removeUnverifiedHoldings
+// (was retireSheetRows). Extended again 2026-09-27 for unverified-item
+// reconciliation: sheet/manual rows matched or flagged not-found by a real
+// sync, and the audit trail's batchId grouping.
 //
 // Exercises src/lib/bank/sync.ts's real functions (loadBankConfig,
 // updateDesignations, saveEqAccount, deleteEqAccount, validateSyncPayload,
-// previewSync, applySync, retireSheetRows) against local D1, same pattern
-// as verify-guild-removal.ts: synthetic users/characters/holdings,
-// snapshotted first and restored in a `finally` regardless of outcome.
-// Never point this at remote D1 (PLAN.md §5).
+// previewSync, applySync, removeUnverifiedHoldings, reconcileUnverified)
+// against local D1, same pattern as verify-guild-removal.ts: synthetic
+// users/characters/holdings, snapshotted first and restored in a `finally`
+// regardless of outcome. Never point this at remote D1 (PLAN.md §5).
 //
 // Usage:
 //   npx tsx scripts/verify-bank-sync.ts
@@ -27,11 +30,13 @@ import {
   deleteEqAccount,
   loadBankConfig,
   previewSync,
-  retireSheetRows,
+  reconcileUnverified,
+  removeUnverifiedHoldings,
   saveEqAccount,
   updateDesignations,
   validateSyncPayload,
   type SyncHolderInput,
+  type UnverifiedHoldingRow,
 } from "../src/lib/bank/sync";
 import { UNKNOWN_CLASS_ID, UNKNOWN_RACE_ID } from "../src/lib/eq/enums";
 
@@ -58,7 +63,20 @@ async function makeCharacter(db: Db, name: string, opts: { charType?: "main" | "
 
 async function holdingsFor(db: Db, characterId: number) {
   return db
-    .select({ container: bankHoldings.container, slotIndex: bankHoldings.slotIndex, itemName: bankHoldings.itemName, category: bankHoldings.category, status: bankHoldings.status, note: bankHoldings.note, source: bankHoldings.source, importId: bankHoldings.importId })
+    .select({
+      id: bankHoldings.id,
+      container: bankHoldings.container,
+      slotIndex: bankHoldings.slotIndex,
+      itemName: bankHoldings.itemName,
+      quantity: bankHoldings.quantity,
+      category: bankHoldings.category,
+      status: bankHoldings.status,
+      note: bankHoldings.note,
+      source: bankHoldings.source,
+      importId: bankHoldings.importId,
+      legacyLocation: bankHoldings.legacyLocation,
+      notFoundSince: bankHoldings.notFoundSince,
+    })
     .from(bankHoldings)
     .where(eq(bankHoldings.holderCharacterId, characterId));
 }
@@ -229,24 +247,25 @@ async function main() {
     // Scenario 4: a real sync writes rows, leaves manual rows alone
     // (currency rows can no longer exist at all — migration 0050 purged
     // them and the manual-add form no longer offers the category), and
-    // re-syncing is idempotent.
+    // re-syncing is idempotent. A sync's DELETE step only ever touches
+    // VERIFIED rows (source='import' AND import_id IS NOT NULL) now — an
+    // unverified row's fate is reconciliation (Scenario 9), never a plain
+    // replace-in-place, so nothing unverified is seeded here.
     // ---------------------------------------------------------------
     console.log("\nScenario 4: real sync + manual rows preserved + idempotent re-sync");
     await db.insert(bankHoldings).values([
       { holderCharacterId: muleId, category: "item", container: "Manual", slotIndex: 1, itemName: "Hand-added item", quantity: 1, status: "guild_bank", source: "manual" },
-      // Simulates a leftover row from the old spreadsheet import (source=import, import_id NULL) at the SAME slot the real sync will also write — proves it gets replaced, not duplicated.
-      { holderCharacterId: muleId, category: "item", container: "Bank1", slotIndex: 0, itemName: "Stale Sheet Item", quantity: 1, status: "reserved", note: "from the old sheet", source: "import", importId: null },
     ]);
 
     let applied1 = await applySync(db, actor.id, [validPayload], config);
-    check(failures, applied1.diffs[0]?.added.length === 2, `first sync adds the 2 new rows not already present (got ${applied1.diffs[0]?.added.length})`);
+    check(failures, applied1.diffs[0]?.added.length === 3, `first sync adds all 3 rows (nothing verified existed yet) (got ${applied1.diffs[0]?.added.length})`);
 
     const afterSync1 = await holdingsFor(db, muleId);
-    check(failures, afterSync1.length === 4, `4 rows exist after sync: 3 imported (the stale sheet row was replaced, not added alongside) + 1 manual (got ${afterSync1.length})`);
+    check(failures, afterSync1.length === 4, `4 rows exist after sync: 3 verified + 1 manual (got ${afterSync1.length})`);
     const manualRow = afterSync1.find((r) => r.source === "manual");
     check(failures, manualRow?.itemName === "Hand-added item", "the manual row survived the sync untouched");
     const bank1Slot0 = afterSync1.find((r) => r.container === "Bank1" && r.slotIndex === 0);
-    check(failures, bank1Slot0?.itemName === "Test Ore", "the stale sheet row at Bank1 slot 0 was replaced by the real synced item");
+    check(failures, bank1Slot0?.itemName === "Test Ore", "the synced item landed at Bank1 slot 0");
 
     // The occupant sent in validPayload should have refreshed Bank1's
     // expected_item_id/expected_item_name.
@@ -298,22 +317,55 @@ async function main() {
     check(failures, currencyCheck.length === 0, "no currency rows exist anywhere after migration 0050's purge");
 
     // ---------------------------------------------------------------
-    // Scenario 6c: retireSheetRows removes only source=import rows with a
-    // NULL import_id, never a real synced row or a manual one.
+    // Scenario 6c: removeUnverifiedHoldings (was retireSheetRows) removes
+    // only unverified (source='manual', or source='import' with a NULL
+    // import_id) rows, never a real synced row, requires a note, and
+    // writes an audited bank_audit_log 'delete' row (batched when more
+    // than one row).
     // ---------------------------------------------------------------
-    console.log("\nScenario 6c: retireSheetRows");
+    console.log("\nScenario 6c: removeUnverifiedHoldings");
     await db.insert(bankHoldings).values([
-      { holderCharacterId: soloId, category: "item", container: "Bank1", slotIndex: 0, itemName: "Sheet-only item A", quantity: 1, status: "guild_bank", source: "import", importId: null },
-      { holderCharacterId: soloId, category: "item", container: "Bank2", slotIndex: 0, itemName: "Sheet-only item B", quantity: 1, status: "guild_bank", source: "import", importId: null },
+      // Migration 0053's own convention: sheet rows live under the
+      // synthetic "Sheet" container with a legacy_location preserving the
+      // original position — see that migration's own comment.
+      { holderCharacterId: soloId, category: "item", container: "Sheet", slotIndex: 1, itemName: "Sheet-only item A", quantity: 1, status: "guild_bank", source: "import", importId: null, legacyLocation: "Bank1" },
+      { holderCharacterId: soloId, category: "item", container: "Sheet", slotIndex: 2, itemName: "Sheet-only item B", quantity: 1, status: "guild_bank", source: "import", importId: null, legacyLocation: "Bank2" },
     ]);
-    const soloBeforeRetire = await holdingsFor(db, soloId);
-    check(failures, soloBeforeRetire.length === 2, "two sheet rows exist for the solo character before retiring");
-    const retireOne = await retireSheetRows(db, soloId);
-    check(failures, retireOne.removed === 2, `retireSheetRows(soloId) removed exactly its 2 sheet rows (got ${retireOne.removed})`);
-    const soloAfterRetire = await holdingsFor(db, soloId);
-    check(failures, soloAfterRetire.length === 0, "the solo character's holdings are empty after retiring");
-    const muleAfterRetire = await holdingsFor(db, muleId);
-    check(failures, muleAfterRetire.length === 1 && muleAfterRetire[0].source === "manual", "retiring a different holder's sheet rows left the mule's manual row alone");
+    const soloBeforeRemove = await holdingsFor(db, soloId);
+    check(failures, soloBeforeRemove.length === 2, "two unverified sheet rows exist for the solo character before removal");
+
+    const emptyNoteResult = await removeUnverifiedHoldings(db, { kind: "holder", holderCharacterId: soloId }, "   ", actor.id);
+    check(failures, !!emptyNoteResult.error && emptyNoteResult.removed === 0, "removeUnverifiedHoldings refuses an empty/blank note and removes nothing");
+
+    const removeAll = await removeUnverifiedHoldings(db, { kind: "holder", holderCharacterId: soloId }, "cleanup — never got a real sync", actor.id);
+    check(failures, removeAll.removed === 2, `removeUnverifiedHoldings(holder) removed exactly its 2 unverified rows (got ${removeAll.removed})`);
+    const soloAfterRemove = await holdingsFor(db, soloId);
+    check(failures, soloAfterRemove.length === 0, "the solo character's holdings are empty after removal");
+    const muleAfterRemove = await holdingsFor(db, muleId);
+    check(failures, muleAfterRemove.length === 1 && muleAfterRemove[0].source === "manual", "removing a different holder's unverified rows left the mule's manual row alone");
+
+    const soloRemoveAudit = await db.select().from(bankAuditLog).where(eq(bankAuditLog.holderCharacterId, soloId)).orderBy(bankAuditLog.id);
+    check(failures, soloRemoveAudit.length === 2, `removeUnverifiedHoldings wrote one 'delete' audit row per removed item (got ${soloRemoveAudit.length})`);
+    check(
+      failures,
+      soloRemoveAudit.every((r) => r.action === "delete" && r.source === "manual" && r.note === "cleanup — never got a real sync"),
+      "every removal audit row carries the required note",
+    );
+    check(
+      failures,
+      soloRemoveAudit[0].batchId !== null && soloRemoveAudit[0].batchId === soloRemoveAudit[1].batchId,
+      "a multi-row removal shares one batchId across its audit rows",
+    );
+
+    // Single-row removal (kind: "row") doesn't batch — batchId stays null.
+    const [singleRow] = await db
+      .insert(bankHoldings)
+      .values({ holderCharacterId: soloId, category: "item", container: "Manual", slotIndex: 1, itemName: "Solo Manual Item", quantity: 1, status: "guild_bank", source: "manual" })
+      .returning({ id: bankHoldings.id });
+    const removeSingle = await removeUnverifiedHoldings(db, { kind: "row", id: singleRow.id }, "given to Kessra", actor.id);
+    check(failures, removeSingle.removed === 1, "removeUnverifiedHoldings(row) removes exactly the one targeted row");
+    const singleAudit = await db.select().from(bankAuditLog).where(eq(bankAuditLog.holdingId, singleRow.id));
+    check(failures, singleAudit.length === 1 && singleAudit[0].batchId === null, "a single-row removal's audit row has no batchId");
 
     // ---------------------------------------------------------------
     // Scenario 7: deleteEqAccount cleans up its designations/membership.
@@ -427,6 +479,109 @@ async function main() {
       manualDeleteRow?.after === null && (manualDeleteRow?.before as { quantity?: number } | null)?.quantity === 3,
       "a manual delete writes a 'delete' row with the last-known (qty 3) snapshot and a null after",
     );
+
+    // ---------------------------------------------------------------
+    // Scenario 9: unverified (sheet/manual) row reconciliation — 2026-09-27.
+    // Exact-location match, name-only match, partial-quantity match,
+    // not-found flagging (and clearing on a later sync that finally
+    // matches), a manual row picked up the same way a sheet row is, and
+    // the 'verify' audit rows (with a shared batchId) replacing an
+    // unrelated remove+add pair for the matched slots.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 9: unverified row reconciliation");
+    const reconcileId = await makeCharacter(db, `VerifyReconcile-${randomUUID().slice(0, 8)}`);
+    let rResult = await updateDesignations(db, actor.id, { characterId: reconcileId }, {
+      set: [
+        { container: "Bank1", slotIndex: 0 },
+        { container: "Bank2", slotIndex: 0 },
+        { container: "Bank3", slotIndex: 0 },
+        { container: "Bank4", slotIndex: 0 },
+        { container: "Bank5", slotIndex: 0 },
+      ],
+    });
+    check(failures, !rResult.error, `designations set for reconciliation test (${rResult.error ?? "ok"})`);
+
+    await db.insert(bankHoldings).values([
+      { holderCharacterId: reconcileId, category: "item", container: "Sheet", slotIndex: 1, itemName: "ExactLoc Item", quantity: 4, status: "guild_bank", source: "import", importId: null, legacyLocation: "Bank1" },
+      { holderCharacterId: reconcileId, category: "item", container: "Sheet", slotIndex: 2, itemName: "NameOnly Item", quantity: 3, status: "guild_bank", source: "import", importId: null, legacyLocation: "General5" },
+      { holderCharacterId: reconcileId, category: "item", container: "Sheet", slotIndex: 3, itemName: "Partial Item", quantity: 10, status: "guild_bank", source: "import", importId: null, legacyLocation: null },
+      { holderCharacterId: reconcileId, category: "item", container: "Sheet", slotIndex: 4, itemName: "Ghost Item", quantity: 2, status: "guild_bank", source: "import", importId: null, legacyLocation: "Bank9" },
+      { holderCharacterId: reconcileId, category: "item", container: "Manual", slotIndex: 1, itemName: "Manual Pickup", quantity: 1, status: "guild_bank", source: "manual" },
+    ]);
+
+    const reconcilePayload1: SyncHolderInput = {
+      characterId: reconcileId,
+      sourceFile: "Reconcile-Inventory.txt",
+      reportsSharedBank: false,
+      rows: [
+        { container: "Bank1", slotIndex: 0, category: "item", itemName: "ExactLoc Item", itemId: 2001, quantity: 4 },
+        { container: "Bank2", slotIndex: 0, category: "item", itemName: "NameOnly Item", itemId: 2002, quantity: 3 },
+        { container: "Bank3", slotIndex: 0, category: "item", itemName: "Partial Item", itemId: 2003, quantity: 4 },
+        { container: "Bank4", slotIndex: 0, category: "item", itemName: "Manual Pickup", itemId: 2004, quantity: 1 },
+      ],
+      occupants: [],
+    };
+
+    let rConfig = await loadBankConfig(db);
+    const rPreview = await previewSync(db, [reconcilePayload1]);
+    check(failures, rPreview.diffs[0]?.verified?.length === 4, `previewSync reports 4 verified matches (got ${rPreview.diffs[0]?.verified?.length})`);
+    check(failures, rPreview.diffs[0]?.notFound?.length === 1, `previewSync reports 1 not-found row (got ${rPreview.diffs[0]?.notFound?.length})`);
+    const beforeReconcileSync = await holdingsFor(db, reconcileId);
+    check(failures, beforeReconcileSync.length === 5, "previewSync wrote nothing — still the original 5 unverified rows");
+
+    const rApplied1 = await applySync(db, actor.id, [reconcilePayload1], rConfig);
+    check(failures, rApplied1.diffs[0]?.added.length === 4, `sync adds all 4 incoming rows as brand-new verified holdings (got ${rApplied1.diffs[0]?.added.length})`);
+    check(failures, rApplied1.diffs[0]?.verified?.length === 4, `sync reports 4 verified matches (got ${rApplied1.diffs[0]?.verified?.length})`);
+    check(failures, rApplied1.diffs[0]?.notFound?.length === 1, `sync reports 1 not-found row (got ${rApplied1.diffs[0]?.notFound?.length})`);
+
+    const afterReconcileSync1 = await holdingsFor(db, reconcileId);
+    check(failures, afterReconcileSync1.length === 6, `6 rows remain: 4 newly-verified + Partial Item (reduced) + Ghost Item (not found) (got ${afterReconcileSync1.length})`);
+    check(failures, !afterReconcileSync1.some((r) => r.itemName === "ExactLoc Item" && r.container === "Sheet"), "the exact-location match's unverified row is gone");
+    check(failures, !afterReconcileSync1.some((r) => r.itemName === "NameOnly Item" && r.container === "Sheet"), "the name-only match's unverified row is gone");
+    check(failures, !afterReconcileSync1.some((r) => r.itemName === "Manual Pickup" && r.container === "Manual"), "the manual row was picked up by the sync and is gone");
+    const partialAfter = afterReconcileSync1.find((r) => r.itemName === "Partial Item" && r.container === "Sheet");
+    check(failures, partialAfter?.quantity === 6, `Partial Item's unverified row reduced from 10 to 6 (got ${partialAfter?.quantity})`);
+    check(failures, partialAfter?.notFoundSince === null, "a partial match does NOT flag the residual as not-found");
+    const ghostAfter = afterReconcileSync1.find((r) => r.itemName === "Ghost Item" && r.container === "Sheet");
+    check(failures, ghostAfter?.quantity === 2 && ghostAfter?.notFoundSince !== null, "Ghost Item's unverified row survives unchanged, now flagged not-found");
+    // Real synced rows landed correctly too, at the real slots (no unique-
+    // index collision with the "Sheet"-container unverified rows).
+    check(failures, afterReconcileSync1.some((r) => r.itemName === "ExactLoc Item" && r.container === "Bank1" && r.slotIndex === 0), "the real synced ExactLoc Item landed at Bank1 slot 0");
+
+    // Audit trail: 4 'verify' rows (one per matched slot — the partial
+    // match gets one too), sharing one batchId, and NO plain 'create' row
+    // for any of those 4 slots (suppressed — the verify row already
+    // covers it). No audit row for the not-found flip.
+    const reconcileAudit = await db.select().from(bankAuditLog).where(eq(bankAuditLog.holderCharacterId, reconcileId)).orderBy(bankAuditLog.id);
+    const verifyRows = reconcileAudit.filter((r) => r.action === "verify");
+    check(failures, verifyRows.length === 4, `exactly 4 'verify' audit rows written (got ${verifyRows.length})`);
+    check(failures, reconcileAudit.filter((r) => r.action === "create").length === 0, "no plain 'create' rows for the 4 matched slots — the verify rows cover them");
+    check(failures, reconcileAudit.length === 4, `no audit row at all for the not-found flip (total rows: ${reconcileAudit.length})`);
+    const batchIds = new Set(verifyRows.map((r) => r.batchId));
+    check(failures, batchIds.size === 1 && [...batchIds][0] !== null, "all 4 verify rows from this sync share one non-null batchId");
+    const partialVerifyRow = verifyRows.find((r) => r.itemName === "Partial Item");
+    check(
+      failures,
+      (partialVerifyRow?.before as { quantity?: number } | null)?.quantity === 10 && (partialVerifyRow?.after as { quantity?: number } | null)?.quantity === 6,
+      "the partial match's verify row records before qty 10 / after qty 6",
+    );
+
+    // A later sync that finally includes Ghost Item matches and clears it.
+    rConfig = await loadBankConfig(db);
+    const reconcilePayload2: SyncHolderInput = {
+      characterId: reconcileId,
+      sourceFile: "Reconcile-Inventory.txt",
+      reportsSharedBank: false,
+      rows: [
+        ...reconcilePayload1.rows,
+        { container: "Bank5", slotIndex: 0, category: "item", itemName: "Ghost Item", itemId: 2005, quantity: 2 },
+      ],
+      occupants: [],
+    };
+    await applySync(db, actor.id, [reconcilePayload2], rConfig);
+    const afterReconcileSync2 = await holdingsFor(db, reconcileId);
+    check(failures, !afterReconcileSync2.some((r) => r.itemName === "Ghost Item" && r.container === "Sheet"), "Ghost Item's unverified row is gone once a later sync finally matches it");
+    check(failures, afterReconcileSync2.some((r) => r.itemName === "Ghost Item" && r.container === "Bank5"), "the real synced Ghost Item landed at Bank5 slot 0");
 
     if (failures.n > 0) {
       console.error(`\n${failures.n} check(s) failed.`);

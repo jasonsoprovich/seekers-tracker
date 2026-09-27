@@ -1,7 +1,7 @@
 "use server";
 
 import { createManualHolding, deleteManualHolding, updateHolding, type HoldingMutationResult } from "@/lib/bank/holdings";
-import { retireSheetRows } from "@/lib/bank/sync";
+import { removeUnverifiedHoldings, type RemoveUnverifiedTarget } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -118,26 +118,33 @@ export async function deleteHoldingAction(id: number, auditNote?: string): Promi
   return result;
 }
 
-// 2026-09-25 sheet-to-sync transition: an officer can manually retire the
-// old Google-Sheet-imported rows (source='import', import_id NULL) for one
-// holder, or every remaining one at once — for a mule that will never be
-// synced from the app (retired, reassigned, etc.), or just to clean up
-// ahead of an officer getting to it. A holder's first real sync already
-// does this automatically (src/lib/bank/sync.ts's applySync); this is only
-// for the ones that won't get one.
-export async function retireSheetRowsAction(holderCharacterId: number | "all"): Promise<{ error?: string; removed?: number }> {
+// 2026-09-27 (was retireSheetRowsAction / "Retire"): an officer removes an
+// unverified sheet/manual bank row — one item, or every remaining
+// unverified row for one holder at once — for an item genuinely gone
+// (given away, consumed, never really there) rather than just unsynced
+// yet. A holder's first real sync already reconciles most of these
+// automatically (src/lib/bank/sync.ts's applySync/reconcileUnverified);
+// this is for what a sync can't resolve on its own. Requires a note —
+// removeUnverifiedHoldings refuses an empty one — and writes a real
+// bank_audit_log row, so this shows up on the Audit tab like any other
+// bank change instead of only the admin System Log. Deliberately no
+// "remove ALL remaining unverified rows across every holder" option
+// anymore — too easy to wipe the whole sheet by accident.
+export async function removeUnverifiedHoldingAction(target: RemoveUnverifiedTarget, note: string): Promise<{ error?: string; removed?: number }> {
   const auth = await requireManager();
   if ("error" in auth) return auth;
 
   const db = await getDb();
-  const result = await retireSheetRows(db, holderCharacterId);
-  await recordSystemEvent(db, await webActor(db, auth.userId), {
-    action: "bank.sheet_rows.retire",
-    targetType: "bank_holdings",
-    summary:
-      holderCharacterId === "all"
-        ? `Retired all remaining sheet-imported bank rows (${result.removed} row(s))`
-        : `Retired sheet-imported bank rows for character #${holderCharacterId} (${result.removed} row(s))`,
-  });
+  const result = await removeUnverifiedHoldings(db, target, note, auth.userId);
+  if (!result.error && result.removed > 0) {
+    await recordSystemEvent(db, await webActor(db, auth.userId), {
+      action: "bank.unverified.remove",
+      targetType: "bank_holdings",
+      summary:
+        target.kind === "row"
+          ? `Removed unverified bank item #${target.id} (${note})`
+          : `Removed all remaining unverified bank rows for character #${target.holderCharacterId} (${result.removed} row(s), ${note})`,
+    });
+  }
   return result;
 }

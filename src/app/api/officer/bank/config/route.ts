@@ -24,5 +24,10 @@ export async function GET(request: Request) {
     accounts: config.accounts,
     lastImports: Object.fromEntries([...config.lastImports].map(([id, info]) => [id, { ...info, createdAt: info.createdAt.toISOString() }])),
     syncedContents: Object.fromEntries(config.syncedContents),
+    // 2026-09-27 unverified-item tracking — what the Guild Bank tab
+    // compares a fresh scan against to suggest "this bag holds items the
+    // sheet listed as guild bank, flag it?" before a sync. Older parser
+    // builds simply don't decode this field.
+    unverifiedContents: Object.fromEntries(config.unverifiedContents),
   });
 }

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
@@ -82,6 +82,20 @@ export type BankImportInfo = {
 // "does this look different since last time" comparison.
 export type SyncedOccupant = { container: string; slotIndex: number; itemId: number | null; itemName: string };
 
+// One unverified (sheet or manual) item still sitting on a holder, for the
+// officer app's Guild Bank tab to suggest a bag to flag before that
+// holder's next sync — 2026-09-27 unverified-item tracking. `notFound` is
+// true once a real sync of this holder has already failed to match it
+// (needs review), false while it's simply pending its holder's first sync.
+export type UnverifiedContentEntry = {
+  itemName: string;
+  itemId: number | null;
+  quantity: number;
+  legacyLocation: string | null;
+  kind: "sheet" | "manual";
+  notFound: boolean;
+};
+
 export type BankSyncConfig = {
   // Personal designations, keyed by characterId.
   personalDesignations: Map<number, DesignationSlot[]>;
@@ -94,10 +108,14 @@ export type BankSyncConfig = {
   // Last-synced contents per holder characterId — the baseline for "has
   // this changed since the last real sync" independent of designation.
   syncedContents: Map<number, SyncedOccupant[]>;
+  // Unverified sheet/manual items still on each holder, keyed by
+  // characterId — what SuggestFlags (parser side) compares a fresh scan
+  // against to suggest "Bank8 holds items the sheet listed as guild bank."
+  unverifiedContents: Map<number, UnverifiedContentEntry[]>;
 };
 
 export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
-  const [designationRows, accountRows, memberRows, importRows, syncedRows] = await Promise.all([
+  const [designationRows, accountRows, memberRows, importRows, syncedRows, unverifiedRows] = await Promise.all([
     db
       .select({
         characterId: bankSlotDesignations.characterId,
@@ -140,6 +158,23 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
       })
       .from(bankHoldings)
       .where(and(eq(bankHoldings.source, "import"), isNotNull(bankHoldings.importId))),
+    db
+      .select({
+        holderCharacterId: bankHoldings.holderCharacterId,
+        itemName: bankHoldings.itemName,
+        itemId: bankHoldings.itemId,
+        quantity: bankHoldings.quantity,
+        legacyLocation: bankHoldings.legacyLocation,
+        source: bankHoldings.source,
+        notFoundSince: bankHoldings.notFoundSince,
+      })
+      .from(bankHoldings)
+      .where(
+        and(
+          ne(bankHoldings.category, "currency"),
+          or(eq(bankHoldings.source, "manual"), and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId))),
+        ),
+      ),
   ]);
 
   const personalDesignations = new Map<number, DesignationSlot[]>();
@@ -202,7 +237,21 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
     syncedContents.set(row.holderCharacterId, list);
   }
 
-  return { personalDesignations, sharedDesignations, accounts, accountByCharacterId, lastImports, syncedContents };
+  const unverifiedContents = new Map<number, UnverifiedContentEntry[]>();
+  for (const row of unverifiedRows) {
+    const list = unverifiedContents.get(row.holderCharacterId) ?? [];
+    list.push({
+      itemName: row.itemName,
+      itemId: row.itemId,
+      quantity: row.quantity,
+      legacyLocation: row.legacyLocation,
+      kind: row.source === "manual" ? "manual" : "sheet",
+      notFound: row.notFoundSince !== null,
+    });
+    unverifiedContents.set(row.holderCharacterId, list);
+  }
+
+  return { personalDesignations, sharedDesignations, accounts, accountByCharacterId, lastImports, syncedContents, unverifiedContents };
 }
 
 // ---------------------------------------------------------------------
@@ -303,6 +352,13 @@ export type HolderDiff = {
   removed: HolderDiffRow[];
   changed: { before: HolderDiffRow; after: HolderDiffRow }[];
   unchanged: number;
+  // Unverified (sheet/manual) rows this sync matched against an incoming
+  // synced row, and ones it couldn't find anywhere — 2026-09-27 unverified-
+  // item tracking (see reconcileUnverified below). Optional so an older
+  // parser build decoding this JSON without knowing these fields still
+  // works; both are always present from this version of the server.
+  verified?: HolderDiffRow[];
+  notFound?: HolderDiffRow[];
 };
 
 function slotKey(container: string, slotIndex: number): string {
@@ -350,7 +406,22 @@ function diffHolder(characterId: number, existing: ExistingHoldingRow[], incomin
 // to touch it. carriesOver mirrors applySync's own insert logic exactly
 // (below) so a "changed" row's audited `after` matches what actually got
 // written, not a guess.
-function buildSyncAuditRows(characterId: number, existing: ExistingHoldingRow[], incoming: SyncRowInput[], changedBy: string): BankAuditInsert[] {
+//
+// suppressCreateKeys (2026-09-27): (container, slotIndex) keys of an
+// incoming row that reconcileUnverified already matched against an
+// unverified sheet/manual row — that match already writes its own
+// action:'verify' audit row (see applySync below) covering the full
+// before/after context, so the ordinary 'create' row for the same slot is
+// skipped rather than logging what would read as an unrelated duplicate
+// ("removed" + "added" for what was really one "confirmed" event, exactly
+// the noise 2026-09-27 officer feedback flagged).
+function buildSyncAuditRows(
+  characterId: number,
+  existing: ExistingHoldingRow[],
+  incoming: SyncRowInput[],
+  changedBy: string,
+  suppressCreateKeys?: Set<string>,
+): BankAuditInsert[] {
   const existingByKey = new Map(existing.map((r) => [slotKey(r.container, r.slotIndex), r]));
   const incomingByKey = new Map(incoming.map((r) => [slotKey(r.container, r.slotIndex), r]));
   const rows: BankAuditInsert[] = [];
@@ -358,6 +429,7 @@ function buildSyncAuditRows(characterId: number, existing: ExistingHoldingRow[],
   for (const [key, row] of incomingByKey) {
     const prior = existingByKey.get(key);
     if (!prior) {
+      if (suppressCreateKeys?.has(key)) continue;
       rows.push({
         holderCharacterId: characterId,
         itemName: row.itemName,
@@ -408,6 +480,185 @@ function buildSyncAuditRows(characterId: number, existing: ExistingHoldingRow[],
   return rows;
 }
 
+// ---------------------------------------------------------------------
+// Unverified (sheet/manual) row reconciliation — 2026-09-27.
+//
+// Guild bank sync launched on top of live sheet-migrated data (§9's
+// original design assumed a clean slate). Wiping every sheet row the
+// moment a mule's FIRST sync lands would hurt transparency (members would
+// see items vanish with no visible reason) and risks genuinely losing
+// track of items an officer just hasn't flagged the right bag for yet.
+// Jason's own framing: "all old items from the guild bank are unverified
+// or unsynced, until that character's inventory is synced from the officer
+// app, then those items are picked up." This is that pickup logic.
+//
+// A row is UNVERIFIED when it isn't backed by a real sync: either a sheet
+// row (source='import', import_id IS NULL — migration 0053 moved these to
+// container='Sheet') or a manual row (source='manual', container='Manual').
+// applySync's own existing-holdings query (below) only ever compares
+// against VERIFIED rows (import_id IS NOT NULL) for its create/update/
+// delete diff — unverified rows are handled entirely here instead, and are
+// never deleted outright by a sync; they're either matched (deleted, with
+// a 'verify' audit row) or left in place and flagged notFoundSince for an
+// officer to review.
+export type UnverifiedHoldingRow = {
+  id: number;
+  category: "item" | "spell" | "currency";
+  itemName: string;
+  itemId: number | null;
+  quantity: number;
+  status: "guild_bank" | "reserved";
+  note: string | null;
+  container: string;
+  slotIndex: number;
+  legacyLocation: string | null;
+  notFoundSince: Date | null;
+};
+
+function normalizeItemName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function formatIncomingLocation(row: SyncRowInput): string {
+  return row.slotIndex === 0 ? row.container : `${row.container}-Slot${row.slotIndex}`;
+}
+
+export type ReconcileMatch = { unverifiedId: number; matchedRow: SyncRowInput; consumedQuantity: number; remainingQuantity: number };
+export type ReconcileOutcome = { kind: "matched"; match: ReconcileMatch } | { kind: "not_found"; unverifiedId: number };
+
+// Matches this holder's unverified rows against its incoming synced rows by
+// item name, preferring an exact legacy-location match first. Deliberately
+// a name/location heuristic, not a guaranteed-optimal assignment — false
+// negatives just land the row in the officer-facing "needs review" list
+// (never silently dropped), which is the intended safety net per Jason's
+// own call: "we need to be careful of how this is handled... but we need
+// to be able to distinguish items that are not from an app bank sync."
+//
+// Two passes per unverified row, first match wins, quantity consumed from
+// a shared per-incoming-row remaining pool so one small incoming stack
+// can't be double-counted as confirming several different oversized sheet
+// entries of the same name:
+//   1. Same normalized item name AND the incoming row's own container/slot
+//      formats to exactly this row's legacyLocation — the strongest
+//      signal ("this is probably the literal same physical item").
+//   2. Same normalized item name anywhere else in this holder's incoming
+//      rows, for whatever quantity pass 1 didn't already claim.
+// A full match (nothing left unconsumed) deletes the unverified row. A
+// partial match (some quantity confirmed, some not) reduces its quantity
+// instead of deleting it — "Quantities are consumed as rows match... a
+// partial match lowers the unverified row's quantity" per the confirmed
+// design. No match at all reports not_found so applySync can set
+// notFoundSince.
+//
+// Known limitation, accepted rather than engineered around: matching
+// re-runs fresh against whatever the CURRENT sync's rows are every time,
+// with no memory of what a PRIOR sync already confirmed. A partially-
+// matched sheet row re-syncs against the same unchanged real items on a
+// later sync and keeps shrinking (e.g. qty 10 → 6 → 2 → 0 over three
+// no-op re-syncs of the same 4 real items) even though nothing new was
+// actually found. Harmless — it only ever converges toward fully verified,
+// never toward false removal — and every step is its own audited 'verify'
+// row, so the trail stays honest even if the pacing looks odd.
+export function reconcileUnverified(unverified: UnverifiedHoldingRow[], incoming: SyncRowInput[]): ReconcileOutcome[] {
+  const incomingRemaining = incoming.map((r) => r.quantity);
+  const outcomes: ReconcileOutcome[] = [];
+
+  // Stable order (by id) so results are deterministic and testable.
+  const sorted = [...unverified].sort((a, b) => a.id - b.id);
+
+  for (const u of sorted) {
+    let remaining = u.quantity;
+    let matchedRow: SyncRowInput | null = null;
+    let consumed = 0;
+
+    if (u.legacyLocation) {
+      for (let i = 0; i < incoming.length && remaining > 0; i++) {
+        if (incomingRemaining[i] <= 0) continue;
+        const row = incoming[i];
+        if (normalizeItemName(row.itemName) !== normalizeItemName(u.itemName)) continue;
+        if (formatIncomingLocation(row) !== u.legacyLocation) continue;
+        const take = Math.min(remaining, incomingRemaining[i]);
+        incomingRemaining[i] -= take;
+        remaining -= take;
+        consumed += take;
+        matchedRow = matchedRow ?? row;
+      }
+    }
+
+    if (remaining > 0) {
+      for (let i = 0; i < incoming.length && remaining > 0; i++) {
+        if (incomingRemaining[i] <= 0) continue;
+        const row = incoming[i];
+        if (normalizeItemName(row.itemName) !== normalizeItemName(u.itemName)) continue;
+        const take = Math.min(remaining, incomingRemaining[i]);
+        incomingRemaining[i] -= take;
+        remaining -= take;
+        consumed += take;
+        matchedRow = matchedRow ?? row;
+      }
+    }
+
+    if (matchedRow && consumed > 0) {
+      outcomes.push({ kind: "matched", match: { unverifiedId: u.id, matchedRow, consumedQuantity: consumed, remainingQuantity: remaining } });
+    } else {
+      outcomes.push({ kind: "not_found", unverifiedId: u.id });
+    }
+  }
+
+  return outcomes;
+}
+
+// Every unverified (sheet/manual) row for a holder — the pool
+// reconcileUnverified matches an incoming sync against. Excludes currency
+// (purged everywhere, migration 0050) same as every other bank query.
+async function fetchUnverifiedHoldings(db: Db, holderCharacterId: number): Promise<UnverifiedHoldingRow[]> {
+  const rows = await db
+    .select({
+      id: bankHoldings.id,
+      category: bankHoldings.category,
+      itemName: bankHoldings.itemName,
+      itemId: bankHoldings.itemId,
+      quantity: bankHoldings.quantity,
+      status: bankHoldings.status,
+      note: bankHoldings.note,
+      container: bankHoldings.container,
+      slotIndex: bankHoldings.slotIndex,
+      legacyLocation: bankHoldings.legacyLocation,
+      notFoundSince: bankHoldings.notFoundSince,
+    })
+    .from(bankHoldings)
+    .where(
+      and(
+        eq(bankHoldings.holderCharacterId, holderCharacterId),
+        ne(bankHoldings.category, "currency"),
+        or(eq(bankHoldings.source, "manual"), and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId))),
+      ),
+    );
+  return rows.map((r) => ({ ...r, category: r.category as "item" | "spell" | "currency" }));
+}
+
+function unverifiedSnapshot(row: UnverifiedHoldingRow, quantity: number) {
+  return { container: row.container, slotIndex: row.slotIndex, category: row.category, itemName: row.itemName, itemId: row.itemId, quantity, status: row.status, note: row.note };
+}
+
+// Backs /bank's "under construction" banner (bank/page.tsx) — true while
+// ANY holder anywhere still has an unverified sheet/manual row, false the
+// moment the last one is either synced away or removed. Cheap existence
+// check, not a count.
+export async function hasUnverifiedBankRows(db: Db): Promise<boolean> {
+  const [row] = await db
+    .select({ id: bankHoldings.id })
+    .from(bankHoldings)
+    .where(
+      and(
+        ne(bankHoldings.category, "currency"),
+        or(eq(bankHoldings.source, "manual"), and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId))),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 // D1 caps a statement at 100 bound parameters. Each inserted row binds 8
 // values (holderCharacterId, category, container, slotIndex, itemName,
 // itemId, quantity, status, note, source, importId — status/note/source
@@ -427,47 +678,71 @@ function occupantOwnerClause(container: string, holder: SyncHolderInput, account
   return eq(bankSlotDesignations.characterId, holder.characterId);
 }
 
-// Runs the sync for real: for each holder, delete its existing imported
+// Verified-only existing-holdings fetch — the diff/audit base a sync
+// compares against. import_id IS NOT NULL is what makes this "verified":
+// a sheet row (import_id NULL) or a manual row is never in scope here, see
+// the reconciliation section above.
+async function fetchVerifiedHoldings(db: Db, holderCharacterId: number): Promise<ExistingHoldingRow[]> {
+  return db
+    .select({
+      container: bankHoldings.container,
+      slotIndex: bankHoldings.slotIndex,
+      category: bankHoldings.category,
+      itemName: bankHoldings.itemName,
+      itemId: bankHoldings.itemId,
+      quantity: bankHoldings.quantity,
+      status: bankHoldings.status,
+      note: bankHoldings.note,
+    })
+    .from(bankHoldings)
+    .where(
+      and(
+        eq(bankHoldings.holderCharacterId, holderCharacterId),
+        eq(bankHoldings.source, "import"),
+        isNotNull(bankHoldings.importId),
+        ne(bankHoldings.category, "currency"),
+      ),
+    );
+}
+
+// Runs the sync for real: for each holder, delete its existing VERIFIED
 // (non-currency) holdings, write a bank_imports row, insert the new set
 // (carrying forward status/note from a row at the same (container, slot) so
-// an officer's note on an imported row survives a re-sync), and refresh
-// every designation this holder reported an occupant for — so the "what
-// should be here" baseline the officer app's move-detection reads back via
-// loadBankConfig always reflects the most recent real sync.
+// an officer's note on an imported row survives a re-sync), reconcile any
+// unverified sheet/manual rows against the incoming set (2026-09-27 — see
+// the section above), and refresh every designation this holder reported an
+// occupant for — so the "what should be here" baseline the officer app's
+// move-detection reads back via loadBankConfig always reflects the most
+// recent real sync.
 //
 // Not fully atomic across the bank_imports insert and everything else: the
 // import bookkeeping row is written first, on its own, then the
-// delete+insert+designation-refresh runs as one db.batch(). Same pragmatic
-// tradeoff the rest of this codebase makes for bookkeeping writes that
-// aren't the ledger itself (see standings.ts's markStandingsDirty comment)
-// — a failure between the two leaves an orphaned bank_imports row, never a
-// half-written holdings set.
+// delete+insert+designation-refresh+reconciliation runs as one db.batch().
+// Same pragmatic tradeoff the rest of this codebase makes for bookkeeping
+// writes that aren't the ledger itself (see standings.ts's
+// markStandingsDirty comment) — a failure between the two leaves an
+// orphaned bank_imports row, never a half-written holdings set.
 export async function applySync(db: Db, userId: string, holders: SyncHolderInput[], config: BankSyncConfig): Promise<ApplySyncResult> {
   const diffs: HolderDiff[] = [];
 
   for (const holder of holders) {
-    const existing = await db
-      .select({
-        container: bankHoldings.container,
-        slotIndex: bankHoldings.slotIndex,
-        category: bankHoldings.category,
-        itemName: bankHoldings.itemName,
-        itemId: bankHoldings.itemId,
-        quantity: bankHoldings.quantity,
-        status: bankHoldings.status,
-        note: bankHoldings.note,
-      })
-      .from(bankHoldings)
-      .where(
-        and(
-          eq(bankHoldings.holderCharacterId, holder.characterId),
-          eq(bankHoldings.source, "import"),
-          ne(bankHoldings.category, "currency"),
-        ),
-      );
+    const existing = await fetchVerifiedHoldings(db, holder.characterId);
+    const unverified = await fetchUnverifiedHoldings(db, holder.characterId);
+    const reconciled = reconcileUnverified(unverified, holder.rows);
+    const unverifiedById = new Map(unverified.map((u) => [u.id, u]));
 
-    diffs.push(diffHolder(holder.characterId, existing, holder.rows));
-    const auditRows = buildSyncAuditRows(holder.characterId, existing, holder.rows, userId);
+    // (container, slotIndex) keys of an incoming row that reconciliation
+    // matched — buildSyncAuditRows skips the ordinary 'create' row for
+    // these (the 'verify' row below already covers it).
+    const matchedIncomingKeys = new Set<string>();
+    for (const outcome of reconciled) {
+      if (outcome.kind === "matched") matchedIncomingKeys.add(slotKey(outcome.match.matchedRow.container, outcome.match.matchedRow.slotIndex));
+    }
+
+    const diff = diffHolder(holder.characterId, existing, holder.rows);
+    diff.verified = [];
+    diff.notFound = [];
+    const auditRows = buildSyncAuditRows(holder.characterId, existing, holder.rows, userId, matchedIncomingKeys);
 
     const existingByKey = new Map(existing.map((r) => [slotKey(r.container, r.slotIndex), r]));
 
@@ -482,12 +757,22 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
       })
       .returning({ id: bankImports.id });
 
+    const batchId = `sync:${importRow.id}`;
+    for (const row of auditRows) row.batchId = batchId;
+
     const accountId = config.accountByCharacterId.get(holder.characterId)?.id;
 
     const statements: BatchItem<"sqlite">[] = [
       db
         .delete(bankHoldings)
-        .where(and(eq(bankHoldings.holderCharacterId, holder.characterId), eq(bankHoldings.source, "import"), ne(bankHoldings.category, "currency"))),
+        .where(
+          and(
+            eq(bankHoldings.holderCharacterId, holder.characterId),
+            eq(bankHoldings.source, "import"),
+            isNotNull(bankHoldings.importId),
+            ne(bankHoldings.category, "currency"),
+          ),
+        ),
     ];
 
     for (let i = 0; i < holder.rows.length; i += INSERT_CHUNK_SIZE) {
@@ -526,6 +811,72 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
       );
     }
 
+    // Unverified reconciliation — a matched row is deleted (full match) or
+    // has its quantity reduced (partial match) with its own 'verify' audit
+    // row either way; a not-found row just gets its notFoundSince column
+    // stamped — no audit row for that, deliberately: it isn't a change to
+    // the holding's own data (no before/after worth logging), it's purely
+    // the review flag the Browse UI reads (BankHoldingRow.unverifiedState).
+    // Stamped only the FIRST time (row.notFoundSince still null) so a
+    // holder synced repeatedly without the item ever turning up doesn't
+    // re-write the same timestamp on every pass.
+    const fullyMatchedIds: number[] = [];
+    for (const outcome of reconciled) {
+      if (outcome.kind === "not_found") {
+        const row = unverifiedById.get(outcome.unverifiedId)!;
+        // Reported in the diff every time (so "Not found: M" always
+        // reflects the full current state), regardless of whether this is
+        // the first sync to notice or the tenth.
+        diff.notFound!.push({ container: row.container, slotIndex: row.slotIndex, itemName: row.itemName, quantity: row.quantity });
+        if (row.notFoundSince === null) {
+          statements.push(
+            db.update(bankHoldings).set({ notFoundSince: new Date(), updatedAt: new Date() }).where(eq(bankHoldings.id, row.id)),
+          );
+        }
+        continue;
+      }
+
+      const row = unverifiedById.get(outcome.match.unverifiedId)!;
+      const { matchedRow, consumedQuantity, remainingQuantity } = outcome.match;
+      diff.verified!.push({ container: matchedRow.container, slotIndex: matchedRow.slotIndex, itemName: matchedRow.itemName, quantity: consumedQuantity });
+
+      if (remainingQuantity === 0) {
+        fullyMatchedIds.push(row.id);
+        auditRows.push({
+          holderCharacterId: holder.characterId,
+          itemName: row.itemName,
+          action: "verify",
+          source: "sync",
+          changedBy: userId,
+          before: unverifiedSnapshot(row, row.quantity),
+          after: { container: matchedRow.container, slotIndex: matchedRow.slotIndex, category: matchedRow.category, itemName: matchedRow.itemName, itemId: matchedRow.itemId, quantity: consumedQuantity, status: "guild_bank", note: null },
+          batchId,
+        });
+      } else {
+        statements.push(
+          db
+            .update(bankHoldings)
+            .set({ quantity: remainingQuantity, notFoundSince: null, updatedAt: new Date() })
+            .where(eq(bankHoldings.id, row.id)),
+        );
+        auditRows.push({
+          holderCharacterId: holder.characterId,
+          itemName: row.itemName,
+          action: "verify",
+          source: "sync",
+          changedBy: userId,
+          before: unverifiedSnapshot(row, row.quantity),
+          after: unverifiedSnapshot(row, remainingQuantity),
+          batchId,
+        });
+      }
+    }
+    if (fullyMatchedIds.length > 0) {
+      statements.push(db.delete(bankHoldings).where(inArray(bankHoldings.id, fullyMatchedIds)));
+    }
+
+    diffs.push(diff);
+
     // Item-level audit trail (bank_audit_log) — chunked into the SAME
     // batch as this holder's holdings delete+insert, so it commits
     // atomically with the sync it describes.
@@ -541,54 +892,94 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
   return { diffs };
 }
 
+// Read-only counterpart to applySync's diff — same verified-only existing
+// query and the same reconciliation pass (so the officer app's Preview
+// dialog can show "Verified from sheet: N / Not found: M" before the
+// officer commits to anything), but writes nothing.
 export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<ApplySyncResult> {
   const diffs: HolderDiff[] = [];
   for (const holder of holders) {
-    const existing = await db
-      .select({
-        container: bankHoldings.container,
-        slotIndex: bankHoldings.slotIndex,
-        category: bankHoldings.category,
-        itemName: bankHoldings.itemName,
-        itemId: bankHoldings.itemId,
-        quantity: bankHoldings.quantity,
-        status: bankHoldings.status,
-        note: bankHoldings.note,
-      })
-      .from(bankHoldings)
-      .where(
-        and(
-          eq(bankHoldings.holderCharacterId, holder.characterId),
-          eq(bankHoldings.source, "import"),
-          ne(bankHoldings.category, "currency"),
-        ),
-      );
-    diffs.push(diffHolder(holder.characterId, existing, holder.rows));
+    const existing = await fetchVerifiedHoldings(db, holder.characterId);
+    const unverified = await fetchUnverifiedHoldings(db, holder.characterId);
+    const reconciled = reconcileUnverified(unverified, holder.rows);
+    const unverifiedById = new Map(unverified.map((u) => [u.id, u]));
+
+    const diff = diffHolder(holder.characterId, existing, holder.rows);
+    diff.verified = [];
+    diff.notFound = [];
+    for (const outcome of reconciled) {
+      if (outcome.kind === "not_found") {
+        const row = unverifiedById.get(outcome.unverifiedId)!;
+        diff.notFound!.push({ container: row.container, slotIndex: row.slotIndex, itemName: row.itemName, quantity: row.quantity });
+      } else {
+        const { matchedRow, consumedQuantity } = outcome.match;
+        diff.verified!.push({ container: matchedRow.container, slotIndex: matchedRow.slotIndex, itemName: matchedRow.itemName, quantity: consumedQuantity });
+      }
+    }
+    diffs.push(diff);
   }
   return { diffs };
 }
 
 // ---------------------------------------------------------------------
-// Retiring the old Google-Sheet-imported bank rows (2026-09-25).
+// Removing unverified (sheet/manual) bank rows (2026-09-25, reworked
+// 2026-09-27 as "remove unverified item" — was retireSheetRows).
 //
-// Sheet rows are bank_holdings.source='import' with import_id IS NULL
-// (scripts/import-bank-tabs.ts, distinct from a real sync's
-// source='import' WITH an import_id). A holder's first real sync already
-// replaces its own sheet rows (applySync deletes ALL source='import' rows
-// for that holder regardless of import_id) — this is for the remainder:
-// a holder that will never be synced (no mule assigned, character
-// retired, etc.), or an officer who wants to clear the sheet leftovers
-// ahead of time rather than waiting for a sync.
-// ---------------------------------------------------------------------
+// An unverified row is bank_holdings.source='manual', or source='import'
+// with import_id IS NULL (a sheet row — scripts/import-bank-tabs.ts;
+// distinct from a real sync's source='import' WITH an import_id). A
+// holder's first real sync reconciles its unverified rows automatically
+// (applySync/reconcileUnverified above) — this is for what a sync can't
+// resolve on its own: an item genuinely gone (given away, consumed, never
+// existed) that an officer wants to clear by hand, one row or a whole
+// holder's remaining unverified rows at once.
+//
+// 2026-09-27: this is now an audited deletion, not a silent one — Jason's
+// own concern was ensuring the guild bank stays "accurate" and
+// "transparent" through the sheet-to-sync transition, so removing an
+// unverified item now requires a note (who received it / why it's gone)
+// and writes a real bank_audit_log row, same as every other bank mutation.
+// The old bulk "retire ALL remaining sheet rows across every holder"
+// button is deliberately gone — too easy to wipe the whole sheet by
+// accident; per-holder (or per-item) removal, each with its own note, is
+// the only path now.
+export type RemoveUnverifiedTarget = { kind: "row"; id: number } | { kind: "holder"; holderCharacterId: number };
 
-export async function retireSheetRows(db: Db, holderCharacterId: number | "all"): Promise<{ removed: number }> {
+export async function removeUnverifiedHoldings(
+  db: Db,
+  target: RemoveUnverifiedTarget,
+  note: string,
+  changedBy: string,
+): Promise<{ removed: number; error?: string }> {
+  const trimmedNote = note.trim();
+  if (!trimmedNote) return { removed: 0, error: "A note is required — say who received the item, or why it's being removed." };
+
+  const unverifiedClause = or(eq(bankHoldings.source, "manual"), and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId)));
   const whereClause =
-    holderCharacterId === "all"
-      ? and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId))
-      : and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId), eq(bankHoldings.holderCharacterId, holderCharacterId));
+    target.kind === "row"
+      ? and(eq(bankHoldings.id, target.id), ne(bankHoldings.category, "currency"), unverifiedClause)
+      : and(eq(bankHoldings.holderCharacterId, target.holderCharacterId), ne(bankHoldings.category, "currency"), unverifiedClause);
 
-  const removed = await db.delete(bankHoldings).where(whereClause).returning({ id: bankHoldings.id });
-  return { removed: removed.length };
+  const rows = await db.select().from(bankHoldings).where(whereClause);
+  if (rows.length === 0) return { removed: 0 };
+
+  const batchId = rows.length > 1 ? `retire:${crypto.randomUUID()}` : null;
+  const auditRows: BankAuditInsert[] = rows.map((r) => ({
+    holdingId: r.id,
+    holderCharacterId: r.holderCharacterId,
+    itemName: r.itemName,
+    action: "delete",
+    source: "manual",
+    changedBy,
+    before: { container: r.container, slotIndex: r.slotIndex, category: r.category, itemName: r.itemName, itemId: r.itemId, quantity: r.quantity, status: r.status, note: r.note },
+    after: null,
+    note: trimmedNote,
+    batchId,
+  }));
+
+  await db.batch([db.delete(bankHoldings).where(whereClause), ...bankAuditStatements(db, auditRows)] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+
+  return { removed: rows.length };
 }
 
 // ---------------------------------------------------------------------

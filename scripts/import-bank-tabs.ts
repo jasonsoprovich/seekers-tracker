@@ -156,6 +156,13 @@ type HoldingRow = {
   itemName: string;
   container: string;
   slotIndex: number;
+  // The original sheet location this row's container/slotIndex describe
+  // ("Bank3-Slot2", or just "Bank3" for a bag's own slot), or null for a row
+  // with no recognizable location at all. 2026-09-27: every sheet row now
+  // lands under the synthetic "Sheet" container (see below) so it can never
+  // collide with a real synced row's slot; this is what sync.ts's
+  // reconcileUnverified matches an incoming synced row's location against.
+  legacyLocation: string | null;
   quantity: number;
   classRestriction: string | null;
   status: "guild_bank" | "reserved";
@@ -200,17 +207,20 @@ async function main() {
 
   const rows: HoldingRow[] = [];
   const heuristicSplits: { holder: string; item: string; qty: number; locCount: number }[] = [];
-  // Per-holder counter for rows with no recognizable location at all (blank
-  // notes, or notes that are pure free text) — same idea as task 8.6's
-  // "Manual" pseudo-container for officer-added rows, but "Sheet Import"
-  // instead so the two provenances are never visually confused, and neither
-  // string can ever collide with a real Zeal-export container (those are
-  // always "General"/"Bank"/"SharedBank" + digits).
-  const noLocCounters = new Map<string, number>();
+  // Every sheet row — whether it had a recognizable bag/slot location or
+  // not — lands under the synthetic "Sheet" container with a running
+  // per-holder slot_index, same idea as task 8.6's "Manual" pseudo-container
+  // for officer-added rows. Neither "Sheet" nor "Manual" can ever collide
+  // with a real Zeal-export container (always "General"/"Bank"/"SharedBank"
+  // + digits — validateSyncPayload in src/lib/bank/sync.ts rejects anything
+  // else), which is what keeps an unverified sheet/manual row from ever
+  // hitting the (holder, container, slot) unique index a real synced row
+  // could also land on (2026-09-27 unverified-item tracking).
+  const sheetSlotCounters = new Map<string, number>();
 
-  function nextNoLocSlot(holderName: string): number {
-    const n = (noLocCounters.get(holderName) ?? 0) + 1;
-    noLocCounters.set(holderName, n);
+  function nextSheetSlot(holderName: string): number {
+    const n = (sheetSlotCounters.get(holderName) ?? 0) + 1;
+    sheetSlotCounters.set(holderName, n);
     return n;
   }
 
@@ -238,8 +248,9 @@ async function main() {
         officerName,
         category: "spell",
         itemName,
-        container: "Sheet Import",
-        slotIndex: nextNoLocSlot(holderName),
+        container: "Sheet",
+        slotIndex: nextSheetSlot(holderName),
+        legacyLocation: null,
         quantity: qty,
         classRestriction,
         status: "guild_bank",
@@ -252,8 +263,9 @@ async function main() {
           officerName,
           category: "spell",
           itemName,
-          container: s.loc.container,
-          slotIndex: s.loc.slotIndex,
+          container: "Sheet",
+          slotIndex: nextSheetSlot(holderName),
+          legacyLocation: s.loc.slotIndex === 0 ? s.loc.container : `${s.loc.container}-Slot${s.loc.slotIndex}`,
           quantity: s.quantity,
           classRestriction,
           status: "guild_bank",
@@ -295,8 +307,9 @@ async function main() {
         officerName,
         category: "item",
         itemName,
-        container: "Sheet Import",
-        slotIndex: nextNoLocSlot(holderName),
+        container: "Sheet",
+        slotIndex: nextSheetSlot(holderName),
+        legacyLocation: null,
         quantity: qty,
         classRestriction,
         status,
@@ -309,8 +322,9 @@ async function main() {
           officerName,
           category: "item",
           itemName,
-          container: s.loc.container,
-          slotIndex: s.loc.slotIndex,
+          container: "Sheet",
+          slotIndex: nextSheetSlot(holderName),
+          legacyLocation: s.loc.slotIndex === 0 ? s.loc.container : `${s.loc.container}-Slot${s.loc.slotIndex}`,
           quantity: s.quantity,
           classRestriction,
           status,
@@ -370,8 +384,8 @@ async function main() {
   out.push("-- Same synced-holder guard as the deletes above — id NOT IN (SELECT character_id FROM bank_imports).");
   for (const r of rows) {
     out.push(
-      `INSERT INTO bank_holdings (holder_character_id, category, container, slot_index, item_name, quantity, class_restriction, status, note, source, updated_at)\n` +
-        `SELECT id, ${sqlStr(r.category)}, ${sqlStr(r.container)}, ${r.slotIndex}, ${sqlStr(r.itemName)}, ${r.quantity}, ${sqlStr(r.classRestriction)}, ${sqlStr(r.status)}, ${sqlStr(r.note)}, 'import', unixepoch()\n` +
+      `INSERT INTO bank_holdings (holder_character_id, category, container, slot_index, item_name, quantity, class_restriction, status, note, source, legacy_location, updated_at)\n` +
+        `SELECT id, ${sqlStr(r.category)}, ${sqlStr(r.container)}, ${r.slotIndex}, ${sqlStr(r.itemName)}, ${r.quantity}, ${sqlStr(r.classRestriction)}, ${sqlStr(r.status)}, ${sqlStr(r.note)}, 'import', ${sqlStr(r.legacyLocation)}, unixepoch()\n` +
         `FROM characters WHERE name = ${sqlStr(r.holderName)} COLLATE NOCASE AND id NOT IN (SELECT character_id FROM bank_imports);`,
     );
   }
