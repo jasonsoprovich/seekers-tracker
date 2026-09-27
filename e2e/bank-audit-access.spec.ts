@@ -37,4 +37,12 @@ test.describe("officer", () => {
     await auditLink.click();
     await expect(page.getByPlaceholder("Holder, item, officer…")).toBeVisible();
   });
+
+  // 2026-09-27, Jason's own call: manual add is hidden (not removed —
+  // BANK_MANUAL_ADD_ENABLED in src/lib/bank/constants.ts) so sync stays
+  // the one real source of new guild bank items.
+  test("does not see the manual + Add item button", async ({ page }) => {
+    await page.goto("/bank");
+    await expect(page.getByRole("button", { name: "+ Add item" })).toHaveCount(0);
+  });
 });

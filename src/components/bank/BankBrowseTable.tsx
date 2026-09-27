@@ -7,6 +7,7 @@ import { addManualHoldingAction, deleteHoldingAction, removeUnverifiedHoldingAct
 import { Button } from "@/components/ui/Button";
 import { useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
+import { BANK_MANUAL_ADD_ENABLED } from "@/lib/bank/constants";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
 
 type SortKey = "holderName" | "mainName" | "category" | "itemName" | "quantity" | "status";
@@ -643,14 +644,14 @@ export function BankBrowseTable({
           {holdings.length === 1 ? "" : "s"})
         </span>
 
-        {canManage && (
+        {canManage && BANK_MANUAL_ADD_ENABLED && (
           <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={() => setAddOpen((v) => !v)}>
             {addOpen ? "Cancel" : "+ Add item"}
           </Button>
         )}
       </div>
 
-      {canManage && addOpen && (
+      {canManage && BANK_MANUAL_ADD_ENABLED && addOpen && (
         <form onSubmit={onAddSubmit} className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-border p-4">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-neutral-400">Holder character</span>

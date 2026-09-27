@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { SortableTh, useTableSort } from "@/components/ui/table-sort";
 import { guildDateTime } from "@/lib/guild-timezone";
@@ -163,9 +163,8 @@ export function BankAuditLogTable({ batches }: { batches: BankAuditLogBatch[] })
             const isBatch = b.rows.length > 1;
             const isOpen = expanded.has(key);
             return (
-              <>
+              <Fragment key={key}>
                 <tr
-                  key={key}
                   className={`align-top hover:bg-neutral-900/40 ${isBatch ? "cursor-pointer" : ""}`}
                   onClick={isBatch ? () => toggleExpanded(key) : undefined}
                 >
@@ -230,7 +229,7 @@ export function BankAuditLogTable({ batches }: { batches: BankAuditLogBatch[] })
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             );
           })}
           {sorted.length === 0 && (
