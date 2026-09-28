@@ -66,6 +66,7 @@ export const SYSTEM_EVENTS = {
   "epgp.decay.reverse": { category: "epgp", label: "Decay batch reversed" },
   "epgp.departure.commit": { category: "epgp", label: "Departure EP wipe" },
   "epgp.raid.reverse": { category: "epgp", label: "Raid reversed" },
+  "epgp.raid.zero_ep": { category: "epgp", label: "Raid EP zeroed" },
   "epgp.raid.meta": { category: "epgp", label: "Raid renamed" },
   "epgp.info.update": { category: "epgp", label: "Rules info section edited" },
   "epgp.standings.rebuild": { category: "epgp", label: "Standings rebuilt" },

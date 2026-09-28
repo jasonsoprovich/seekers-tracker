@@ -29,6 +29,14 @@ type AttendanceRequestBody = {
   note?: unknown;
   zone?: unknown;
   raidName?: unknown;
+  // Whether this capture awards EP at all. Defaults to true (existing
+  // behavior) — only an explicit `false` skips EP entirely, so an older
+  // client that never sends this field is unaffected. Attendance rows are
+  // still written either way; this only zeroes the points. For events with
+  // genuinely no EP tied to them (e.g. a social/non-raid gathering) —
+  // keeps the attendance record without pretending an activity's normal
+  // point value applies.
+  awardEp?: unknown;
   awardEventLead?: unknown;
   // Who the Event Lead EP goes to, when awardEventLead is true. Blank/
   // absent keeps the original behavior: the API key owner's own current
@@ -155,6 +163,13 @@ export async function POST(request: Request) {
   // submit that carries a name wins (nameRaidFromCapture never overwrites),
   // so a stale value on a later Mid/End submit is harmless.
   const raidName = typeof body.raidName === "string" && body.raidName.trim() ? body.raidName.trim().slice(0, LIMITS.raidName) : null;
+  if (body.awardEp !== undefined && typeof body.awardEp !== "boolean") {
+    return Response.json({ error: "`awardEp` must be a boolean." }, { status: 400 });
+  }
+  // Only an explicit `false` opts out — undefined/true both keep today's
+  // behavior, which is what makes this backward-compatible with every
+  // parser build that predates this field.
+  const awardEp = body.awardEp !== false;
   if (body.awardEventLead !== undefined && typeof body.awardEventLead !== "boolean") {
     return Response.json({ error: "`awardEventLead` must be a boolean." }, { status: 400 });
   }
@@ -171,7 +186,11 @@ export async function POST(request: Request) {
   const activity = activityCheck.value;
 
   const db = await getDb();
-  const points = await getActivePointValue(db, "ep", activity);
+  // Only resolve/require a configured point value when this capture is
+  // actually awarding EP — a zero-EP event (attendance kept, no points)
+  // doesn't need `activity` to be a currently-configured EP activity at
+  // all.
+  const points = awardEp ? await getActivePointValue(db, "ep", activity) : 0;
   if (points === null) {
     return Response.json({ error: `"${activity}" isn't a current EP activity.` }, { status: 422 });
   }
@@ -385,14 +404,15 @@ export async function POST(request: Request) {
       action: "epgp.attendance.submit",
       targetType: "raid",
       targetLabel: raidName || null,
-      summary: `Attendance capture submitted: ${inserted} row(s), ${activity}${zone ? `, ${zone}` : ""}${raidName ? ` — ${raidName}` : ""}`,
-      after: { activity, occurredAt: occurredAtIso, zone, inserted, duplicates: duplicates.length, unmatched: unmatched.length, eventLeadInserted },
+      summary: `Attendance capture submitted: ${inserted} row(s), ${activity}${zone ? `, ${zone}` : ""}${raidName ? ` — ${raidName}` : ""}${awardEp ? "" : " (0 EP)"}`,
+      after: { activity, occurredAt: occurredAtIso, zone, inserted, duplicates: duplicates.length, unmatched: unmatched.length, eventLeadInserted, awardEp },
     });
   }
 
   return Response.json(
     {
       inserted,
+      awardEp,
       eventLeadInserted,
       eventLeadCharacterName: eventLeadInserted ? eventLeadPreparation?.award.characterName : undefined,
       // Set when awardEventLead was true but this raid moment already has

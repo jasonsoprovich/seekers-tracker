@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { RaidLootTable } from "@/components/epgp/RaidLootTable";
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
 import { ReverseRaidButton } from "@/components/epgp/ReverseRaidButton";
+import { ZeroRaidEpButton } from "@/components/epgp/ZeroRaidEpButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, players, users } from "@/db";
 import { getDb } from "@/lib/db";
@@ -168,6 +169,11 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
             it when a raid was captured against stale test data and needs to be redone. Standings recompute automatically.
           </p>
           <ReverseRaidButton raidDate={detail.raidDate} />
+          <p className="mt-4 mb-2 text-xs text-neutral-400">
+            Or, if attendance was captured correctly but this event has no EP tied to it — set every attendance row&apos;s EP here to 0 and
+            keep the rows (who attended, when, zone) exactly as recorded.
+          </p>
+          <ZeroRaidEpButton raidDate={detail.raidDate} raidName={raidName} />
         </div>
       )}
 

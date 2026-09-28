@@ -3,12 +3,13 @@
 import { redirect } from "next/navigation";
 
 import { getDb } from "@/lib/db";
-import { reverseRaid, setRaidLeader, setRaidMeta } from "@/lib/epgp/raids";
+import { reverseRaid, setRaidLeader, setRaidMeta, zeroRaidEp } from "@/lib/epgp/raids";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 export type RaidMetaResult = { error?: string };
 export type ReverseRaidActionResult = { ok?: true; epRows?: number; gpRows?: number; lootEvents?: number; bids?: number; error?: string };
+export type ZeroRaidEpActionResult = { ok?: true; rowsZeroed?: number; error?: string };
 
 // Officer+ names/annotates a raid night. The date is the identity (from the
 // URL), so there's no create/delete — just an upsert of the label.
@@ -63,6 +64,24 @@ export async function reverseRaidAction(raidDate: string): Promise<ReverseRaidAc
 
   const db = await getDb();
   const result = await reverseRaid(db, raidDate, session.user.id);
+  if ("error" in result) return { error: result.error };
+  return result;
+}
+
+// Same bar as reverseRaidAction — this changes EP for many players at
+// once, even though (unlike reverse) it keeps the rows and only zeroes
+// their points. See zeroRaidEp's comment for exactly what's touched.
+export async function zeroRaidEpAction(raidDate: string, raidName: string | null): Promise<ZeroRaidEpActionResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.raids.reverse")) {
+    return { error: "Only leaders and admins can zero an event's EP." };
+  }
+
+  const db = await getDb();
+  const result = await zeroRaidEp(db, raidDate, raidName, session.user.id);
   if ("error" in result) return { error: result.error };
   return result;
 }

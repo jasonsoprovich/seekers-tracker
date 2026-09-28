@@ -1,13 +1,14 @@
-import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { bids, characters, epLedger, gpLedger, lootEvents, players, raids, users } from "@/db";
+import { bids, characters, epLedger, gpLedger, ledgerAuditLog, lootEvents, players, raids, users } from "@/db";
 import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
 import { getActivePointValue } from "@/lib/epgp/point-values";
-import { settleStandings } from "@/lib/epgp/standings";
+import { dirtyMarkerStatements, settleStandings } from "@/lib/epgp/standings";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 import { guildDayBounds, toGuildDateString } from "../guild-timezone";
@@ -574,6 +575,95 @@ export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: stri
   });
 
   return { ok: true, epRows, gpRows, lootEvents: lootCount, bids: bidCount };
+}
+
+export type ZeroRaidEpResult = { ok: true; rowsZeroed: number } | { error: string };
+
+// Zeroes EP for one event's attendance rows while KEEPING the rows
+// themselves — for an event that went through the normal attendance-
+// capture flow but genuinely has no EP tied to it (a purely social night,
+// discovered only after the fact — see the 2026-09-27 "Moondust" event).
+// Unlike reverseRaid above (which deletes every ep_ledger/gp_ledger/loot
+// row for a whole guild-local day), this: only touches ep_ledger (gp_ledger
+// and loot_events/bids are untouched — this is an EP-only correction, not
+// an undo of the night); only rows belonging to the ONE event named here;
+// and UPDATEs rather than DELETEs, so the attendance record survives with
+// its points zeroed and a real audit trail of what it used to be.
+//
+// Uses the same date-only-row inclusion rule getRaidDetail already applies
+// when rendering one named event among several on the same night: a
+// date-only row (no raid_name at all — an older capture, or one that never
+// got named) counts toward this event only when it's the sole named event
+// that day. A night split into several distinctly-named events only zeroes
+// the one asked for.
+export async function zeroRaidEp(
+  db: ReturnType<typeof drizzle>,
+  raidDate: string,
+  raidName: string | null,
+  actorId: string,
+): Promise<ZeroRaidEpResult> {
+  const bounds = guildDayBounds(raidDate);
+  if (!bounds) return { error: "Bad raid date." };
+  const { start, end } = bounds;
+
+  const [namedFromMeta, namedFromLedger] = await Promise.all([
+    db.select({ name: raids.name }).from(raids).where(eq(raids.raidDate, raidDate)),
+    db
+      .select({ raidName: epLedger.raidName })
+      .from(epLedger)
+      .where(and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end))),
+  ]);
+  const namedEventCount = new Set([
+    ...namedFromMeta.flatMap((r) => (r.name ? [r.name] : [])),
+    ...namedFromLedger.flatMap((r) => (r.raidName ? [r.raidName] : [])),
+  ]).size;
+  const includeDateOnlyRows = raidName === null || namedEventCount <= 1;
+
+  const raidNameMatch =
+    raidName === null
+      ? isNull(epLedger.raidName)
+      : includeDateOnlyRows
+        ? or(eq(epLedger.raidName, raidName), isNull(epLedger.raidName))
+        : eq(epLedger.raidName, raidName);
+
+  const rows = await db
+    .select()
+    .from(epLedger)
+    .where(and(eq(epLedger.source, "parse"), gte(epLedger.occurredAt, start), lt(epLedger.occurredAt, end), raidNameMatch, ne(epLedger.points, 0)));
+
+  if (rows.length === 0) return { error: "No EP rows to zero for that event." };
+
+  const affectedPlayerIds = new Set<number>();
+  const batch: BatchItem<"sqlite">[] = [];
+  for (const row of rows) {
+    const after = { ...row, points: 0, pointsNominal: 0, pointsAwarded: 0, capApplied: false };
+    batch.push(db.update(epLedger).set({ points: 0, pointsNominal: 0, pointsAwarded: 0, capApplied: false }).where(eq(epLedger.id, row.id)) as unknown as BatchItem<"sqlite">);
+    // Audit row lands in the same batch as the update it describes, same
+    // shape recordLedgerChange itself writes — done inline here (not via
+    // that helper) so every row's update+audit commit as one transaction
+    // together with the standings dirty markers below.
+    batch.push(
+      db
+        .insert(ledgerAuditLog)
+        .values({ ledgerType: "ep", ledgerId: row.id, action: "update", changedBy: actorId, before: row, after }) as unknown as BatchItem<"sqlite">,
+    );
+    if (row.playerId != null) affectedPlayerIds.add(row.playerId);
+  }
+  batch.push(...dirtyMarkerStatements(db, { playerIds: [...affectedPlayerIds] }));
+  await db.batch(batch as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+
+  if (affectedPlayerIds.size > 0) await settleStandings(db, { playerIds: [...affectedPlayerIds] });
+
+  await recordSystemEvent(db, await webActor(db, actorId), {
+    action: "epgp.raid.zero_ep",
+    targetType: "raid",
+    targetId: raidDate,
+    targetLabel: raidName,
+    summary: `Zeroed EP for ${rows.length} attendance row(s) on ${raidDate}${raidName ? ` — ${raidName}` : ""}`,
+    before: { rowsZeroed: rows.length },
+  });
+
+  return { ok: true, rowsZeroed: rows.length };
 }
 
 export async function setRaidMeta(
