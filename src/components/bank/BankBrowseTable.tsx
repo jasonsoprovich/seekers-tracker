@@ -378,7 +378,10 @@ export function BankBrowseTable({
   // something genuinely gone rather than just unsynced yet. Always
   // requires a note (server-enforced; removeUnverifiedHoldingAction
   // refuses a blank one) so the audit trail keeps saying WHY.
-  async function onRemoveUnverified(target: { kind: "row"; id: number } | { kind: "holder"; holderCharacterId: number }, label: string) {
+  async function onRemoveUnverified(
+    target: { kind: "row"; id: number } | { kind: "holder"; holderCharacterId: number },
+    label: string,
+  ): Promise<boolean> {
     const result = await confirmWith({
       title: "Remove unverified item(s)?",
       message:
@@ -389,17 +392,33 @@ export function BankBrowseTable({
       danger: true,
       textInput: { label: "Note — who received it, or why it's gone", placeholder: "Given to…" },
     });
-    if (!result.ok) return;
+    if (!result.ok) return false;
     const key = target.kind === "row" ? target.id : `holder:${target.holderCharacterId}`;
     setRemovingId(key);
     const outcome = await removeUnverifiedHoldingAction(target, result.note ?? "");
     setRemovingId(null);
     if (outcome.error) {
       alert(outcome.error);
-      return;
+      return false;
     }
     router.refresh();
+    return true;
   }
+
+  // Wraps onRemoveUnverified for the inline edit-row Remove button — closes
+  // the edit row on success (same as saveEdit) so a removed row doesn't sit
+  // half-open in edit mode after it's gone.
+  async function removeRowWhileEditing(row: BankHoldingRow) {
+    const ok = await onRemoveUnverified({ kind: "row", id: row.id }, row.itemName);
+    if (ok && editingId === row.id) setEditingId(null);
+  }
+
+  // Actions column background while it's pinned via `sticky right-0` (see
+  // below) — a sticky cell needs its OWN opaque background, not just its
+  // row's, since it has to visually cover whatever scrolls underneath it.
+  // Matches each row context's own (translucent) row background as closely
+  // as a solid color can.
+  const actionsCellBg = (isNested: boolean) => (isNested ? "bg-neutral-900" : "bg-neutral-950");
 
   function renderRowCells(row: BankHoldingRow, isEditing: boolean, isNested = false) {
     return (
@@ -458,15 +477,15 @@ export function BankBrowseTable({
           )}
         </td>
         {canManage && (
-          <td className="px-3 py-2">
+          <td className={`sticky right-0 z-10 px-3 py-2 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.6)] ${actionsCellBg(isNested)}`}>
             {isEditing ? (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   value={editAuditNote}
                   onChange={(e) => setEditAuditNote(e.target.value)}
                   placeholder="Audit note (optional)"
                   title="Context for this edit's audit-log entry — e.g. who donated it"
-                  className={`${fieldClasses({ size: "sm" })} w-32`}
+                  className={`${fieldClasses({ size: "sm" })} w-28`}
                 />
                 <Button type="button" size="sm" onClick={() => saveEdit(row.id)} disabled={pending}>
                   Save
@@ -474,6 +493,22 @@ export function BankBrowseTable({
                 <Button type="button" size="sm" variant="outline" onClick={() => setEditingId(null)}>
                   Cancel
                 </Button>
+                {/* Unverified rows only (sheet-migrated / manual rows a real
+                    sync hasn't confirmed yet) — a verified holding stays
+                    protected from manual deletion since a sync keeps it
+                    accurate on its own. Reuses the same required-note,
+                    audit-logged path the Verification progress panel above
+                    already calls, just reachable without leaving this row. */}
+                {row.unverifiedState !== null && (
+                  <button
+                    type="button"
+                    disabled={removingId !== null}
+                    onClick={() => removeRowWhileEditing(row)}
+                    className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
+                  >
+                    {removingId === row.id ? "Removing…" : "Remove"}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -761,7 +796,9 @@ export function BankBrowseTable({
               ))}
               <th className="px-3 py-2 font-medium">Location</th>
               <th className="px-3 py-2 font-medium">Note</th>
-              {canManage && <th className="px-3 py-2 font-medium">Actions</th>}
+              {canManage && (
+                <th className="sticky right-0 z-10 bg-neutral-900 px-3 py-2 font-medium shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.6)]">Actions</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -826,7 +863,11 @@ export function BankBrowseTable({
                     </td>
                     <td className="px-3 py-2 text-neutral-500">{g.rows.length} slots</td>
                     <td className="px-3 py-2 text-neutral-500">—</td>
-                    {canManage && <td className="px-3 py-2 text-neutral-600">expand to edit</td>}
+                    {canManage && (
+                      <td className="sticky right-0 z-10 bg-neutral-950 px-3 py-2 text-neutral-600 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.6)]">
+                        expand to edit
+                      </td>
+                    )}
                   </tr>
                   {isOpen &&
                     g.rows.map((row) => {
