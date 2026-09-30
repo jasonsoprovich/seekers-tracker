@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
 import { addLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
+import { decodeEvent, EventSelect, type EventOption } from "@/components/epgp/EventSelect";
 import { Button } from "@/components/ui/Button";
 import { Field, fieldClasses } from "@/components/ui/Field";
 import { toGuildDateString } from "@/lib/guild-timezone";
@@ -19,11 +20,13 @@ export function AddLedgerEntryForm({
   characters,
   activitySuggestions,
   itemSuggestions,
+  events,
 }: {
   type: "ep" | "gp";
   characters: CharacterOption[];
   activitySuggestions: string[];
   itemSuggestions: string[];
+  events: EventOption[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -41,8 +44,7 @@ export function AddLedgerEntryForm({
     const occurredAt = String(formData.get("occurredAt") ?? "");
     const note = String(formData.get("note") ?? "");
     const zone = String(formData.get("zone") ?? "");
-    const raidDate = String(formData.get("raidDate") ?? "");
-    const raidName = String(formData.get("raidName") ?? "");
+    const { raidDate, raidName } = decodeEvent(String(formData.get("event") ?? ""));
     const bypassCap = formData.get("bypassCap") === "on";
 
     setPending(true);
@@ -145,19 +147,11 @@ export function AddLedgerEntryForm({
         <input type="date" name="occurredAt" defaultValue={todayInputValue()} required className={fieldClasses({ size: "sm" })} />
       </Field>
 
-      {(type === "ep" || type === "gp") && (
-        <>
-          <Field className="w-48">
-            <span className="text-neutral-400">Raid / event date</span>
-            <input type="date" name="raidDate" className={fieldClasses({ size: "sm" })} />
-            <span className="text-xs text-neutral-500">Optional. Shows this entry on that date's Raids & Events page.</span>
-          </Field>
-          <Field className="w-48">
-            <span className="text-neutral-400">Raid / event name</span>
-            <input name="raidName" className={fieldClasses({ size: "sm" })} placeholder="Optional; distinguishes same-day events" />
-          </Field>
-        </>
-      )}
+      <Field className="w-64">
+        <span className="text-neutral-400">Link to event (optional)</span>
+        <EventSelect name="event" value="" events={events} />
+        <span className="text-xs text-neutral-500">Optional. Shows this entry on that event's Raids & Events page. Only existing events are listed.</span>
+      </Field>
 
       <Field className="w-56">
         <span className="text-neutral-400">Note</span>

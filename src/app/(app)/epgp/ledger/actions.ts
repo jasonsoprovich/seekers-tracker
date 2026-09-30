@@ -1,6 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { characters, epLedger, gpLedger, ledgerAuditLog } from "@/db";
@@ -8,6 +9,8 @@ import { getDb } from "@/lib/db";
 import { planUnwinBidForGpRow } from "@/lib/epgp/bid-unwin";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
+import { eventExists } from "@/lib/epgp/raids";
+import { ledgerDateInput } from "@/lib/format-date";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
 import { getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { guildDayBounds } from "@/lib/guild-timezone";
@@ -15,6 +18,7 @@ import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
 import { boundedString } from "@/lib/validate";
+import { LEDGER_PAGE_SIZE_COOKIE, parseLedgerPageSize } from "./page-size";
 
 // `standing` (task 4.3) is the affected player's just-refreshed row, fetched
 // fresh (getStandingsForPlayers, never the roster-wide 10s cache) — present
@@ -47,7 +51,7 @@ export async function addLedgerEntry(input: AddLedgerEntryInput): Promise<Ledger
   }
 
   const db = await getDb();
-  const result = await insertLedgerEntry(db, input, session.user.id);
+  const result = await insertLedgerEntry(db, input, session.user.id, "manual", { requireExistingEvent: true });
   return result.ok ? { standing: result.standing, capped: result.capped } : { error: result.error };
 }
 
@@ -76,10 +80,15 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
 
   const db = await getDb();
   const affectedPlayerIds = new Set<number>();
+  const eventPair = raidDate ? { raidDate, raidName } : null;
   const affectedCharacterIds = new Set<number>();
   if (input.kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
+    if (eventPair && !(before.raidDate === eventPair.raidDate && before.raidName === eventPair.raidName) && !(await eventExists(db, eventPair.raidDate, eventPair.raidName))) {
+      return { error: "Pick an event from the list." };
+    }
+    const keepOccurredAt = ledgerDateInput(before.occurredAt, before.source) === input.occurredAt;
     if (before.playerId != null) affectedPlayerIds.add(before.playerId);
     if (before.characterId != null) affectedCharacterIds.add(before.characterId);
     if (before.playerId != null) await markStandingsDirty(db, { playerIds: [before.playerId] });
@@ -90,7 +99,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
         points: input.points,
         pointsNominal: input.points,
         pointsAwarded: input.points,
-        occurredAt,
+        occurredAt: keepOccurredAt ? before.occurredAt : occurredAt,
         note: input.note.trim() || null,
         zone: input.zone.trim() || null,
         raidDate,
@@ -110,6 +119,10 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   } else {
     const [before] = await db.select().from(gpLedger).where(eq(gpLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
+    if (eventPair && !(before.raidDate === eventPair.raidDate && before.raidName === eventPair.raidName) && !(await eventExists(db, eventPair.raidDate, eventPair.raidName))) {
+      return { error: "Pick an event from the list." };
+    }
+    const keepOccurredAt = ledgerDateInput(before.occurredAt, before.source) === input.occurredAt;
     const [target] = await db
       .select({ id: characters.id, charType: characters.charType, mainCharacterId: characters.mainCharacterId, playerId: characters.playerId })
       .from(characters)
@@ -131,7 +144,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
         points: input.points,
         pointsNominal: input.points,
         pointsAwarded: input.points,
-        occurredAt,
+        occurredAt: keepOccurredAt ? before.occurredAt : occurredAt,
         note: input.note.trim() || null,
         raidDate,
         raidName,
@@ -258,4 +271,15 @@ export async function setAuditNote(auditId: number, note: string): Promise<Ledge
     .where(eq(ledgerAuditLog.id, auditId));
 
   return {};
+}
+
+// Rows-per-page preference for the ledger tabs. A session cookie (no
+// maxAge), so it persists across pages/tabs for the browser session and
+// resets when the browser closes. Purely a display preference — nothing to
+// authorize beyond being signed in.
+export async function setLedgerPageSize(size: number): Promise<void> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const store = await cookies();
+  store.set(LEDGER_PAGE_SIZE_COOKIE, String(parseLedgerPageSize(String(size))), { sameSite: "lax", path: "/" });
 }

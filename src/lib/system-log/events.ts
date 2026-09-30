@@ -69,6 +69,10 @@ export const SYSTEM_EVENTS = {
   "epgp.raid.zero_ep": { category: "epgp", label: "Raid EP zeroed" },
   "epgp.raid.meta": { category: "epgp", label: "Raid renamed" },
   "epgp.info.update": { category: "epgp", label: "Rules info section edited" },
+  "guild.info.create": { category: "epgp", label: "Guild info card created" },
+  "guild.info.update": { category: "epgp", label: "Guild info card edited" },
+  "guild.info.reorder": { category: "epgp", label: "Guild info card moved" },
+  "guild.info.delete": { category: "epgp", label: "Guild info card deleted" },
   "epgp.standings.rebuild": { category: "epgp", label: "Standings rebuilt" },
   // One summary row per parser submission, not per ledger line — the
   // per-row detail already lives on the EP/GP ledgers themselves.

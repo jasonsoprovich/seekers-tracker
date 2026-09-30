@@ -1,23 +1,31 @@
-import { and, asc, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AddLedgerEntryForm } from "@/components/epgp/AddLedgerEntryForm";
 import { AuditLogTable, type AuditLogRow } from "@/components/epgp/AuditLogTable";
 import { BidHistoryTable } from "@/components/epgp/BidHistoryTable";
+import { PageSizeSelect } from "@/components/epgp/PageSizeSelect";
 import { LedgerSearchBox } from "@/components/epgp/LedgerSearchBox";
 import { LedgerTable, type EpRow, type GpRow } from "@/components/epgp/LedgerTable";
 import { TotalsTable } from "@/components/epgp/TotalsTable";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { Pagination } from "@/components/ui/Pagination";
 import { characters, epgpPointValues, gpLedger, ledgerAuditLog, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { getTotalsRows, listBidHistory, listLedgerRows } from "@/lib/epgp/ledger-list";
+import { listRaids } from "@/lib/epgp/raids";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { LEDGER_PAGE_SIZE_COOKIE, parseLedgerPageSize } from "./page-size";
 
-const PAGE_SIZE = 50;
 const MANUAL_ADJUSTMENT = "Manual Adjustment";
+
+function clampPage(page: number, total: number, pageSize: number) {
+  return Math.min(page, Math.max(1, Math.ceil(total / pageSize)));
+}
 
 type TabType = "totals" | "ep" | "gp" | "bids" | "audit";
 type SearchParams = { type?: string; q?: string; page?: string };
@@ -58,8 +66,9 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   // 2026-09-07).
   const type: TabType =
     typeParam === "ep" || typeParam === "gp" || typeParam === "bids" || typeParam === "audit" ? typeParam : "totals";
-  const page = Math.max(1, Number(pageParam) || 1);
+  const requestedPage = Math.max(1, Number(pageParam) || 1);
   const term = q.trim();
+  const pageSize = parseLedgerPageSize((await cookies()).get(LEDGER_PAGE_SIZE_COOKIE)?.value);
 
   const db = await getDb();
   const visibleTabs = TABS.filter((t) => !t.officerOnly || canManage);
@@ -69,7 +78,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
     params.set("type", overrides.type ?? type);
     const qVal = overrides.q ?? term;
     if (qVal) params.set("q", qVal);
-    params.set("page", String(overrides.page ?? page));
+    params.set("page", String(overrides.page ?? requestedPage));
     return `/epgp/ledger?${params.toString()}`;
   }
 
@@ -77,8 +86,9 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   let characterOptions: { id: number; name: string }[] = [];
   let activitySuggestions: string[] = [];
   let itemSuggestions: string[] = [];
+  let eventOptions: { value: string; label: string }[] = [];
   if (canManage && (type === "ep" || type === "gp")) {
-    const [charRows, activityRows, itemRows] = await Promise.all([
+    const [charRows, activityRows, itemRows, events] = await Promise.all([
       db.select({ id: characters.id, name: characters.name }).from(characters).orderBy(asc(characters.name)),
       db
         .select({ activity: epgpPointValues.activity })
@@ -86,7 +96,14 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         .where(and(eq(epgpPointValues.kind, type), eq(epgpPointValues.retired, false)))
         .orderBy(asc(epgpPointValues.sortOrder)),
       db.selectDistinct({ itemName: gpLedger.itemName }).from(gpLedger).where(isNotNull(gpLedger.itemName)).orderBy(asc(gpLedger.itemName)),
+      listRaids(db),
     ]);
+    // Existing events only (same list as Raids & Events) — a free-typed date
+    // could silently create a phantom event. Value is "date|name".
+    eventOptions = events.map((e) => ({
+      value: `${e.raidDate}|${e.eventName ?? ""}`,
+      label: `${e.raidDate}${e.name ? ` — ${e.name}` : ""}`,
+    }));
     characterOptions = charRows;
     activitySuggestions = activityRows.map((r) => r.activity);
     // Not a configured bid tier (no fixed GP cost, never offered in the
@@ -101,24 +118,30 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
   let gpRows: GpRow[] = [];
   let bidRows: Awaited<ReturnType<typeof listBidHistory>>["rows"] = [];
   let auditRows: AuditLogRow[] = [];
-  let hasNext = false;
+  let total = 0;
+  let page = requestedPage;
 
   if (type === "totals") {
     totalsRows = await getTotalsRows(db, { q: term });
   } else if (type === "ep") {
-    const result = await listLedgerRows(db, { kind: "ep", q: term, page, pageSize: PAGE_SIZE });
+    let result = await listLedgerRows(db, { kind: "ep", q: term, page, pageSize });
+    page = clampPage(page, result.total, pageSize);
+    if (page !== requestedPage) result = await listLedgerRows(db, { kind: "ep", q: term, page, pageSize });
     epRows = result.rows;
-    hasNext = result.hasNext;
+    total = result.total;
   } else if (type === "gp") {
-    const result = await listLedgerRows(db, { kind: "gp", q: term, page, pageSize: PAGE_SIZE });
+    let result = await listLedgerRows(db, { kind: "gp", q: term, page, pageSize });
+    page = clampPage(page, result.total, pageSize);
+    if (page !== requestedPage) result = await listLedgerRows(db, { kind: "gp", q: term, page, pageSize });
     gpRows = result.rows;
-    hasNext = result.hasNext;
+    total = result.total;
   } else if (type === "bids") {
-    const result = await listBidHistory(db, { q: term, page, pageSize: PAGE_SIZE });
+    let result = await listBidHistory(db, { q: term, page, pageSize });
+    page = clampPage(page, result.total, pageSize);
+    if (page !== requestedPage) result = await listBidHistory(db, { q: term, page, pageSize });
     bidRows = result.rows;
-    hasNext = result.hasNext;
+    total = result.total;
   } else {
-    const offset = (page - 1) * PAGE_SIZE;
     // The audited row's character id lives inside the before/after JSON
     // snapshot (before is '{}' on a create, so the character is in after) —
     // join characters through it so the name is both displayable and
@@ -139,6 +162,15 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
         )
       : undefined;
     const noteAuthor = alias(users, "note_author");
+    const [{ auditTotal }] = await db
+      .select({ auditTotal: count() })
+      .from(ledgerAuditLog)
+      .leftJoin(users, eq(ledgerAuditLog.changedBy, users.id))
+      .leftJoin(characters, eq(characters.id, auditCharId))
+      .where(auditWhere);
+    total = auditTotal;
+    page = clampPage(page, total, pageSize);
+    const offset = (page - 1) * pageSize;
     const rows = await db
       .select({
         id: ledgerAuditLog.id,
@@ -160,12 +192,12 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
       .leftJoin(characters, eq(characters.id, auditCharId))
       .where(auditWhere)
       .orderBy(desc(ledgerAuditLog.changedAt))
-      .limit(PAGE_SIZE + 1)
+      .limit(pageSize)
       .offset(offset);
-    hasNext = rows.length > PAGE_SIZE;
-    auditRows = rows.slice(0, PAGE_SIZE);
+    auditRows = rows;
   }
 
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const activeTab = TABS.find((t) => t.key === type)!;
 
   return (
@@ -196,33 +228,28 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
 
       {canManage && (type === "ep" || type === "gp") && (
         <div className="mt-4">
-          <AddLedgerEntryForm type={type} characters={characterOptions} activitySuggestions={activitySuggestions} itemSuggestions={itemSuggestions} />
+          <AddLedgerEntryForm type={type} characters={characterOptions} activitySuggestions={activitySuggestions} itemSuggestions={itemSuggestions} events={eventOptions} />
+        </div>
+      )}
+
+      {type !== "totals" && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <Pagination page={page} totalPages={totalPages} total={total} hrefFor={(p) => pageHref({ page: p })} />
+          <PageSizeSelect value={pageSize} />
         </div>
       )}
 
       <div className="mt-4">
         {type === "totals" && <TotalsTable rows={totalsRows} searching={term.length > 0} />}
-        {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} characters={characterOptions} />}
-        {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} characters={characterOptions} />}
+        {type === "ep" && <LedgerTable type="ep" rows={epRows} canManage={canManage} characters={characterOptions} events={eventOptions} />}
+        {type === "gp" && <LedgerTable type="gp" rows={gpRows} canManage={canManage} characters={characterOptions} events={eventOptions} />}
         {type === "bids" && <BidHistoryTable rows={bidRows} />}
         {type === "audit" && <AuditLogTable rows={auditRows} canManage={canManage} />}
       </div>
 
       {type !== "totals" && (
-        <div className="mt-4 flex items-center justify-between text-sm">
-          <span className="text-neutral-500">Page {page}</span>
-          <div className="flex gap-2">
-            {page > 1 && (
-              <Link href={pageHref({ page: page - 1 })} className="rounded-md border border-field px-3 py-1.5 font-medium text-neutral-300 hover:bg-neutral-900/60">
-                ← Prev
-              </Link>
-            )}
-            {hasNext && (
-              <Link href={pageHref({ page: page + 1 })} className="rounded-md border border-field px-3 py-1.5 font-medium text-neutral-300 hover:bg-neutral-900/60">
-                Next →
-              </Link>
-            )}
-          </div>
+        <div className="mt-4">
+          <Pagination page={page} totalPages={totalPages} total={total} hrefFor={(p) => pageHref({ page: p })} />
         </div>
       )}
     </div>

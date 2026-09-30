@@ -7,6 +7,7 @@ import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
 import { resolveEpCaps, withCapNote } from "@/lib/epgp/ep-cap";
 import { guildDayBounds } from "@/lib/guild-timezone";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
+import { eventExists } from "@/lib/epgp/raids";
 import { dirtyMarkerStatements, getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { officerApiActor, recordSystemEvent, webActor } from "@/lib/system-log";
 import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/lib/validate";
@@ -61,7 +62,7 @@ export async function insertLedgerEntry(
   input: InsertLedgerEntryInput,
   enteredBy: string,
   source: LedgerEntrySource = "manual",
-  opts: { deferStandingsRefresh?: boolean; actorSource?: "web" | "officer_api" } = {},
+  opts: { deferStandingsRefresh?: boolean; actorSource?: "web" | "officer_api"; requireExistingEvent?: boolean } = {},
 ): Promise<InsertLedgerEntryResult> {
   // Range sanity on the values that reach D1 — every write path (site form,
   // officer manual-entry / attendance / bids routes) funnels through here,
@@ -98,6 +99,9 @@ export async function insertLedgerEntry(
   if (raidName && !raidDate) return { ok: false, error: "An event name needs an event date." };
   if (raidDate && input.kind === "ep" && input.activity !== "Event Lead" && !ATTENDANCE_GATED_ACTIVITIES.has(input.activity)) {
     return { ok: false, error: "Only attendance awards can be linked to an event." };
+  }
+  if (raidDate && opts.requireExistingEvent && !(await eventExists(db, raidDate, raidName))) {
+    return { ok: false, error: "Pick an event from the list." };
   }
   // Raids & Events are grouped by this guild-local date rather than a
   // separate event id. Any manual correction can belong to that date: missed

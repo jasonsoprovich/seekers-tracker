@@ -1,4 +1,5 @@
-import { desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
+import { count, desc, eq, isNotNull, like, or, sql, type SQL } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, players, users } from "@/db";
@@ -33,7 +34,19 @@ export type GpLedgerRow = {
   enteredByName: string | null;
 };
 
-export type ListResult<T> = { rows: T[]; hasNext: boolean };
+export type ListResult<T> = { rows: T[]; hasNext: boolean; total: number };
+
+// Date-only entries (manual, sheet import, decay) are stored at UTC midnight
+// of their date — "bucket" rows, the same `% 86400 = 0` convention ep-cap.ts
+// relies on — while parse rows carry the real instant. A 9/28 9pm ET raid is
+// 9/29 01:00Z, which is later than a manual row dated 9/29 (9/29 00:00Z), so
+// a plain ORDER BY occurred_at put "9/29" manual rows under "9/28" raid rows.
+// Sort a bucket row as the END of its guild-local day (04:00Z next day is
+// midnight EDT) so it lands above every real event on that date and below
+// the next day's. Stored values are untouched.
+export function ledgerSortKey(col: AnySQLiteColumn): SQL<number> {
+  return sql<number>`case when ${col} % 86400 = 0 then ${col} + 86400 + 14400 - 1 else ${col} end`;
+}
 
 // The "Recorded by" column shows the recording officer's MAIN CHARACTER
 // (the name members know them by in game), not their Discord username —
@@ -70,6 +83,12 @@ export async function listLedgerRows(
   const term = (opts.q ?? "").trim();
 
   if (opts.kind === "ep") {
+    const epWhere = term ? or(like(characters.name, `%${term}%`), like(epLedger.activity, `%${term}%`)) : undefined;
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(epLedger)
+      .innerJoin(characters, eq(epLedger.characterId, characters.id))
+      .where(epWhere);
     const rows = await db
       .select({
         id: epLedger.id,
@@ -87,13 +106,19 @@ export async function listLedgerRows(
       .from(epLedger)
       .innerJoin(characters, eq(epLedger.characterId, characters.id))
       .leftJoin(users, eq(epLedger.enteredBy, users.id))
-      .where(term ? or(like(characters.name, `%${term}%`), like(epLedger.activity, `%${term}%`)) : undefined)
-      .orderBy(desc(epLedger.occurredAt))
+      .where(epWhere)
+      .orderBy(desc(ledgerSortKey(epLedger.occurredAt)), desc(epLedger.id))
       .limit(pageSize + 1)
       .offset(offset);
-    return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+    return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize, total };
   }
 
+  const gpWhere = term ? or(like(characters.name, `%${term}%`), like(gpLedger.itemName, `%${term}%`), like(gpLedger.tier, `%${term}%`)) : undefined;
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(gpLedger)
+    .innerJoin(characters, eq(gpLedger.characterId, characters.id))
+    .where(gpWhere);
   const rows = await db
     .select({
       id: gpLedger.id,
@@ -112,11 +137,11 @@ export async function listLedgerRows(
     .from(gpLedger)
     .innerJoin(characters, eq(gpLedger.characterId, characters.id))
     .leftJoin(users, eq(gpLedger.enteredBy, users.id))
-    .where(term ? or(like(characters.name, `%${term}%`), like(gpLedger.itemName, `%${term}%`), like(gpLedger.tier, `%${term}%`)) : undefined)
-    .orderBy(desc(gpLedger.occurredAt))
+    .where(gpWhere)
+    .orderBy(desc(ledgerSortKey(gpLedger.occurredAt)), desc(gpLedger.id))
     .limit(pageSize + 1)
     .offset(offset);
-  return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+  return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize, total };
 }
 
 export type BidHistoryRow = {
@@ -156,6 +181,13 @@ export async function listBidHistory(
   const offset = (page - 1) * pageSize;
   const term = (opts.q ?? "").trim();
 
+  const bidWhere = term ? or(like(lootEvents.itemName, `%${term}%`), like(characters.name, `%${term}%`)) : undefined;
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(bids)
+    .innerJoin(lootEvents, eq(bids.lootEventId, lootEvents.id))
+    .innerJoin(characters, eq(bids.characterId, characters.id))
+    .where(bidWhere);
   const rows = await db
     .select({
       id: bids.id,
@@ -172,7 +204,7 @@ export async function listBidHistory(
     .from(bids)
     .innerJoin(lootEvents, eq(bids.lootEventId, lootEvents.id))
     .innerJoin(characters, eq(bids.characterId, characters.id))
-    .where(term ? or(like(lootEvents.itemName, `%${term}%`), like(characters.name, `%${term}%`)) : undefined)
+    .where(bidWhere)
     .orderBy(desc(lootEvents.occurredAt), desc(bids.id))
     .limit(pageSize + 1)
     .offset(offset);
@@ -191,6 +223,7 @@ export async function listBidHistory(
       currentPriority: playerId !== null ? (standings.get(playerId)?.priorityRating ?? null) : null,
     })),
     hasNext: rows.length > pageSize,
+    total,
   };
 }
 

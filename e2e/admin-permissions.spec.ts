@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// The admin-only Permissions matrix (2026-09-19 guild leader request). Every
+// The leader/admin Permissions matrix (2026-09-19 guild leader request). Every
 // test that toggles a cell ends by resetting to defaults, so the shared
 // local D1 the whole e2e suite runs against is never left with a stray
 // override row.
@@ -18,10 +18,15 @@ test.describe("permissions page access", () => {
 test.describe("permissions page access (leader)", () => {
   test.use({ storageState: "e2e/.auth/leader.json" });
 
-  test("leader is redirected away from /admin/permissions", async ({ page }) => {
+  test("leader can open /admin/permissions but the Leader column is view-only", async ({ page }) => {
     await page.goto("/admin/permissions");
-    await expect(page).toHaveURL(/\/admin$/);
-    await expect(page.getByRole("link", { name: "Permissions" })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/admin\/permissions$/);
+    await expect(page.getByRole("heading", { name: "Permissions" })).toBeVisible();
+    const row = page.locator("tr", { has: page.getByText("Change EPGP settings") });
+    // Member, Officer, Leader, Admin
+    await expect(row.getByRole("checkbox").nth(1)).toBeEnabled();
+    await expect(row.getByRole("checkbox").nth(2)).toBeDisabled();
+    await expect(row.getByRole("checkbox").nth(3)).toBeDisabled();
   });
 });
 

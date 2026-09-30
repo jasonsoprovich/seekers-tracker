@@ -700,6 +700,28 @@ export const epgpInfoSections = sqliteTable("epgp_info_sections", {
     .default(sql`(unixepoch())`),
 });
 
+// Leader-editable "Guild Information" cards (leader request, 2026-09-30) —
+// free-form rules/info sections with a Markdown body, so leaders can add,
+// reorder, resize and remove guild info without a code change. Distinct
+// from epgp_info_sections, which is a fixed set of seeded prose blocks
+// beside the live EPGP numbers. `sort_order` is the page order; `width` is
+// "full" (spans both columns) or "half".
+export const guildInfoCards = sqliteTable("guild_info_cards", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  width: text("width", { enum: ["full", "half"] }).notNull().default("full"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdBy: text("created_by").references(() => users.id),
+  updatedBy: text("updated_by").references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 // Edit/delete trail for ep_ledger/gp_ledger rows — who's recorded points is
 // already on each row (entered_by), but that only ever shows the ORIGINAL
 // entry; an officer correcting or removing someone else's entry left no

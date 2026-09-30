@@ -135,6 +135,12 @@ export const CAPABILITIES = {
     description: "Edit the prose sections shown on the member-facing Cycle & Rules Info page.",
     defaults: ["officer", "leader"],
   },
+  "guild.info.edit": {
+    group: "Membership",
+    label: "Edit Guild Information cards",
+    description: "Add, edit, reorder, resize, and delete the Markdown cards on the Guild Information page. Everyone can read them.",
+    defaults: ["leader"],
+  },
   "epgp.bank.manage": {
     group: "EPGP",
     label: "Manage guild bank holdings",

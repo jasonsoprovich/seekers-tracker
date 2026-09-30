@@ -1,6 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { characters, players, users } from "@/db";
@@ -13,7 +14,9 @@ import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
 
-export type CharacterFormState = { error?: string };
+// `saved` is a timestamp (not a boolean) so the "Saved." confirmation
+// re-appears on every successful save, not just the first.
+export type CharacterFormState = { error?: string; saved?: number };
 
 export async function createCharacter(
   _prevState: CharacterFormState,
@@ -169,7 +172,10 @@ export async function updateCharacter(
     after: { ...parsed.data, status },
   });
 
-  redirect("/characters");
+  // Stay on the edit page — the form shows a "Saved." confirmation.
+  revalidatePath("/characters");
+  revalidatePath(`/characters/${characterId}`, "layout");
+  return { saved: Date.now() };
 }
 
 export type ClaimAltState = { error?: string };

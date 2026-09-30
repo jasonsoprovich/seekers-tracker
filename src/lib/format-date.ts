@@ -1,4 +1,4 @@
-import { GUILD_TIMEZONE } from "./guild-timezone";
+import { GUILD_TIMEZONE, toGuildDateString } from "./guild-timezone";
 
 // EPGP dates that come from the guild sheet (ep_ledger/gp_ledger.occurred_at,
 // cycles.start_date/end_date, decay_events.effective_date) are stored at
@@ -29,4 +29,20 @@ export function ledgerDate(
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleDateString("en-US", { timeZone: source === "parse" ? GUILD_TIMEZONE : "UTC" });
+}
+
+// YYYY-MM-DD for a ledger row, on the same day ledgerDate() displays — used
+// to prefill the edit form's date input and to tell whether an edit actually
+// changed the date (an unchanged date must not overwrite a parse row's real
+// timestamp with UTC midnight).
+export function ledgerDateInput(value: Date, source?: "import" | "manual" | "parse"): string {
+  return source === "parse" ? toGuildDateString(value) : value.toISOString().slice(0, 10);
+}
+
+// JS twin of ledger-list.ts's ledgerSortKey() SQL: a date-only "bucket" row
+// (exact UTC midnight) sorts as the end of its guild-local day, real
+// timestamps sort as themselves. Used for the client-side Date column sort.
+export function ledgerSortMs(value: Date): number {
+  const s = Math.floor(value.getTime() / 1000);
+  return (s % 86400 === 0 ? s + 86400 + 14400 - 1 : s) * 1000;
 }

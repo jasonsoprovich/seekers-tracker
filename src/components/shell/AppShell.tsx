@@ -41,6 +41,7 @@ export async function AppShell({
     { href: "/epgp/ledger", label: "EPGP Ledger" },
     { href: "/epgp/raids", label: "Raids & Events" },
     { href: "/epgp/info", label: "Cycle & Rules Info" },
+    { href: "/guild-info", label: "Guild Information" },
     { href: "/bank", label: "Bank" },
     { href: "/progression", label: "Pop Progression" },
     { href: "/live-bids", label: "Live Bids" },

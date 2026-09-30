@@ -22,12 +22,19 @@ type Row = {
 
 const ROLE_LABEL: Record<MatrixRole, string> = { member: "Member", officer: "Officer", leader: "Leader" };
 
-// The admin-only editor behind /admin/permissions. Dirty-tracked: toggling
+// The leader/admin editor behind /admin/permissions. Dirty-tracked: toggling
 // a cell only updates local state until "Save changes" — the server action
 // (savePermissionMatrix) re-validates every capability/role/lockedRoles
 // server-side regardless, so a disabled checkbox here is a UX nicety, not
 // the actual guarantee.
-export function PermissionMatrixEditor({ groups }: { groups: { group: CapabilityGroup; rows: Row[] }[] }) {
+export function PermissionMatrixEditor({
+  groups,
+  readOnlyRoles = [],
+}: {
+  groups: { group: CapabilityGroup; rows: Row[] }[];
+  // Columns the viewer may see but not change (a leader can't edit Leader).
+  readOnlyRoles?: readonly MatrixRole[];
+}) {
   // capability -> role -> current (possibly unsaved) value. Seeded from each
   // row's effective value once, on first render.
   const [values, setValues] = useState<Record<string, Record<MatrixRole, boolean>>>(() => {
@@ -83,7 +90,10 @@ export function PermissionMatrixEditor({ groups }: { groups: { group: Capability
       return;
     }
     const init: Record<string, Record<MatrixRole, boolean>> = {};
-    for (const row of allRows) init[row.key] = { ...row.defaults };
+    for (const row of allRows) {
+      init[row.key] = { ...row.defaults };
+      for (const role of readOnlyRoles) init[row.key][role] = row.effective[role];
+    }
     setValues(init);
     setSavedAt(Date.now());
   }
@@ -100,6 +110,10 @@ export function PermissionMatrixEditor({ groups }: { groups: { group: Capability
         {error && <span className="text-sm text-red-400">{error}</span>}
         {!error && savedAt && dirtyCells.length === 0 && <span className="text-sm text-emerald-400">Saved.</span>}
       </div>
+
+      {readOnlyRoles.length > 0 && (
+        <p className="mb-4 text-sm text-neutral-400">Only admins can change Leader permissions — that column is view-only for you. Admin permissions can&apos;t be changed.</p>
+      )}
 
       {groups.map(({ group, rows }) => (
         <section key={group} className="mt-8 first:mt-0">
@@ -125,7 +139,8 @@ export function PermissionMatrixEditor({ groups }: { groups: { group: Capability
                       <p className="mt-0.5 text-xs text-neutral-500">{row.description}</p>
                     </td>
                     {MATRIX_ROLES.map((role) => {
-                      const locked = row.lockedRoles.includes(role);
+                      const readOnly = readOnlyRoles.includes(role);
+                      const locked = row.lockedRoles.includes(role) || readOnly;
                       const checked = values[row.key][role];
                       const changed = checked !== row.defaults[role];
                       return (
@@ -135,7 +150,7 @@ export function PermissionMatrixEditor({ groups }: { groups: { group: Capability
                             checked={checked}
                             disabled={locked || saving}
                             onChange={() => toggle(row.key, role, locked)}
-                            title={locked ? `${ROLE_LABEL[role]} can't be granted this — too destructive to hand out from here.` : undefined}
+                            title={readOnly ? "Only admins can change Leader permissions." : locked ? `${ROLE_LABEL[role]} can't be granted this — too destructive to hand out from here.` : undefined}
                             className="h-4 w-4 accent-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                           />
                           {changed && <span className="mt-1 block text-[10px] text-amber-400">changed</span>}

@@ -80,7 +80,7 @@ const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }
     title: "Access Control",
     description: "Who can do what, per role.",
     links: [
-      { href: "/admin/permissions", label: "Permissions", description: "Toggle capabilities for members, officers, and leaders.", adminOnly: true },
+      { href: "/admin/permissions", label: "Permissions", description: "Toggle capabilities for members and officers (admins also control leaders).", leadershipOnly: true },
     ],
   },
   {

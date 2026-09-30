@@ -178,9 +178,16 @@ export function CharacterForm({
 
       {state.error && <p className="text-sm text-red-400">{state.error}</p>}
 
-      <Button type="submit" disabled={pending}>
-        {pending ? "Saving…" : submitLabel}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending}>
+          {pending ? "Saving…" : submitLabel}
+        </Button>
+        {state.saved && !pending && !state.error && (
+          <span key={state.saved} role="status" className="text-sm text-emerald-400">
+            Saved.
+          </span>
+        )}
+      </div>
     </form>
   );
 }

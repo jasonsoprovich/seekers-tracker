@@ -2,29 +2,28 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
+import { decodeEvent, encodeEvent, EventSelect, type EventOption } from "@/components/epgp/EventSelect";
+import { HScroll } from "@/components/ui/HScroll";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses, Field } from "@/components/ui/Field";
 import { MobileCard } from "@/components/ui/MobileCard";
 import { SortableTh, useTableSort } from "@/components/ui/table-sort";
-import { ledgerDate } from "@/lib/format-date";
+import { ledgerDate, ledgerDateInput, ledgerSortMs } from "@/lib/format-date";
 import type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
 export type { EpLedgerRow as EpRow, GpLedgerRow as GpRow } from "@/lib/epgp/ledger-list";
 
-type Props = { type: "ep"; rows: EpRow[]; canManage: boolean; characters: { id: number; name: string }[] } | { type: "gp"; rows: GpRow[]; canManage: boolean; characters: { id: number; name: string }[] };
-
-function toDateInputValue(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
+type Common = { canManage: boolean; characters: { id: number; name: string }[]; events: EventOption[] };
+type Props = ({ type: "ep"; rows: EpRow[] } | { type: "gp"; rows: GpRow[] }) & Common;
 
 function eventHref(date: string, name: string | null): string {
   return `/epgp/raids/${date}${name ? `?name=${encodeURIComponent(name)}` : ""}`;
 }
 
-type Draft = { characterId: string; activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; raidDate: string; raidName: string };
+type Draft = { characterId: string; activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; event: string };
 
 export function LedgerTable(props: Props) {
   const router = useRouter();
@@ -32,14 +31,14 @@ export function LedgerTable(props: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>({ characterId: "", activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", raidDate: "", raidName: "" });
+  const [draft, setDraft] = useState<Draft>({ characterId: "", activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", event: "" });
 
   // Click-to-sort columns (LT-19). Default order (as fetched: occurredAt
   // desc) is kept until the officer picks a column. `activityOrItem` /
   // `zoneOrBid` cover whichever pair the current tab shows.
   type Col = "date" | "character" | "activityOrItem" | "zoneOrBid" | "points" | "source" | "recordedBy";
   const { sorted, sort, toggle } = useTableSort<EpRow | GpRow, Col>(props.rows, {
-    date: (r) => r.occurredAt.getTime(),
+    date: (r) => ledgerSortMs(r.occurredAt),
     character: (r) => r.characterName,
     activityOrItem: (r) => (props.type === "ep" ? (r as EpRow).activity : ((r as GpRow).itemName ?? "")),
     zoneOrBid: (r) => (props.type === "ep" ? ((r as EpRow).zone ?? "") : (r as GpRow).tier),
@@ -47,6 +46,13 @@ export function LedgerTable(props: Props) {
     source: (r) => r.source,
     recordedBy: (r) => r.enteredByName,
   });
+
+  // Bring the Note field into view when a row enters edit mode — on a
+  // narrow screen it sits off to the right and editors never found it.
+  const noteRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editingId !== null) noteRef.current?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [editingId]);
 
   // EP: Date, Linked event, Character, Activity, Zone, Points, Source,
   // Recorded by, Note. GP swaps Activity/Zone for Item/Bid.
@@ -61,11 +67,13 @@ export function LedgerTable(props: Props) {
       activityOrTier: props.type === "ep" ? (row as EpRow).activity : (row as GpRow).tier,
       itemName: props.type === "gp" ? ((row as GpRow).itemName ?? "") : "",
       points: String(row.points),
-      occurredAt: toDateInputValue(row.occurredAt),
+      occurredAt: ledgerDateInput(row.occurredAt, row.source),
       note: row.note ?? "",
       zone: props.type === "ep" ? ((row as EpRow).zone ?? "") : "",
-      raidDate: props.type === "ep" ? ((row as EpRow).raidDate ?? "") : ((row as GpRow).raidDate ?? ""),
-      raidName: props.type === "ep" ? ((row as EpRow).raidName ?? "") : ((row as GpRow).raidName ?? ""),
+      event: encodeEvent(
+        props.type === "ep" ? (row as EpRow).raidDate : (row as GpRow).raidDate,
+        props.type === "ep" ? (row as EpRow).raidName : (row as GpRow).raidName,
+      ),
     });
   }
 
@@ -84,11 +92,12 @@ export function LedgerTable(props: Props) {
       setError(props.type === "ep" ? "Activity is required." : "Bid is required.");
       return;
     }
+    const { raidDate, raidName } = decodeEvent(draft.event);
     setPending(true);
     setError(null);
     const result =
       props.type === "ep"
-        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone, raidDate: draft.raidDate, raidName: draft.raidName })
+        ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone, raidDate, raidName })
         : await updateLedgerEntry({
             kind: "gp",
             id,
@@ -98,8 +107,8 @@ export function LedgerTable(props: Props) {
             points,
             occurredAt: draft.occurredAt,
             note: draft.note,
-            raidDate: draft.raidDate,
-            raidName: draft.raidName,
+            raidDate,
+            raidName,
           });
     setPending(false);
     if (result.error) {
@@ -176,17 +185,8 @@ export function LedgerTable(props: Props) {
                 />
               </Field>
               <Field>
-                <span className="text-neutral-400">Raid / event date</span>
-                <input
-                  type="date"
-                  value={draft.raidDate}
-                  onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
-                  className={fieldClasses()}
-                />
-              </Field>
-              <Field>
-                <span className="text-neutral-400">Raid / event name</span>
-                <input value={draft.raidName} onChange={(e) => setDraft((d) => ({ ...d, raidName: e.target.value }))} className={fieldClasses()} />
+                <span className="text-neutral-400">Linked event (optional)</span>
+                <EventSelect size="md" value={draft.event} events={props.events} onChange={(v) => setDraft((d) => ({ ...d, event: v }))} />
               </Field>
             </>
           ) : (
@@ -210,17 +210,8 @@ export function LedgerTable(props: Props) {
                 />
               </Field>
               <Field>
-                <span className="text-neutral-400">Raid / event date</span>
-                <input
-                  type="date"
-                  value={draft.raidDate}
-                  onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
-                  className={fieldClasses()}
-                />
-              </Field>
-              <Field>
-                <span className="text-neutral-400">Raid / event name</span>
-                <input value={draft.raidName} onChange={(e) => setDraft((d) => ({ ...d, raidName: e.target.value }))} className={fieldClasses()} />
+                <span className="text-neutral-400">Linked event (optional)</span>
+                <EventSelect size="md" value={draft.event} events={props.events} onChange={(v) => setDraft((d) => ({ ...d, event: v }))} />
               </Field>
             </>
           )}
@@ -334,7 +325,7 @@ export function LedgerTable(props: Props) {
         )}
       </div>
 
-      <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
+      <HScroll className="hidden sm:block">
         <table className="w-full min-w-[1040px] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
@@ -375,22 +366,9 @@ export function LedgerTable(props: Props) {
                           onChange={(e) => setDraft((d) => ({ ...d, occurredAt: e.target.value }))}
                           className={fieldClasses({ size: "sm" })}
                         />
-                        <input
-                          value={draft.raidName}
-                          onChange={(e) => setDraft((d) => ({ ...d, raidName: e.target.value }))}
-                          aria-label="Raid or event name"
-                          placeholder="Event name"
-                          className={`${fieldClasses({ size: "sm" })} mt-1`}
-                        />
                       </td>
                       <td className="px-3 py-2">
-                        <input
-                          type="date"
-                          value={draft.raidDate}
-                          onChange={(e) => setDraft((d) => ({ ...d, raidDate: e.target.value }))}
-                          aria-label="Raid or event date"
-                          className={fieldClasses({ size: "sm" })}
-                        />
+                        <EventSelect aria-label="Linked event (optional)" value={draft.event} events={props.events} onChange={(v) => setDraft((d) => ({ ...d, event: v }))} />
                       </td>
                       <td className="px-3 py-2 font-medium text-neutral-400">
                         {props.type === "gp" ? (
@@ -451,6 +429,7 @@ export function LedgerTable(props: Props) {
                         <input
                           value={draft.note}
                           onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
+                          ref={editingId === r.id ? noteRef : undefined}
                           className={`${fieldClasses({ size: "sm" })} min-w-[10rem]`}
                           placeholder="Note"
                         />
@@ -527,7 +506,7 @@ export function LedgerTable(props: Props) {
             )}
           </tbody>
         </table>
-      </div>
+      </HScroll>
     </>
   );
 }

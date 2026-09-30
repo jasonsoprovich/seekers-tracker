@@ -334,6 +334,36 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Leader-team feedback batch, 2026-09-30 (branch `feature/leader-feedback-2026-09-30`;
+committed, NOT deployed; migration 0055 local-only).**
+- **Ledger**: numbered pagination (`ui/Pagination.tsx`, total-count queries in
+  `ledger-list.ts`), rows-per-page 50/100/150/200 in a session cookie
+  `ledger_page_size`, out-of-range pages clamp.
+- **Date-sort bug**: date-only rows (manual/decay/import) are stored at UTC midnight
+  (= 8pm ET the night before) while parse rows keep real timestamps, so a manual 9/29
+  row sorted under a 9/28 evening raid. Fixed by sorting only (`ledgerSortKey` /
+  `ledgerSortMs`: a bucket row sorts as the end of its guild-local day, `id DESC`
+  tiebreaker) — stored values untouched because `ep-cap.ts` relies on the
+  UTC-midnight bucket convention. Inline edit no longer overwrites a parse row's real
+  timestamp unless its displayed date actually changed (`ledgerDateInput`).
+- **Wide table**: `ui/HScroll.tsx` — second scrollbar above the table, always-visible
+  scrollbars, right-edge fade + hint; the Note input scrolls into view on Edit.
+- **Manual EP/GP event link**: free-text event date/name replaced by an optional
+  `EventSelect` of existing events (`listRaids`); the web actions reject an unknown
+  date/name (`requireExistingEvent`, `eventExists`). The officer-app manual-entry route
+  and parse paths are unchanged.
+- **Character edit** Save stays on the page with an inline "Saved.".
+- **Permissions page** opens to leaders; Member + Officer columns only — the server
+  rejects any Leader-column change from a non-admin, and a leader's "reset" only clears
+  Member/Officer overrides. Admin is never editable.
+- **Guild Information** (`/guild-info`, migration 0055 `guild_info_cards`, capability
+  `guild.info.edit`, default leader): add/edit/delete/reorder/full-or-half-width cards,
+  Markdown via `markdown-to-jsx` (raw HTML not parsed; single newlines are line breaks,
+  Discord-style).
+- Verified: tsc, webpack build, e2e 125/126 (the one failure,
+  `roster-correctness` "departed accounts…", fails on the untouched baseline too).
+  Not browser-verified by hand.
+
 **Pre-go-live fix batch, 2026-09-29 (branch `feature/pre-golive-fixes-2026-09-29`
 in both this repo and `seekers-epgp-parser`; committed, NOT merged/deployed;
 migration 0054 local-only).** Bugs from the 9/28 Vex Thal raid + the 9/29 sheet

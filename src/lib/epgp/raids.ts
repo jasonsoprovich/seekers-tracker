@@ -235,6 +235,14 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
   return rows;
 }
 
+// Manual ledger entries may only link to an event that already exists (the
+// same set the Raids & Events page lists) so a mistyped date/name can't
+// quietly create a phantom event.
+export async function eventExists(db: ReturnType<typeof drizzle>, raidDate: string, raidName: string | null): Promise<boolean> {
+  const events = await listRaids(db);
+  return events.some((e) => e.raidDate === raidDate && (e.eventName ?? null) === (raidName ?? null));
+}
+
 export type RaidCapture = {
   activity: string;
   occurredAt: Date;
