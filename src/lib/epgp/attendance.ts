@@ -2,6 +2,7 @@ import { and, eq, gte, lte, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, players } from "@/db";
+import { resolveEpCaps, withCapNote } from "@/lib/epgp/ep-cap";
 import { getActivePointValue } from "@/lib/epgp/point-values";
 import { DEFAULT_SETTINGS, getSettingAt } from "@/lib/epgp/settings";
 
@@ -194,30 +195,36 @@ export async function insertPreparedEventLeadAward(
   occurredAt: Date,
   enteredBy: string,
   note: string,
-): Promise<boolean> {
+): Promise<{ inserted: boolean; capped: { awarded: number; nominal: number } | null }> {
   const d1 = db.$client;
+  // Event Lead EP counts toward the per-cycle cap like any other award; read
+  // it right before the insert so attendance rows this same request already
+  // wrote are included.
+  const [cap] = await resolveEpCaps(db, [{ playerId: award.playerId, nominal: award.points, occurredAt }]);
   const occurredAtSeconds = Math.floor(occurredAt.getTime() / 1000);
   const markerToken = crypto.randomUUID();
   const results = await d1.batch([
     d1
       .prepare(`
         INSERT INTO ep_ledger (
-          character_id, player_id, occurred_at, activity, points,
+          character_id, player_id, cycle_id, occurred_at, activity, points,
           points_nominal, points_awarded, cap_applied, cap_at_entry,
           note, entered_by, source, source_key
-        ) VALUES (?, ?, ?, 'Event Lead', ?, ?, ?, 0, ?, ?, ?, 'parse', ?)
+        ) VALUES (?, ?, ?, ?, 'Event Lead', ?, ?, ?, ?, ?, ?, ?, 'parse', ?)
         ON CONFLICT(source_key) DO NOTHING
         RETURNING id
       `)
       .bind(
         award.characterId,
         award.playerId,
+        cap.cycleId,
         occurredAtSeconds,
+        cap.awarded,
         award.points,
-        award.points,
-        award.points,
-        award.capAtEntry,
-        note.trim() || null,
+        cap.awarded,
+        cap.capApplied ? 1 : 0,
+        cap.cap ?? award.capAtEntry,
+        withCapNote(note, cap.note),
         enteredBy,
         award.sourceKey,
       ),
@@ -237,5 +244,6 @@ export async function insertPreparedEventLeadAward(
       .bind(occurredAtSeconds, award.characterId, occurredAtSeconds),
   ]);
 
-  return results[0]?.results.length === 1;
+  const inserted = results[0]?.results.length === 1;
+  return { inserted, capped: inserted && cap.capApplied ? { awarded: cap.awarded, nominal: award.points } : null };
 }

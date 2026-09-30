@@ -4,9 +4,9 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, gpLedger } from "@/db";
 import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
+import { resolveEpCaps, withCapNote } from "@/lib/epgp/ep-cap";
 import { guildDayBounds } from "@/lib/guild-timezone";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
-import { getSettingAt } from "@/lib/epgp/settings";
 import { dirtyMarkerStatements, getStandingsForPlayers, markStandingsDirty, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { officerApiActor, recordSystemEvent, webActor } from "@/lib/system-log";
 import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/lib/validate";
@@ -28,7 +28,20 @@ import { boundedNumber, boundedString, isoDate, LIMITS, optionalText } from "@/l
 export type LedgerEntrySource = "manual" | "parse";
 
 export type InsertLedgerEntryInput =
-  | { kind: "ep"; characterId: number; activity: string; points: number; occurredAt: string; note: string; zone?: string | null; raidDate?: string | null; raidName?: string | null }
+  | {
+      kind: "ep";
+      characterId: number;
+      activity: string;
+      points: number;
+      occurredAt: string;
+      note: string;
+      zone?: string | null;
+      raidDate?: string | null;
+      raidName?: string | null;
+      // Skip the per-cycle EP cap for this one entry (an officer knowingly
+      // recording EP above it, e.g. restoring a wrongly removed award).
+      bypassCap?: boolean;
+    }
   | { kind: "gp"; characterId: number; tier: string; itemName: string; points: number; occurredAt: string; note: string; raidDate?: string | null; raidName?: string | null };
 
 // `playerId` is the account this row landed on (an alt's row is redirected
@@ -40,7 +53,7 @@ export type InsertLedgerEntryInput =
 // (never the roster-wide cache) — null for a deferred caller (nothing to
 // report yet, it hasn't refreshed) or a NULL playerId.
 export type InsertLedgerEntryResult =
-  | { ok: true; playerId: number | null; standing: StandingsRow | null }
+  | { ok: true; playerId: number | null; standing: StandingsRow | null; capped?: { awarded: number; nominal: number } }
   | { ok: false; error: string };
 
 export async function insertLedgerEntry(
@@ -117,6 +130,7 @@ export async function insertLedgerEntry(
   // left without a durable marker.
   if (playerId != null) await markStandingsDirty(db, { playerIds: [playerId] });
 
+  let capped: { awarded: number; nominal: number } | undefined;
   if (input.kind === "ep") {
     // computeEpgpTotals (Phase 3 task 3.11) groups by ep_ledger.player_id,
     // not character_id — a row written with player_id left NULL is
@@ -124,25 +138,28 @@ export async function insertLedgerEntry(
     // points_nominal/points_awarded/cap_applied/cap_at_entry mirror
     // scripts/import-epgp.ts's columns (§2) so a row written here answers
     // the same "why did this award land at X" questions as an imported one.
-    // Write-time cap *clamping* (the running per-cycle sum in §2) isn't
-    // implemented yet — it depends on cycle management, which PLAN.md §16
-    // lists as still an open decision — so nominal/awarded are equal and
-    // cap_applied is always false here; only cap_at_entry (today's cap
-    // setting) is recorded for later reference.
-    const capAtEntryRaw = await getSettingAt(db, "ep_cap_per_cycle", occurredAt);
+    // A positive award is clamped to the room left under the per-cycle cap
+    // (src/lib/epgp/ep-cap.ts) unless the caller passed bypassCap; the
+    // nominal amount and a note explaining the clamp stay on the row.
+    const [cap] = input.bypassCap
+      ? [null]
+      : await resolveEpCaps(db, [{ playerId, nominal: input.points, occurredAt }]);
+    const awarded = cap ? cap.awarded : input.points;
+    if (cap?.capApplied) capped = { awarded, nominal: input.points };
     const [row] = await db
       .insert(epLedger)
       .values({
         characterId: targetCharacterId,
         playerId,
+        cycleId: cap?.cycleId ?? null,
         occurredAt,
         activity: activityOrTier,
-        points: input.points,
+        points: awarded,
         pointsNominal: input.points,
-        pointsAwarded: input.points,
-        capApplied: false,
-        capAtEntry: capAtEntryRaw !== null ? Number(capAtEntryRaw) : null,
-        note: input.note.trim() || null,
+        pointsAwarded: awarded,
+        capApplied: cap?.capApplied ?? false,
+        capAtEntry: cap?.cap ?? null,
+        note: withCapNote(input.note, cap?.note ?? null),
         zone: input.zone?.trim() || null,
         raidDate,
         raidName,
@@ -157,7 +174,7 @@ export async function insertLedgerEntry(
         action: "epgp.entry.create",
         targetType: "character",
         targetId: targetCharacterId,
-        summary: `Manual EP entry: ${input.points} EP (${activityOrTier}) on character #${targetCharacterId}`,
+        summary: `Manual EP entry: ${awarded} EP${capped ? ` (capped from ${input.points})` : ""} (${activityOrTier}) on character #${targetCharacterId}`,
         after: row,
       });
     }
@@ -228,7 +245,7 @@ export async function insertLedgerEntry(
     if (settled) standing = (await getStandingsForPlayers(db, [playerId])).get(playerId) ?? null;
   }
 
-  return { ok: true, playerId, standing };
+  return { ok: true, playerId, standing, capped };
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +279,9 @@ export type BatchEpResult = {
   inserted: number;
   playerIds: number[];
   failed: { characterId: number; error: string }[];
+  // Rows whose award was clamped by the per-cycle EP cap, keyed by the
+  // characterId the caller passed in (before any alt->main redirect).
+  capped: { characterId: number; awarded: number; nominal: number }[];
 };
 
 // D1 caps a single statement at 100 bound parameters (a 14-column
@@ -303,7 +323,7 @@ export async function insertEpLedgerBatch(
       raidName: r.raidName?.trim() || null,
     });
   }
-  if (valid.length === 0) return { inserted: 0, playerIds: [], failed };
+  if (valid.length === 0) return { inserted: 0, playerIds: [], failed, capped: [] };
 
   // One lookup for every character in the batch (chunked well under
   // SQLite's variable limit — see standings.ts's note on Miniflare).
@@ -317,18 +337,9 @@ export async function insertEpLedgerBatch(
     for (const c of found) charById.set(c.id, c);
   }
 
-  // The EP cap in force at each distinct occurredAt — one lookup per
-  // distinct timestamp, which for a capture is one.
-  const capByDate = new Map<number, number | null>();
-  for (const v of valid) {
-    const t = v.occurredAt.getTime();
-    if (capByDate.has(t)) continue;
-    const raw = await getSettingAt(db, "ep_cap_per_cycle", v.occurredAt);
-    capByDate.set(t, raw !== null ? Number(raw) : null);
-  }
-
   type InsertValues = typeof epLedger.$inferInsert;
   const values: InsertValues[] = [];
+  const origCharacterIds: number[] = [];
   const playerIds = new Set<number>();
   // targetCharacterId -> newest occurredAt in this batch, for the
   // last-activity bump.
@@ -347,18 +358,37 @@ export async function insertEpLedgerBatch(
       pointsNominal: v.points,
       pointsAwarded: v.points,
       capApplied: false,
-      capAtEntry: capByDate.get(v.occurredAt.getTime()) ?? null,
       note: v.note || null,
       zone: v.zone,
       raidName: v.raidName,
       enteredBy,
       source,
     });
+    origCharacterIds.push(v.characterId);
     if (character.playerId != null) playerIds.add(character.playerId);
     const prev = bumpAt.get(targetCharacterId);
     if (!prev || prev < v.occurredAt) bumpAt.set(targetCharacterId, v.occurredAt);
   }
-  if (values.length === 0) return { inserted: 0, playerIds: [], failed };
+
+  // Per-cycle EP cap (src/lib/epgp/ep-cap.ts): clamp each award to the room
+  // the player has left, still writing the row (attendance is recorded) with
+  // the nominal amount, a capped flag and a note.
+  const capped: BatchEpResult["capped"] = [];
+  const outcomes = await resolveEpCaps(
+    db,
+    values.map((v) => ({ playerId: v.playerId ?? null, nominal: v.points, occurredAt: v.occurredAt })),
+  );
+  values.forEach((v, idx) => {
+    const o = outcomes[idx];
+    v.cycleId = o.cycleId;
+    v.capAtEntry = o.cap;
+    v.points = o.awarded;
+    v.pointsAwarded = o.awarded;
+    v.capApplied = o.capApplied;
+    v.note = withCapNote(v.note, o.note);
+    if (o.capApplied) capped.push({ characterId: origCharacterIds[idx], awarded: o.awarded, nominal: v.pointsNominal ?? o.awarded });
+  });
+  if (values.length === 0) return { inserted: 0, playerIds: [], failed, capped: [] };
 
   // Inserts, chunked: one round trip + one transaction per chunk. Task 4.4:
   // each chunk's own players' dirty markers ride in that SAME batch, so a
@@ -399,5 +429,5 @@ export async function insertEpLedgerBatch(
     }
   }
 
-  return { inserted, playerIds: [...playerIds], failed };
+  return { inserted, playerIds: [...playerIds], failed, capped };
 }

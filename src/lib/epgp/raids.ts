@@ -243,7 +243,9 @@ export type RaidCapture = {
   // ep_ledger row's points) — not their standing priority, which doesn't
   // say anything about tonight's attendance and used to be shown here by
   // mistake (leader, 2026-09-05).
-  members: { name: string; ep: number }[];
+  // `capped` marks an award the per-cycle EP cap clamped (`nominal` is what
+  // it would have been) — the event page highlights those members.
+  members: { name: string; ep: number; capped: boolean; nominal: number | null }[];
 };
 
 export type RaidLootBid = {
@@ -298,6 +300,8 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
         occurredAt: epLedger.occurredAt,
         zone: epLedger.zone,
         points: epLedger.points,
+        capApplied: epLedger.capApplied,
+        pointsNominal: epLedger.pointsNominal,
         playerId: epLedger.playerId,
         id: epLedger.id,
         createdAt: epLedger.createdAt,
@@ -414,7 +418,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       captureMap.set(key, cap);
     }
     if (r.occurredAt < cap.occurredAt) cap.occurredAt = r.occurredAt;
-    cap.members.push({ name: r.characterName ?? "(unknown)", ep: r.points });
+    cap.members.push({ name: r.characterName ?? "(unknown)", ep: r.points, capped: r.capApplied, nominal: r.pointsNominal });
   }
   const captures = [...captureMap.values()].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
   for (const c of captures) c.members.sort((a, b) => a.name.localeCompare(b.name));

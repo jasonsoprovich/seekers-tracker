@@ -107,6 +107,9 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
             ))}
         </div>
       )}
+      {detail.captures.some((c) => c.members.some((m) => m.capped)) && (
+        <p className="mt-2 text-xs text-amber-400/90">Highlighted members hit the cycle EP cap, so they received less (or no) EP for that capture.</p>
+      )}
       {detail.captures.length === 0 ? (
         <p className="mt-1 text-sm text-neutral-500">No attendance captures on this date.</p>
       ) : (
@@ -116,8 +119,11 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
             // every member the same EP, so show it once in the header
             // instead of repeating "+50 EP" after every name. Only fall
             // back to the per-name badge if a capture has mixed values.
-            const uniformEp =
-              c.members.length > 0 && c.members.every((m) => m.ep === c.members[0].ep) ? c.members[0].ep : null;
+            // EP-capped members are excluded from that comparison (they
+            // get their own badge and highlight below).
+            const uncapped = c.members.filter((m) => !m.capped);
+            const uniformEp = uncapped.length > 0 && uncapped.every((m) => m.ep === uncapped[0].ep) ? uncapped[0].ep : null;
+            const cappedCount = c.members.length - uncapped.length;
             return (
               <div key={i} className="rounded-lg border border-border">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-3 py-2 text-sm">
@@ -133,13 +139,18 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
                   <span className="text-neutral-500">
                     {timeLocal(c.occurredAt)}
                     {c.zone ? ` · ${c.zone}` : ""} · {c.members.length} member{c.members.length === 1 ? "" : "s"}
+                    {cappedCount > 0 && <span className="text-amber-400"> · {cappedCount} EP-capped</span>}
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-sm">
                   {c.members.map((m, j) => (
-                    <span key={j} className="text-neutral-300">
+                    <span
+                      key={j}
+                      className={m.capped ? "rounded bg-amber-500/10 px-1.5 text-amber-300 ring-1 ring-amber-500/30" : "text-neutral-300"}
+                      title={m.capped ? `EP capped for the cycle — ${m.ep} of ${m.nominal ?? m.ep} EP awarded` : undefined}
+                    >
                       {m.name}
-                      {uniformEp === null && (
+                      {(uniformEp === null || m.capped) && (
                         <span className={`ml-1 font-mono text-xs ${m.ep >= 0 ? "text-emerald-400/80" : "text-red-400/80"}`}>
                           {m.ep >= 0 ? "+" : ""}
                           {m.ep} EP

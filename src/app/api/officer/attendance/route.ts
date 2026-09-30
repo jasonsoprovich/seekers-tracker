@@ -350,6 +350,9 @@ export async function POST(request: Request) {
 
   let inserted = 0;
   let eventLeadInserted = false;
+  // Members whose award was clamped by the per-cycle EP cap (still recorded,
+  // with fewer — possibly 0 — EP and a note on the row).
+  const capped: { name: string; awarded: number; nominal: number }[] = [];
   let standings: StandingsRow[] = [];
   const affectedPlayerIds = new Set<number>();
   if (toInsert.length > 0) {
@@ -362,16 +365,23 @@ export async function POST(request: Request) {
       if (row) unmatched.push(name);
     }
     for (const playerId of result.playerIds) affectedPlayerIds.add(playerId);
+    for (const c of result.capped) {
+      capped.push({ name: resolved.find((r) => r.characterId === c.characterId)?.name ?? String(c.characterId), awarded: c.awarded, nominal: c.nominal });
+    }
   }
 
   if (eventLeadPreparation?.ok) {
-    eventLeadInserted = await insertPreparedEventLeadAward(
+    const eventLead = await insertPreparedEventLeadAward(
       db,
       eventLeadPreparation.award,
       occurredAt,
       auth.userId,
       note,
     );
+    eventLeadInserted = eventLead.inserted;
+    if (eventLead.capped) {
+      capped.push({ name: `${eventLeadPreparation.award.characterName} (Event Lead)`, ...eventLead.capped });
+    }
     affectedPlayerIds.add(eventLeadPreparation.award.playerId);
   }
 
@@ -405,7 +415,7 @@ export async function POST(request: Request) {
       targetType: "raid",
       targetLabel: raidName || null,
       summary: `Attendance capture submitted: ${inserted} row(s), ${activity}${zone ? `, ${zone}` : ""}${raidName ? ` — ${raidName}` : ""}${awardEp ? "" : " (0 EP)"}`,
-      after: { activity, occurredAt: occurredAtIso, zone, inserted, duplicates: duplicates.length, unmatched: unmatched.length, eventLeadInserted, awardEp },
+      after: { activity, occurredAt: occurredAtIso, zone, inserted, duplicates: duplicates.length, unmatched: unmatched.length, capped: capped.length, eventLeadInserted, awardEp },
     });
   }
 
@@ -424,6 +434,7 @@ export async function POST(request: Request) {
         : undefined,
       unmatched,
       duplicates,
+      capped,
       standings,
     },
     { status: 201 },

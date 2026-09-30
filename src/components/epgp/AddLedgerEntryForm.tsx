@@ -29,6 +29,7 @@ export function AddLedgerEntryForm({
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -42,12 +43,14 @@ export function AddLedgerEntryForm({
     const zone = String(formData.get("zone") ?? "");
     const raidDate = String(formData.get("raidDate") ?? "");
     const raidName = String(formData.get("raidName") ?? "");
+    const bypassCap = formData.get("bypassCap") === "on";
 
     setPending(true);
     setError(null);
+    setNotice(null);
     const result = await addLedgerEntry(
       type === "ep"
-        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone, raidDate, raidName }
+        ? { kind: "ep", characterId, activity: activityOrTier, points, occurredAt, note, zone, raidDate, raidName, bypassCap }
         : { kind: "gp", characterId, tier: activityOrTier, itemName, points, occurredAt, note, raidDate, raidName },
     );
     setPending(false);
@@ -55,15 +58,25 @@ export function AddLedgerEntryForm({
       setError(result.error);
       return;
     }
+    if (result.capped) {
+      setNotice(
+        result.capped.awarded > 0
+          ? `EP capped: recorded ${result.capped.awarded} of ${result.capped.nominal} EP (cycle cap reached).`
+          : `EP capped: they're already at the cycle cap, so 0 of ${result.capped.nominal} EP was recorded.`,
+      );
+    }
     setOpen(false);
     router.refresh();
   }
 
   if (!open) {
     return (
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        + Add {type === "ep" ? "EP" : "GP"} entry
-      </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="outline" size="sm" onClick={() => { setNotice(null); setOpen(true); }}>
+          + Add {type === "ep" ? "EP" : "GP"} entry
+        </Button>
+        {notice && <span className="text-sm text-amber-400">{notice}</span>}
+      </div>
     );
   }
 
@@ -119,6 +132,13 @@ export function AddLedgerEntryForm({
         <span className="text-neutral-400">Points</span>
         <input name="points" inputMode="decimal" required className={fieldClasses({ size: "sm" })} />
       </Field>
+
+      {type === "ep" && (
+        <label className="flex items-center gap-2 pb-2 text-sm text-neutral-400" title="Positive EP is normally limited to the cycle cap. Tick this to record the full amount anyway.">
+          <input type="checkbox" name="bypassCap" />
+          Bypass cycle cap
+        </label>
+      )}
 
       <Field className="w-40">
         <span className="text-neutral-400">Date</span>

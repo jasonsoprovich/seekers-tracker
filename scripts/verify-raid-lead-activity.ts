@@ -71,7 +71,7 @@ async function main() {
       insertPreparedEventLeadAward(db, prepared.award, occurredAt, lead.userId, "verification"),
     ]);
     const leadRows = await db.select().from(epLedger).where(eq(epLedger.sourceKey, prepared.award.sourceKey));
-    check(failures, attempts.filter(Boolean).length === 1 && leadRows.length === 1, "concurrent retries insert exactly one parse-sourced Event Lead row");
+    check(failures, attempts.filter((a) => a.inserted).length === 1 && leadRows.length === 1, "concurrent retries insert exactly one parse-sourced Event Lead row");
     const dirty = await db.select().from(standingsDirty).where(eq(standingsDirty.scope, `player:${lead.playerId}`));
     check(failures, dirty.length === 1, "the unique award transaction leaves a standings dirty marker");
 
@@ -101,7 +101,7 @@ async function main() {
     const noMain = await prepareEventLeadAward(db, lead.userId, "Raid - End", overrideOccurredAt, noMainYet.mainName);
     check(failures, !noMain.ok, "rejects an override name whose player has no current main set");
     if (overridden.ok) {
-      const inserted = await insertPreparedEventLeadAward(db, overridden.award, overrideOccurredAt, lead.userId, "verification");
+      const { inserted } = await insertPreparedEventLeadAward(db, overridden.award, overrideOccurredAt, lead.userId, "verification");
       const overriddenRows = await db.select().from(epLedger).where(eq(epLedger.sourceKey, overridden.award.sourceKey));
       check(
         failures,
