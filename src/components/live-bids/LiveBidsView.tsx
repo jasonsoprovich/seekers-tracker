@@ -280,8 +280,12 @@ export function LiveBidsView() {
     });
   }, [rounds]);
 
-  // Keep active rounds first. Resolved cards follow newest-finalized first,
-  // and the grid preserves this DOM order across columns.
+  // Keep active rounds first, in the order they opened (startedAt never
+  // changes while a round is collecting), so a card holds its slot until it
+  // closes — sorting on lastSeenAt made every bid/heartbeat shuffle the grid.
+  // Resolved cards follow, newest-finalized first (for a resolved round the
+  // server sends resolvedAt as lastSeenAt), and the grid preserves this DOM
+  // order across columns.
   const visibleRounds = useMemo(() => {
     return rounds
       .filter((r) => r.status === "resolved" ? !pendingDismiss.has(r.itemName) : !hiddenCollecting.has(r.itemName))
@@ -289,7 +293,8 @@ export function LiveBidsView() {
         const aResolved = a.status === "resolved";
         const bResolved = b.status === "resolved";
         if (aResolved !== bResolved) return aResolved ? 1 : -1;
-        return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+        const byTime = aResolved ? b.lastSeenAt - a.lastSeenAt : a.startedAt - b.startedAt;
+        return byTime || a.itemName.localeCompare(b.itemName);
       });
   }, [rounds, pendingDismiss, hiddenCollecting]);
 
