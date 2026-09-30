@@ -1,19 +1,13 @@
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getPermissions } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
-import { commitRateDecay, type RateDecayKind } from "@/lib/epgp/decay";
+import { commitRateDecay, resolveDecayCutoff, type RateDecayKind } from "@/lib/epgp/decay";
 
 type CommitRequestBody = { kind?: unknown; rate?: unknown; effectiveDate?: unknown; label?: unknown };
 
 function parseRate(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0 || raw > 1) return null;
   return raw;
-}
-
-function parseEffectiveDate(raw: unknown): Date | null {
-  if (typeof raw !== "string" || !raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 // Defaults to "expansion" when omitted — this route predates Phase 5's
@@ -52,12 +46,12 @@ export async function POST(request: Request) {
   if (kind === null) return Response.json({ error: "`kind` must be `expansion` or `global_cycle`." }, { status: 400 });
   const rate = parseRate(body.rate);
   if (rate === null) return Response.json({ error: "`rate` must be a number greater than 0 and at most 1." }, { status: 400 });
-  const effectiveDate = parseEffectiveDate(body.effectiveDate);
-  if (!effectiveDate) return Response.json({ error: "`effectiveDate` is required and must be a valid date." }, { status: 400 });
+  const resolved = resolveDecayCutoff(typeof body.effectiveDate === "string" ? body.effectiveDate : "");
+  if ("error" in resolved) return Response.json({ error: resolved.error }, { status: 400 });
   const label = typeof body.label === "string" ? body.label : undefined;
 
   const db = await getDb();
-  const result = await commitRateDecay(db, { kind, rate, effectiveDate, label, appliedBy: auth.userId });
+  const result = await commitRateDecay(db, { kind, rate, effectiveDate: resolved.effectiveDate, cutoff: resolved.cutoff, label, appliedBy: auth.userId });
   if ("error" in result) return Response.json({ error: result.error }, { status: 409 });
 
   return Response.json(result, { status: 201 });

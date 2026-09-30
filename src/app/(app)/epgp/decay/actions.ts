@@ -7,17 +7,19 @@ import {
   commitRateDecay,
   previewDepartureWipe,
   previewRateDecay,
+  resolveDecayCutoff,
   reverseDecayEvent,
   type DecayPreviewRow,
   type DeparturePreviewRow,
 } from "@/lib/epgp/decay";
+import { guildDateTime } from "@/lib/guild-timezone";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // Flat optional-field shape (not a discriminated union) so callers can just
 // check `.error`, matching every other server action's result type in this
 // app (LedgerActionResult, UpdateSettingResult, …).
-export type PreviewDecayResult = { rows?: DecayPreviewRow[]; totalEpDecay?: number; totalGpDecay?: number; error?: string };
+export type PreviewDecayResult = { rows?: DecayPreviewRow[]; totalEpDecay?: number; totalGpDecay?: number; asOf?: string; error?: string };
 export type CommitDecayResult = { decayEventId?: number; epRows?: number; gpRows?: number; error?: string };
 export type ReverseDecayResult = { error?: string };
 export type PreviewDepartureResult = { rows?: DeparturePreviewRow[]; totalEp?: number; unmatchedNames?: string[]; error?: string };
@@ -27,12 +29,6 @@ function parseRate(raw: string): number | null {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0 || n > 1) return null;
   return n;
-}
-
-function parseEffectiveDate(raw: string): Date | null {
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function parseInactiveSince(raw: string): Date | undefined {
@@ -91,14 +87,14 @@ export async function previewDecayAction(rateInput: string, effectiveDateInput: 
 
   const rate = parseRate(rateInput);
   if (rate === null) return { error: "Rate must be a number greater than 0 and at most 1 (e.g. 0.85 for 85%)." };
-  const effectiveDate = parseEffectiveDate(effectiveDateInput);
-  if (!effectiveDate) return { error: "Pick a valid effective date." };
+  const resolved = resolveDecayCutoff(effectiveDateInput);
+  if ("error" in resolved) return { error: resolved.error };
 
   const db = await getDb();
-  const rows = await previewRateDecay(db, rate, effectiveDate);
+  const rows = await previewRateDecay(db, rate, resolved.cutoff);
   const totalEpDecay = rows.reduce((sum, r) => sum + r.epDecay, 0);
   const totalGpDecay = rows.reduce((sum, r) => sum + r.gpDecay, 0);
-  return { rows, totalEpDecay, totalGpDecay };
+  return { rows, totalEpDecay, totalGpDecay, asOf: guildDateTime(resolved.cutoff) };
 }
 
 export async function commitDecayAction(rateInput: string, effectiveDateInput: string, label: string): Promise<CommitDecayResult> {
@@ -107,11 +103,11 @@ export async function commitDecayAction(rateInput: string, effectiveDateInput: s
 
   const rate = parseRate(rateInput);
   if (rate === null) return { error: "Rate must be a number greater than 0 and at most 1 (e.g. 0.85 for 85%)." };
-  const effectiveDate = parseEffectiveDate(effectiveDateInput);
-  if (!effectiveDate) return { error: "Pick a valid effective date." };
+  const resolved = resolveDecayCutoff(effectiveDateInput);
+  if ("error" in resolved) return { error: resolved.error };
 
   const db = await getDb();
-  return commitRateDecay(db, { kind: "expansion", rate, effectiveDate, label: label.trim() || undefined, appliedBy: auth.userId });
+  return commitRateDecay(db, { kind: "expansion", rate, effectiveDate: resolved.effectiveDate, cutoff: resolved.cutoff, label: label.trim() || undefined, appliedBy: auth.userId });
 }
 
 // PLAN.md §11 Phase 5 task 5.3/5.4 — same shape as commitDecayAction, but
@@ -125,11 +121,11 @@ export async function commitGlobalCycleDecayAction(rateInput: string, effectiveD
 
   const rate = parseRate(rateInput);
   if (rate === null) return { error: "Rate must be a number greater than 0 and at most 1 (e.g. 0.10 for 10%)." };
-  const effectiveDate = parseEffectiveDate(effectiveDateInput);
-  if (!effectiveDate) return { error: "Pick a valid effective date." };
+  const resolved = resolveDecayCutoff(effectiveDateInput);
+  if ("error" in resolved) return { error: resolved.error };
 
   const db = await getDb();
-  return commitRateDecay(db, { kind: "global_cycle", rate, effectiveDate, label: label.trim() || undefined, appliedBy: auth.userId });
+  return commitRateDecay(db, { kind: "global_cycle", rate, effectiveDate: resolved.effectiveDate, cutoff: resolved.cutoff, label: label.trim() || undefined, appliedBy: auth.userId });
 }
 
 export async function reverseDecayAction(decayEventId: number): Promise<ReverseDecayResult> {

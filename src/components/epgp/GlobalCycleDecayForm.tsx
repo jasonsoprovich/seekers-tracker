@@ -10,7 +10,7 @@ import { fieldClasses } from "@/components/ui/Field";
 import { toGuildDateString } from "@/lib/guild-timezone";
 import type { DecayPreviewRow } from "@/lib/epgp/decay";
 
-type Preview = { rows: DecayPreviewRow[]; totalEpDecay: number; totalGpDecay: number };
+type Preview = { rows: DecayPreviewRow[]; totalEpDecay: number; totalGpDecay: number; asOf: string };
 type Result = { decayEventId: number; epRows: number; gpRows: number };
 
 function todayIso(): string {
@@ -47,7 +47,7 @@ export function GlobalCycleDecayForm() {
       setPreview(null);
       return;
     }
-    setPreview({ rows: outcome.rows, totalEpDecay: outcome.totalEpDecay ?? 0, totalGpDecay: outcome.totalGpDecay ?? 0 });
+    setPreview({ rows: outcome.rows, totalEpDecay: outcome.totalEpDecay ?? 0, totalGpDecay: outcome.totalGpDecay ?? 0, asOf: outcome.asOf ?? "" });
   }
 
   async function onCommit() {
@@ -129,6 +129,7 @@ export function GlobalCycleDecayForm() {
             <p className="text-sm text-neutral-400">
               {preview.rows.length} character(s) affected — total EP decay {preview.totalEpDecay.toFixed(2)}, total GP decay{" "}
               {preview.totalGpDecay.toFixed(2)}.
+              {preview.asOf && <span className="block text-xs text-neutral-500">Balances as of {preview.asOf} (ET) — every entry recorded before then is included.</span>}
             </p>
             <div className="flex gap-2">
               <Button type="button" size="sm" variant="outline" onClick={() => setPreview(null)} disabled={pending}>

@@ -5,6 +5,7 @@ import { characters, decayEvents, epLedger, gpLedger } from "@/db";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
+import { guildDayBounds, toGuildDateString } from "@/lib/guild-timezone";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 // PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
@@ -35,11 +36,43 @@ export type DecayPreviewRow = {
   gpDecay: number;
 };
 
+export type DecayCutoffResult = { effectiveDate: Date; cutoff: Date } | { error: string };
+
+// Turns the leader's picked "as of" date into two instants:
+//   - effectiveDate: the label date stored on the decay event and its ledger
+//     rows — UTC midnight of the picked day, exactly as before, so the ledger
+//     shows the date that was picked and the duplicate-date guard is
+//     unchanged;
+//   - cutoff: the exclusive instant balancesAt sums up to.
+// The cutoff used to *be* effectiveDate, and a bare YYYY-MM-DD through
+// `new Date()` is UTC midnight — 8pm Eastern the evening before — so picking
+// *today* silently dropped every entry from today (and anything after 8pm ET
+// yesterday). Now the cutoff is resolved in the guild's timezone:
+//   - today  -> right now, so a decay "as of today" sees everything recorded
+//     so far (a raid entered later tonight simply belongs to the next decay);
+//   - a past day -> the end of that Eastern day, i.e. through that whole day;
+//   - a future day -> rejected (nothing to decay against yet).
+// A full ISO timestamp (an API caller passing an exact instant) is used for
+// both, so existing callers don't change behavior.
+export function resolveDecayCutoff(raw: string, now: Date = new Date()): DecayCutoffResult {
+  if (!raw) return { error: "Pick a valid effective date." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? { error: "Pick a valid effective date." } : { effectiveDate: d, cutoff: d };
+  }
+  const bounds = guildDayBounds(raw);
+  const effectiveDate = new Date(raw);
+  if (!bounds || Number.isNaN(effectiveDate.getTime())) return { error: "Pick a valid effective date." };
+  const today = toGuildDateString(now);
+  if (raw > today) return { error: `${raw} is in the future — pick today (${today}) or an earlier date.` };
+  return { effectiveDate, cutoff: raw === today ? now : bounds.end };
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-// Sum of every ep_ledger/gp_ledger row strictly before `effectiveDate`,
+// Sum of every ep_ledger/gp_ledger row strictly before `cutoff`,
 // grouped by character — the "then-current net balance" §1b decays against.
 // This is the raw ledger sum, not computeEpgpTotals' derived legacy-1a
 // figure: 1a is a display-time-only subtraction that never touches what's
@@ -50,12 +83,12 @@ function round2(n: number): number {
 async function balancesAt(
   db: ReturnType<typeof drizzle>,
   ledger: typeof epLedger | typeof gpLedger,
-  effectiveDate: Date,
+  cutoff: Date,
 ): Promise<Map<number, number>> {
   const rows = await db
     .select({ characterId: ledger.characterId, sum: sql<number>`coalesce(sum(${ledger.points}), 0)` })
     .from(ledger)
-    .where(lt(ledger.occurredAt, effectiveDate))
+    .where(lt(ledger.occurredAt, cutoff))
     .groupBy(ledger.characterId);
   // An orphaned row (§1e/§4d) has a NULL character_id and belongs to no
   // one — excluded here rather than decayed against a phantom "null"
@@ -97,10 +130,10 @@ async function lastPositiveEpActivity(db: ReturnType<typeof drizzle>): Promise<M
 // both apply `rate` to the same "balance before effectiveDate" — so this
 // is shared as-is; kind only matters at commit time (label + duplicate
 // guard) and to the caller deciding when to run it.
-export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: number, effectiveDate: Date): Promise<DecayPreviewRow[]> {
+export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: number, cutoff: Date): Promise<DecayPreviewRow[]> {
   const [epBalances, gpBalances, allCharacters] = await Promise.all([
-    balancesAt(db, epLedger, effectiveDate),
-    balancesAt(db, gpLedger, effectiveDate),
+    balancesAt(db, epLedger, cutoff),
+    balancesAt(db, gpLedger, cutoff),
     db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
   ]);
   const names = new Map(allCharacters.map((c) => [c.id, c.name]));
@@ -162,9 +195,12 @@ const RATE_DECAY_LABEL: Record<RateDecayKind, string> = { expansion: "Decay", gl
 // silently-wrong totals.
 export async function commitRateDecay(
   db: ReturnType<typeof drizzle>,
-  opts: { kind: RateDecayKind; rate: number; effectiveDate: Date; label?: string; appliedBy: string },
+  opts: { kind: RateDecayKind; rate: number; effectiveDate: Date; cutoff?: Date; label?: string; appliedBy: string },
 ): Promise<CommitDecayOutcome> {
   const { kind, rate, effectiveDate, appliedBy } = opts;
+  // Balances are summed strictly before `cutoff` (see resolveDecayCutoff);
+  // callers that only have a label date keep the old behavior.
+  const cutoff = opts.cutoff ?? effectiveDate;
   const label = opts.label?.trim() || null;
 
   const existing = await findActiveRateDecayEvent(db, kind, effectiveDate);
@@ -172,7 +208,7 @@ export async function commitRateDecay(
     return { error: `A ${kind} decay event already exists for ${ledgerDate(effectiveDate)} — reverse it first to redo.` };
   }
 
-  const preview = await previewRateDecay(db, rate, effectiveDate);
+  const preview = await previewRateDecay(db, rate, cutoff);
   if (preview.length === 0) {
     return { error: "No characters have a positive EP or GP balance to decay as of that date." };
   }

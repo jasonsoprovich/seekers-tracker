@@ -1,19 +1,13 @@
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { getPermissions } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
-import { previewRateDecay } from "@/lib/epgp/decay";
+import { resolveDecayCutoff, previewRateDecay } from "@/lib/epgp/decay";
 
 type PreviewRequestBody = { rate?: unknown; effectiveDate?: unknown };
 
 function parseRate(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0 || raw > 1) return null;
   return raw;
-}
-
-function parseEffectiveDate(raw: unknown): Date | null {
-  if (typeof raw !== "string" || !raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 // PLAN.md §11 Phase 2 task 2.4 (extended by Phase 5 task 5.3) — read-only
@@ -46,11 +40,11 @@ export async function POST(request: Request) {
 
   const rate = parseRate(body.rate);
   if (rate === null) return Response.json({ error: "`rate` must be a number greater than 0 and at most 1." }, { status: 400 });
-  const effectiveDate = parseEffectiveDate(body.effectiveDate);
-  if (!effectiveDate) return Response.json({ error: "`effectiveDate` is required and must be a valid date." }, { status: 400 });
+  const resolved = resolveDecayCutoff(typeof body.effectiveDate === "string" ? body.effectiveDate : "");
+  if ("error" in resolved) return Response.json({ error: resolved.error }, { status: 400 });
 
   const db = await getDb();
-  const rows = await previewRateDecay(db, rate, effectiveDate);
+  const rows = await previewRateDecay(db, rate, resolved.cutoff);
 
   const totalEpDecay = rows.reduce((sum, r) => sum + r.epDecay, 0);
   const totalGpDecay = rows.reduce((sum, r) => sum + r.gpDecay, 0);
