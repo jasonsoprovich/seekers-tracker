@@ -334,6 +334,44 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Pre-go-live fix batch, 2026-09-29 (branch `feature/pre-golive-fixes-2026-09-29`
+in both this repo and `seekers-epgp-parser`; committed, NOT merged/deployed;
+migration 0054 local-only).** Bugs from the 9/28 Vex Thal raid + the 9/29 sheet
+balance, once the sheet was retired:
+- **Decay "as of" date** — `resolveDecayCutoff` (`src/lib/epgp/decay.ts`): a
+  bare date used to be UTC midnight (8pm ET the night before), so picking
+  today dropped today's entries. Now the balance cutoff is "now" for today,
+  end of that Eastern day for a past date, error for a future date; the
+  stored label date (`effectiveDate`, UTC midnight) and the duplicate-date
+  guard are unchanged. Site actions + both `/api/officer/decay/*` routes.
+- **EP cycle cap enforced at write time** — new `src/lib/epgp/ep-cap.ts`;
+  attendance batch, Event Lead and manual entries clamp positive EP to the
+  room left in the cycle (row still recorded, 0 EP if already capped, note +
+  `cap_applied` + `points_nominal` + `cycle_id`). Cycle membership: bucket
+  rows (exact UTC midnight) use their UTC date, real timestamps use the
+  guild-local day. Negatives never clamped; decay rows (`decay_event_id`)
+  don't count; history never recomputed. Manual entries can `bypassCap`. Raid
+  event page highlights capped members. Cycle rows are only seeded by the
+  sheet import and are looked up here — a missing cycle means no cap applied.
+- **Deleting a winning GP row flips the bid to lost** — `gp_ledger.loot_event_id`
+  (0054, set by `finalizeBidRound`) + `src/lib/epgp/bid-unwin.ts`, batched with
+  the delete in `deleteLedgerEntry`; pre-0054 rows fall back to item + ±12h.
+  One-off for Hawthor's existing bid: `drizzle/seed/fix-hawthor-soul-essence-2026-09-28.sql`
+  (gitignored dir — run on remote by hand).
+- **Live bids** — cards sort by `startedAt` (stable) instead of `lastSeenAt`.
+- **Perf** — verified-API-key cache (30s/isolate; the role check stays live),
+  DO skips storage write on unchanged snapshots, finalize loads only named
+  characters and batches last-activity bumps, `/resolve` caches name→player,
+  indexes on `loot_events.occurred_at` and `ep_ledger(player_id, occurred_at)`.
+  Root cause of the 9/28 lag is NOT confirmed — Cloudflare logs for that
+  night still need pulling (`[slow]`/`[hang]`/D1 watchdog lines).
+- Verify: `npm run verify:pre-golive-fixes` (new). Pre-existing,
+  unrelated: `verify:raid-lead-activity` fails "corrects the displayed event
+  leader…" on the untouched baseline too; `npm run verify` stays 9/13.
+- Parser side (`../seekers-epgp-parser`): row clicks no longer pick winners
+  (guarded Pick only for ties / manual rounds), winner count resets to 1,
+  cancelled bidders are dropped from the live snapshot. See its commits.
+
 **Guild bank sync — 2026-09-25 officer/bank-team feedback pass, same
 branch (`feature/guild-bank-sync`, both repos; still local-only; migration
 0050 local-only).** Jason demoed the 09-24 build to the officers and the
