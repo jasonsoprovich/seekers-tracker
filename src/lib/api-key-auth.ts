@@ -21,6 +21,28 @@ export type OfficerApiAuth = { userId: string } | { error: string; status: numbe
 
 const EPGP_WRITE_PERMISSION = { epgp: ["write"] };
 
+// @better-auth/api-key's verifyApiKey WRITES to the apikeys row on every
+// call (it claims usage / bumps the rate-limit counter), so each officer's
+// live-bid push (every ~2-5s) and heartbeat was one D1 write against the
+// same row — with 3 officers polling during the 9/28 raid that's constant
+// write contention on D1's single writer, and every other request queues
+// behind it. A key that just verified fine is remembered per isolate for a
+// short TTL instead. Only the plugin call is skipped: the owner's role /
+// "epgp.officerApi" capability is still re-read on every request below, so
+// a demotion or guild removal takes effect immediately; the worst a stale
+// entry can do is keep honoring a key its owner just rotated/deleted for up
+// to the TTL (revokeApiKeysForUser also drops the role, which the live
+// check catches). The plugin's own rate limit only sees the uncached calls.
+const VERIFIED_KEY_TTL_MS = 30_000;
+const VERIFIED_KEY_CACHE_MAX = 200;
+const verifiedKeyCache = new Map<string, { referenceId: string; expiresAt: number }>();
+
+async function keyDigest(key: string): Promise<string> {
+  const bytes = new TextEncoder().encode(key);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // Entry point for Next route handlers — resolves the Cloudflare context
 // itself, then defers to verifyOfficerApiKey.
 export async function requireOfficerApiKey(request: Request): Promise<OfficerApiAuth> {
@@ -28,18 +50,11 @@ export async function requireOfficerApiKey(request: Request): Promise<OfficerApi
   return verifyOfficerApiKey(request, env, cf);
 }
 
-// Same check, but with the Cloudflare context passed in — so it can also
-// run from custom-worker.ts (the live-bids endpoints, PLAN.md §15), which
-// is outside Next and can't call getCloudflareContext(). Everything the
-// Next path used getUserRole()/getDb() for is done here off `env` directly.
-export async function verifyOfficerApiKey(
-  request: Request,
+async function verifyKeyWithPlugin(
+  key: string,
   env: CloudflareEnv,
   cf?: Parameters<typeof createAuth>[1],
-): Promise<OfficerApiAuth> {
-  const key = request.headers.get("x-api-key");
-  if (!key) return { error: "Missing x-api-key header.", status: 401 };
-
+): Promise<{ referenceId: string } | { error: string; status: number }> {
   const auth = createAuth(env, cf);
 
   // @better-auth/api-key's verifyApiKey normally reports a bad key as
@@ -68,16 +83,45 @@ export async function verifyOfficerApiKey(
     return { error: message ?? "Invalid or expired API key.", status: 401 };
   }
 
+  return { referenceId: result.key.referenceId };
+}
+
+// Same check, but with the Cloudflare context passed in — so it can also
+// run from custom-worker.ts (the live-bids endpoints, PLAN.md §15), which
+// is outside Next and can't call getCloudflareContext(). Everything the
+// Next path used getUserRole()/getDb() for is done here off `env` directly.
+export async function verifyOfficerApiKey(
+  request: Request,
+  env: CloudflareEnv,
+  cf?: Parameters<typeof createAuth>[1],
+): Promise<OfficerApiAuth> {
+  const key = request.headers.get("x-api-key");
+  if (!key) return { error: "Missing x-api-key header.", status: 401 };
+
+  const digest = await keyDigest(key);
+  const cached = verifiedKeyCache.get(digest);
+  let referenceId: string;
+  if (cached && cached.expiresAt > Date.now()) {
+    referenceId = cached.referenceId;
+  } else {
+    verifiedKeyCache.delete(digest);
+    const verified = await verifyKeyWithPlugin(key, env, cf);
+    if ("error" in verified) return verified;
+    referenceId = verified.referenceId;
+    if (verifiedKeyCache.size >= VERIFIED_KEY_CACHE_MAX) verifiedKeyCache.clear();
+    verifiedKeyCache.set(digest, { referenceId, expiresAt: Date.now() + VERIFIED_KEY_TTL_MS });
+  }
+
   const db = drizzle(env.DATABASE, { schema });
   const [[row], matrix] = await Promise.all([
-    db.select({ role: users.role }).from(users).where(eq(users.id, result.key.referenceId)),
+    db.select({ role: users.role }).from(users).where(eq(users.id, referenceId)),
     loadPermissionMatrix(db),
   ]);
   if (!roleCan(matrix, row?.role ?? null, "epgp.officerApi")) {
     return { error: "This key's owner is no longer an officer, leader, or admin.", status: 403 };
   }
 
-  return { userId: result.key.referenceId };
+  return { userId: referenceId };
 }
 
 // A second, narrower capability check for a route whose key holder needs

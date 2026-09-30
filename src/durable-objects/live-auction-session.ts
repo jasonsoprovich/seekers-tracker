@@ -315,6 +315,12 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       const officerName = typeof body.officerName === "string" && body.officerName ? body.officerName : "An officer";
 
       let round = this.rounds.get(k);
+      // Storage is only written when something durable changed (a new round,
+      // a new officer, a restarted resolved round, or a different bid set) —
+      // the parser re-sends an unchanged snapshot every few seconds and each
+      // of those used to cost a ctx.storage write for nothing. lastSeenAt
+      // stays in memory; a rehydrated round is re-stamped by the next push.
+      let mustPersist = !round;
       if (!round) {
         round = {
           itemName: body.itemName.trim(),
@@ -333,6 +339,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         // Whoever pushed most recently is shown as running the round — a
         // duplicate-drop hand-off between officers is rare and they sort it
         // verbally; the point is the name shown is never stale.
+        if (round.officerId !== (officerId || round.officerId) || round.officerName !== officerName) mustPersist = true;
         round.officerId = officerId || round.officerId;
         round.officerName = officerName;
         // A push landing on an already-resolved round means this item
@@ -340,6 +347,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         // resolved card aged out — start it clean rather than appending to
         // the finished one.
         if (round.state === "resolved") {
+          mustPersist = true;
           round.bids = [];
           round.winners = [];
           round.startedAt = now;
@@ -398,7 +406,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       // and an unchanged snapshot re-send don't — otherwise a parser left
       // open on a dead round could pin it on the board forever).
       if (after !== before) round.lastBidAt = now;
-      await this.persistRound(k, round);
+      if (mustPersist || after !== before) await this.persistRound(k, round);
       await this.afterMutation();
       return Response.json({ ok: true }, { status: 200 });
     }

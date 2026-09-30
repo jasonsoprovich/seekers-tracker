@@ -33,6 +33,7 @@
     "verify:guild-removal": "tsx scripts/verify-guild-removal.ts",
     "verify:bank-sync": "tsx scripts/verify-bank-sync.ts",
     "verify:bid-finalization": "tsx scripts/verify-bid-finalization.ts",
+    "verify:pre-golive-fixes": "tsx scripts/verify-pre-golive-fixes.ts",
     "verify:bid-history-priority": "tsx scripts/verify-bid-history-priority.ts",
     "verify:standings-resilience": "tsx scripts/verify-standings-resilience.ts",
     "verify:character-claims": "tsx scripts/verify-character-claims.ts",

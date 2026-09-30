@@ -173,6 +173,18 @@ async function handleLiveBidsConfig(request: Request, env: CloudflareEnv): Promi
   }
 }
 
+// name -> player_id for every character, cached per isolate for a minute.
+// Every /resolve used to scan the whole `characters` table (~800 rows) just
+// to build the reprice map for the other open rounds; the roster changes
+// rarely and a character added inside the TTL only misses one reprice.
+let characterPlayerCache: { at: number; rows: { name: string; playerId: number | null }[] } | null = null;
+async function getCharacterPlayerMap(db: ReturnType<typeof drizzle<typeof schema>>) {
+  if (characterPlayerCache && Date.now() - characterPlayerCache.at < 60_000) return characterPlayerCache.rows;
+  const rows = await db.select({ name: characters.name, playerId: characters.playerId }).from(characters);
+  characterPlayerCache = { at: Date.now(), rows };
+  return rows;
+}
+
 // POST /api/officer/live-bids/{push,heartbeat,clear,resolve} — officer x-api-key.
 async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, action: string): Promise<Response> {
   const auth = await verifyOfficerApiKey(request, env, cfOf(request));
@@ -372,7 +384,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
     let repriceAll: Record<string, number> | undefined;
     try {
       const s = await getStandings(db);
-      const chars = await db.select({ name: characters.name, playerId: characters.playerId }).from(characters);
+      const chars = await getCharacterPlayerMap(db);
       const m: Record<string, number> = {};
       for (const c of chars) {
         if (c.playerId == null) continue;

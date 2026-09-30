@@ -463,6 +463,9 @@ export const epLedger = sqliteTable(
   (table) => [
     index("ep_ledger_character_id_idx").on(table.characterId),
     index("ep_ledger_player_id_idx").on(table.playerId),
+    // Backs the per-cycle EP cap sum (src/lib/epgp/ep-cap.ts) and the
+    // per-player last-activity max().
+    index("ep_ledger_player_occurred_idx").on(table.playerId, table.occurredAt),
     index("ep_ledger_occurred_at_idx").on(table.occurredAt),
     index("ep_ledger_raid_date_idx").on(table.raidDate),
     index("ep_ledger_decay_event_id_idx").on(table.decayEventId),
@@ -515,12 +518,20 @@ export const gpLedger = sqliteTable(
     sourceKey: text("source_key"),
     // See epLedger.decayEventId's comment — same meaning here.
     decayEventId: integer("decay_event_id").references(() => decayEvents.id),
+    // The loot event whose winning bid charged this row (bid-finalization
+    // sets it; NULL on manual/imported rows and on every row written before
+    // migration 0054). Deliberately not a foreign key: reverseRaid deletes
+    // ledger rows and loot events in separate statements, and this is only a
+    // lookup pointer — deleting a winning GP row uses it to flip that
+    // winner's bid back to lost (src/lib/epgp/bid-unwin.ts).
+    lootEventId: integer("loot_event_id"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   },
   (table) => [
     index("gp_ledger_character_id_idx").on(table.characterId),
+    index("gp_ledger_loot_event_id_idx").on(table.lootEventId),
     index("gp_ledger_player_id_idx").on(table.playerId),
     index("gp_ledger_occurred_at_idx").on(table.occurredAt),
     index("gp_ledger_raid_date_idx").on(table.raidDate),
@@ -816,7 +827,11 @@ export const lootEvents = sqliteTable(
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [uniqueIndex("loot_events_submission_id_unique").on(table.submissionId)],
+  (table) => [
+    uniqueIndex("loot_events_submission_id_unique").on(table.submissionId),
+    // Bids History sorts on occurred_at.
+    index("loot_events_occurred_at_idx").on(table.occurredAt),
+  ],
 );
 
 export const bids = sqliteTable(

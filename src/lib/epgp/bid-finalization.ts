@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
@@ -215,12 +215,24 @@ export async function finalizeBidRound(
     }
   }
 
-  const [allCharacters, totals] = await Promise.all([
-    db
-      .select({ id: characters.id, name: characters.name, playerId: characters.playerId, charType: characters.charType, mainCharacterId: characters.mainCharacterId })
-      .from(characters),
+  // Only the characters this round actually names — a full `characters` scan
+  // (~800 rows) on every finalize is wasted reads when 2-4 officers submit
+  // within seconds of each other. IN lists stay ≤ 90 (D1's 100-param cap).
+  const roundNames = [...new Set(entries.map((e) => e.characterName.trim()).filter(Boolean))];
+  const nameChunks: string[][] = [];
+  for (let i = 0; i < roundNames.length; i += 90) nameChunks.push(roundNames.slice(i, i + 90));
+  const [characterChunks, totals] = await Promise.all([
+    Promise.all(
+      nameChunks.map((names) =>
+        db
+          .select({ id: characters.id, name: characters.name, playerId: characters.playerId, charType: characters.charType, mainCharacterId: characters.mainCharacterId })
+          .from(characters)
+          .where(inArray(sql`${characters.name} COLLATE NOCASE`, names)),
+      ),
+    ),
     getStandings(db),
   ]);
+  const allCharacters = characterChunks.flat();
   const byLowerName = new Map(allCharacters.map((c) => [c.name.toLowerCase(), c]));
 
   // computeEpgpTotals groups by player_id (PLAN.md §11 Phase 3 task 3.11).
@@ -360,11 +372,28 @@ export async function finalizeBidRound(
         note,
         enteredBy,
         source: "parse",
+        // Lets a later delete of this row flip the winner's bid back to lost
+        // (bid-unwin.ts) — resolved by submission key for the same reason
+        // the bid rows above are.
+        lootEventId: sql`(SELECT id FROM loot_events WHERE submission_id = ${submissionKey})`,
       }),
     );
     if (character.playerId != null) chargedPlayerIds.add(character.playerId);
     const prevBump = bumpTargets.get(targetCharacterId);
     if (!prevBump || prevBump < at) bumpTargets.set(targetCharacterId, at);
+  }
+
+  // last_activity_at bumps ride in the same batch (one round trip) instead
+  // of a sequential UPDATE per winner afterward — they're forward-only
+  // (only move a character's last activity later), so including them can't
+  // make a retry or partial state worse than before.
+  for (const [targetCharacterId, at] of bumpTargets) {
+    statements.push(
+      db
+        .update(characters)
+        .set({ lastActivityAt: at })
+        .where(and(eq(characters.id, targetCharacterId), or(isNull(characters.lastActivityAt), lt(characters.lastActivityAt, at)))),
+    );
   }
 
   // Task 4.4: a durable dirty marker for every winner charged rides in the
@@ -414,17 +443,6 @@ export async function finalizeBidRound(
     throw error;
   }
 
-  // last_activity_at bumps are deliberately OUTSIDE the atomic batch above
-  // — derived/display state, not the authoritative ledger rows task 3.4 is
-  // about. A failure here after a successful commit means a stale "last
-  // active" until the next write touches the same character, never lost or
-  // double-counted GP.
-  for (const [targetCharacterId, at] of bumpTargets) {
-    await db
-      .update(characters)
-      .set({ lastActivityAt: at })
-      .where(and(eq(characters.id, targetCharacterId), or(isNull(characters.lastActivityAt), lt(characters.lastActivityAt, at))));
-  }
   // One standings refresh for every winner charged (a duplicate drop can
   // have several) rather than one per winner. Best-effort (task 4.6) — the
   // dirty marker above already guarantees this gets finished even if this

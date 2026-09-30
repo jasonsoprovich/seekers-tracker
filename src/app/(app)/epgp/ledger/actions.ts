@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { characters, epLedger, gpLedger, ledgerAuditLog } from "@/db";
 import { getDb } from "@/lib/db";
+import { planUnwinBidForGpRow } from "@/lib/epgp/bid-unwin";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry, type InsertLedgerEntryInput } from "@/lib/epgp/ledger-entry";
@@ -19,7 +20,7 @@ import { boundedString } from "@/lib/validate";
 // fresh (getStandingsForPlayers, never the roster-wide 10s cache) — present
 // on a successful mutation that touched a player with a totals row; null/
 // absent otherwise (no error implied either way).
-export type LedgerActionResult = { error?: string; standing?: StandingsRow | null };
+export type LedgerActionResult = { error?: string; standing?: StandingsRow | null; capped?: { awarded: number; nominal: number } };
 
 export type AddLedgerEntryInput = InsertLedgerEntryInput;
 
@@ -47,7 +48,7 @@ export async function addLedgerEntry(input: AddLedgerEntryInput): Promise<Ledger
 
   const db = await getDb();
   const result = await insertLedgerEntry(db, input, session.user.id);
-  return result.ok ? { standing: result.standing } : { error: result.error };
+  return result.ok ? { standing: result.standing, capped: result.capped } : { error: result.error };
 }
 
 // Edits the activity/tier/item/points/date/note of an existing row —
@@ -200,7 +201,10 @@ export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<
     affectedPlayerId = before.playerId;
     affectedCharacterId = before.characterId;
     if (affectedPlayerId != null) await markStandingsDirty(db, { playerIds: [affectedPlayerId] });
-    await db.delete(gpLedger).where(eq(gpLedger.id, id));
+    // A deleted winner's bid must stop reading "won" (Bids History, raid
+    // page) — commit that atomically with the delete.
+    const unwind = await planUnwinBidForGpRow(db, before);
+    await db.batch([db.delete(gpLedger).where(eq(gpLedger.id, id)), ...unwind]);
     await recordLedgerChange(db, "gp", id, "delete", before, null, session.user.id);
     await recordSystemEvent(db, await webActor(db, session.user.id), {
       action: "epgp.entry.delete",
