@@ -17,6 +17,7 @@ import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 const PAGE_SIZE = 50;
+const MANUAL_ADJUSTMENT = "Manual Adjustment";
 
 type TabType = "totals" | "ep" | "gp" | "bids" | "audit";
 type SearchParams = { type?: string; q?: string; page?: string };
@@ -88,6 +89,10 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
     ]);
     characterOptions = charRows;
     activitySuggestions = activityRows.map((r) => r.activity);
+    // Not a configured bid tier (no fixed GP cost, never offered in the
+    // officer app) — a suggestion only, so officers can log a one-off GP
+    // adjustment that isn't tied to a bid.
+    if (type === "gp" && !activitySuggestions.includes(MANUAL_ADJUSTMENT)) activitySuggestions.push(MANUAL_ADJUSTMENT);
     itemSuggestions = itemRows.map((r) => r.itemName).filter((n): n is string => n !== null);
   }
 
