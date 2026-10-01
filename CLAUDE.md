@@ -378,7 +378,7 @@ confirmed working live; content restructure NOT yet done).**
   token gave API error 7403 on the remote migration — `wrangler login` again fixed it.)
 
 **Decay is now per ACCOUNT, not per character, 2026-09-30 (branch
-`fix/decay-per-player`; committed, NOT deployed; no migration).** The 9/29
+`fix/decay-per-player`; merged to `main` and deployed; no migration).** The 9/29
 expansion decay left Korrek/Blesko/Youmadin/Tunedup near zero or negative.
 `previewRateDecay`/`previewDepartureWipe` summed balances per `character_id`
 and skipped any character at <= 0, but standings total per `player_id`. After
@@ -390,14 +390,13 @@ row on `players.main_character_id` (`pickTargetCharacter`). Rows with no
 `player_id` stay per-character. Regression: `npm run verify:decay-per-player`
 (fails on the old code, passes now). `verify:expansion-decay`'s historical match
 rate dips 87% -> 85% only because it matches by character name and the computed
-row now lands on the main. **Production still needs a correction pass for the
-9/29 event** — diagnostic at `drizzle/seed/decay-diagnostic-2026-09-30.sql`
-(gitignored), then one positive correction row per over-decayed player linked
-to the event via `decay_event_id`. Must be deployed before the 10/17 global
-cycle decay.
+row now lands on the main. **The production correction pass for the 9/29 event was
+reported done by the user (2026-10-01; not independently verified from here)** —
+diagnostic was `drizzle/seed/decay-diagnostic-2026-09-30.sql` (gitignored), one
+positive correction row per over-decayed player linked via `decay_event_id`.
 
-**Leader-team feedback batch, 2026-09-30 (branch `feature/leader-feedback-2026-09-30`;
-committed, NOT deployed; migration 0055 local-only).**
+**Leader-team feedback batch, 2026-09-30 (merged to `main`; deployed, migration 0055
+applied to remote).**
 - **Ledger**: numbered pagination (`ui/Pagination.tsx`, total-count queries in
   `ledger-list.ts`), rows-per-page 50/100/150/200 in a session cookie
   `ledger_page_size`, out-of-range pages clamp.
@@ -426,9 +425,8 @@ committed, NOT deployed; migration 0055 local-only).**
   `roster-correctness` "departed accounts…", fails on the untouched baseline too).
   Not browser-verified by hand.
 
-**Pre-go-live fix batch, 2026-09-29 (branch `feature/pre-golive-fixes-2026-09-29`
-in both this repo and `seekers-epgp-parser`; committed, NOT merged/deployed;
-migration 0054 local-only).** Bugs from the 9/28 Vex Thal raid + the 9/29 sheet
+**Pre-go-live fix batch, 2026-09-29 (merged to `main` and deployed; migration
+0054 applied to remote; parser-side branch status not checked here).** Bugs from the 9/28 Vex Thal raid + the 9/29 sheet
 balance, once the sheet was retired:
 - **Decay "as of" date** — `resolveDecayCutoff` (`src/lib/epgp/decay.ts`): a
   bare date used to be UTC midnight (8pm ET the night before), so picking
