@@ -398,6 +398,46 @@ html[data-theme="geocities"] :is(main, dialog) :is(input:not([type="checkbox"], 
 html[data-theme="geocities"] :is(main, dialog) ::placeholder { color: #6b6b6b; }
 html[data-theme="geocities"] :is(main, aside, dialog) :focus-visible { outline: 3px solid #ff00cc; outline-offset: 1px; }
 
+
+/* Segmented toggles (Mains only / Include alts, time windows): Win95 radio-bar look */
+html[data-theme="geocities"] main div[class*="overflow-hidden"][class*="rounded-full"][class*="border-field"] {
+  border: 3px outset #fff;
+  border-radius: 0;
+  background: #e6e2d6;
+}
+html[data-theme="geocities"] main div[class*="overflow-hidden"][class*="rounded-full"][class*="border-field"] > button {
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  border-radius: 0;
+}
+html[data-theme="geocities"] main div[class*="overflow-hidden"][class*="rounded-full"][class*="border-field"] > button[class*="bg-neutral-700"] {
+  background: #ffe34a;
+  color: #000;
+  box-shadow: inset 2px 2px 0 #b89b00, inset -2px -2px 0 #fff6a0;
+}
+/* Sticky filter bar on the dashboard */
+html[data-theme="geocities"] main div[class*="sticky"][class*="bg-surface"] {
+  background: #e3d199 url(/geocities/marble-purple.webp);
+  background-size: 320px;
+  background-blend-mode: soft-light;
+  border-bottom: 4px ridge #8a5be0;
+}
+/* Progress bars: classic blocky Win95 meter */
+html[data-theme="geocities"] main div[class*="overflow-hidden"][class*="rounded-full"][class*="bg-neutral-800"] {
+  height: 16px;
+  border: 2px inset #888;
+  border-radius: 0;
+  background: #fff;
+}
+html[data-theme="geocities"] main div[class*="overflow-hidden"][class*="rounded-full"][class*="bg-neutral-800"] > div {
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, #1a2f9c 0 10px, transparent 10px 12px);
+}
+html[data-theme="geocities"] main div[class*="overflow-hidden"][class*="rounded-full"][class*="bg-neutral-800"] > div[class*="bg-accent"] {
+  background: repeating-linear-gradient(90deg, #0a8a2a 0 10px, transparent 10px 12px);
+}
+
 /* Role / status badges */
 html[data-theme="geocities"] main span[class*="uppercase"][class*="border"][class*="rounded"] {
   border-style: outset;

@@ -50,15 +50,15 @@ export function VerticalBarChart({ bars }: { bars: Bar[] }) {
           className="flex shrink-0 flex-col justify-between text-right text-[10px] text-neutral-500"
           style={{ height: BAR_HEIGHT, width: YAXIS_WIDTH }}
         >
-          {[...ticks].reverse().map((t) => (
-            <span key={t}>{t}</span>
+          {[...ticks].reverse().map((t, i) => (
+            <span key={i}>{t}</span>
           ))}
         </div>
 
         <div className="relative flex min-w-0 flex-1 justify-between gap-1" style={{ height: BAR_HEIGHT }}>
-          {ticks.map((t) => (
+          {ticks.map((t, i) => (
             <div
-              key={t}
+              key={i}
               className="pointer-events-none absolute right-0 left-0 border-t border-neutral-800"
               style={{ bottom: `${(t / niceMax) * BAR_HEIGHT}px` }}
             />
