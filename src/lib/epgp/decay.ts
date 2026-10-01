@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { characters, decayEvents, epLedger, gpLedger } from "@/db";
+import { characters, decayEvents, epLedger, gpLedger, players } from "@/db";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
@@ -72,39 +72,81 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-// Sum of every ep_ledger/gp_ledger row strictly before `cutoff`,
-// grouped by character — the "then-current net balance" §1b decays against.
+// One decay "unit" = one account's net balance. computeEpgpTotals groups by
+// the ledger's player_id, so what a member actually holds is the SUM across
+// every character on the account — and decay has to be taken against that
+// same figure. Taking it per character (the original behavior) breaks after
+// a main/alt swap: the earned EP gets re-attributed to the new main while the
+// old main keeps only its earlier (negative) decay rows. Decaying the new
+// main's positive balance and skipping the old main's negative one leaves
+// `rate*X - Y` instead of `rate*(X - Y)` — found after the 2026-09-29
+// expansion decay left Korrek/Blesko/Youmadin/Tunedup near zero or negative.
+// A ledger row with no player_id (legacy/unlinked) stays its own per-character
+// unit, as before.
+type BalanceUnit = { playerId: number | null; byCharacter: Map<number, number>; net: number };
+
+function unitKey(playerId: number | null, characterId: number): string {
+  return playerId !== null ? `p${playerId}` : `c${characterId}`;
+}
+
+// Sum of every ep_ledger/gp_ledger row strictly before `cutoff` (or all rows
+// when `cutoff` is omitted — the departure wipe zeroes *current* EP), per
+// account — the "then-current net balance" §1b decays against.
 // This is the raw ledger sum, not computeEpgpTotals' derived legacy-1a
 // figure: 1a is a display-time-only subtraction that never touches what's
 // actually owed, and expansion decay has always been applied to the real
 // balance (confirmed against the historical 2025-12-30 event — e.g.
 // Aazimoku's stored rows summed to exactly 150.0 before that decay, and
 // 150 * 0.85 = 127.5, matching the historical row to the cent).
-async function balancesAt(
+async function unitBalances(
   db: ReturnType<typeof drizzle>,
   ledger: typeof epLedger | typeof gpLedger,
-  cutoff: Date,
-): Promise<Map<number, number>> {
+  cutoff?: Date,
+): Promise<Map<string, BalanceUnit>> {
   const rows = await db
-    .select({ characterId: ledger.characterId, sum: sql<number>`coalesce(sum(${ledger.points}), 0)` })
+    .select({ characterId: ledger.characterId, playerId: ledger.playerId, sum: sql<number>`coalesce(sum(${ledger.points}), 0)` })
     .from(ledger)
-    .where(lt(ledger.occurredAt, cutoff))
-    .groupBy(ledger.characterId);
-  // An orphaned row (§1e/§4d) has a NULL character_id and belongs to no
-  // one — excluded here rather than decayed against a phantom "null"
-  // character.
-  return new Map(rows.filter((r) => r.characterId !== null).map((r) => [r.characterId as number, r.sum]));
+    .where(cutoff ? lt(ledger.occurredAt, cutoff) : undefined)
+    .groupBy(ledger.characterId, ledger.playerId);
+  const units = new Map<string, BalanceUnit>();
+  for (const r of rows) {
+    // An orphaned row (§1e/§4d) has a NULL character_id and belongs to no
+    // one — excluded here rather than decayed against a phantom "null"
+    // character.
+    if (r.characterId === null) continue;
+    const key = unitKey(r.playerId, r.characterId);
+    const unit = units.get(key) ?? { playerId: r.playerId, byCharacter: new Map<number, number>(), net: 0 };
+    unit.byCharacter.set(r.characterId, (unit.byCharacter.get(r.characterId) ?? 0) + r.sum);
+    unit.net += r.sum;
+    units.set(key, unit);
+  }
+  return units;
 }
 
-// Same shape as balancesAt but with no date cutoff — the departure wipe
-// (below) zeroes a character's *current* EP, not a balance as of some
-// point in the past.
-async function totalBalances(db: ReturnType<typeof drizzle>, ledger: typeof epLedger | typeof gpLedger): Promise<Map<number, number>> {
-  const rows = await db
-    .select({ characterId: ledger.characterId, sum: sql<number>`coalesce(sum(${ledger.points}), 0)` })
-    .from(ledger)
-    .groupBy(ledger.characterId);
-  return new Map(rows.filter((r) => r.characterId !== null).map((r) => [r.characterId as number, r.sum]));
+// Which character a unit's decay/wipe row is written on: the account's main
+// when it has one, else the character carrying the most balance (ties and the
+// no-balance case fall to the first). Display only — standings are by player.
+function pickTargetCharacter(
+  playerId: number | null,
+  mainByPlayer: Map<number, number | null>,
+  ...units: (BalanceUnit | undefined)[]
+): number {
+  const main = playerId !== null ? mainByPlayer.get(playerId) ?? null : null;
+  const candidates = new Map<number, number>();
+  for (const unit of units) {
+    if (!unit) continue;
+    for (const [characterId, sum] of unit.byCharacter) candidates.set(characterId, (candidates.get(characterId) ?? 0) + sum);
+  }
+  if (main !== null) return main;
+  let best = -1;
+  let bestSum = -Infinity;
+  for (const [characterId, sum] of candidates) {
+    if (sum > bestSum) {
+      best = characterId;
+      bestSum = sum;
+    }
+  }
+  return best;
 }
 
 // Last EP-earning activity per character — a "Decay"/"Departure" row is
@@ -131,24 +173,31 @@ async function lastPositiveEpActivity(db: ReturnType<typeof drizzle>): Promise<M
 // is shared as-is; kind only matters at commit time (label + duplicate
 // guard) and to the caller deciding when to run it.
 export async function previewRateDecay(db: ReturnType<typeof drizzle>, rate: number, cutoff: Date): Promise<DecayPreviewRow[]> {
-  const [epBalances, gpBalances, allCharacters] = await Promise.all([
-    balancesAt(db, epLedger, cutoff),
-    balancesAt(db, gpLedger, cutoff),
-    db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
+  const [epUnits, gpUnits, allCharacters, allPlayers] = await Promise.all([
+    unitBalances(db, epLedger, cutoff),
+    unitBalances(db, gpLedger, cutoff),
+    db.select({ id: characters.id, name: characters.name }).from(characters),
+    db.select({ id: players.id, mainCharacterId: players.mainCharacterId }).from(players),
   ]);
   const names = new Map(allCharacters.map((c) => [c.id, c.name]));
-  const playerIds = new Map(allCharacters.map((c) => [c.id, c.playerId]));
-  const characterIds = new Set([...epBalances.keys(), ...gpBalances.keys()]);
+  const mainByPlayer = new Map(allPlayers.map((p) => [p.id, p.mainCharacterId]));
+  const keys = new Set([...epUnits.keys(), ...gpUnits.keys()]);
 
+  // One row per account (see unitBalances): the net across all of its
+  // characters is what gets decayed, written on the account's main.
   const rows: DecayPreviewRow[] = [];
-  for (const characterId of characterIds) {
-    const epBalance = epBalances.get(characterId) ?? 0;
-    const gpBalance = gpBalances.get(characterId) ?? 0;
+  for (const key of keys) {
+    const epUnit = epUnits.get(key);
+    const gpUnit = gpUnits.get(key);
+    const epBalance = epUnit?.net ?? 0;
+    const gpBalance = gpUnit?.net ?? 0;
     if (epBalance <= 0 && gpBalance <= 0) continue;
+    const playerId = (epUnit ?? gpUnit)?.playerId ?? null;
+    const characterId = pickTargetCharacter(playerId, mainByPlayer, epUnit, gpUnit);
     rows.push({
       characterId,
       characterName: names.get(characterId) ?? `#${characterId}`,
-      playerId: playerIds.get(characterId) ?? null,
+      playerId,
       epBalance,
       // A rate may be rounded up to the nearest cent. Never let that (or an
       // accidentally excessive rate) take more than the available balance.
@@ -300,34 +349,53 @@ export async function previewDepartureWipe(
 ): Promise<DeparturePreviewRow[]> {
   if (!opts.characterIds?.length && !opts.inactiveSince) return [];
 
-  const [allCharacters, epBalances, gpBalances, lastActivity] = await Promise.all([
+  const [allCharacters, allPlayers, epUnits, gpUnits, lastActivity] = await Promise.all([
     db.select({ id: characters.id, name: characters.name, playerId: characters.playerId }).from(characters),
-    totalBalances(db, epLedger),
-    totalBalances(db, gpLedger),
+    db.select({ id: players.id, mainCharacterId: players.mainCharacterId }).from(players),
+    unitBalances(db, epLedger),
+    unitBalances(db, gpLedger),
     lastPositiveEpActivity(db),
   ]);
+  const names = new Map(allCharacters.map((c) => [c.id, c.name]));
+  const mainByPlayer = new Map(allPlayers.map((p) => [p.id, p.mainCharacterId]));
 
-  const idFilter = opts.characterIds?.length ? new Set(opts.characterIds) : null;
+  // Wipes are per account (see unitBalances): wiping only the positive
+  // character would leave a negative old-main balance behind. A selected
+  // character selects its whole account.
+  const selectedPlayers = new Set<number>();
+  const selectedCharacters = new Set(opts.characterIds ?? []);
+  for (const char of allCharacters) {
+    if (char.playerId !== null && selectedCharacters.has(char.id)) selectedPlayers.add(char.playerId);
+  }
+  const idFilter = opts.characterIds?.length ? true : false;
 
   const rows: DeparturePreviewRow[] = [];
-  for (const char of allCharacters) {
-    const epBalance = epBalances.get(char.id) ?? 0;
+  for (const [key, epUnit] of epUnits) {
+    const epBalance = epUnit.net;
     if (epBalance <= 0) continue;
 
+    let last: Date | null = null;
+    for (const characterId of epUnit.byCharacter.keys()) {
+      const when = lastActivity.get(characterId);
+      if (when && (last === null || when > last)) last = when;
+    }
+
     if (idFilter) {
-      if (!idFilter.has(char.id)) continue;
+      const picked = (epUnit.playerId !== null && selectedPlayers.has(epUnit.playerId)) || [...epUnit.byCharacter.keys()].some((id) => selectedCharacters.has(id));
+      if (!picked) continue;
     } else if (opts.inactiveSince) {
-      const last = lastActivity.get(char.id) ?? null;
       if (last !== null && last >= opts.inactiveSince) continue; // has EP activity at/after the cutoff — still active
     }
 
+    const gpUnit = gpUnits.get(key);
+    const characterId = pickTargetCharacter(epUnit.playerId, mainByPlayer, epUnit, gpUnit);
     rows.push({
-      characterId: char.id,
-      characterName: char.name,
-      playerId: char.playerId,
+      characterId,
+      characterName: names.get(characterId) ?? `#${characterId}`,
+      playerId: epUnit.playerId,
       epBalance,
-      gpBalance: gpBalances.get(char.id) ?? 0,
-      lastEpActivity: lastActivity.get(char.id) ?? null,
+      gpBalance: gpUnit?.net ?? 0,
+      lastEpActivity: last,
     });
   }
   rows.sort((a, b) => a.characterName.localeCompare(b.characterName));

@@ -334,6 +334,25 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Decay is now per ACCOUNT, not per character, 2026-09-30 (branch
+`fix/decay-per-player`; committed, NOT deployed; no migration).** The 9/29
+expansion decay left Korrek/Blesko/Youmadin/Tunedup near zero or negative.
+`previewRateDecay`/`previewDepartureWipe` summed balances per `character_id`
+and skipped any character at <= 0, but standings total per `player_id`. After
+a main/alt swap the earned EP sits on the new main (+X) while the old main
+keeps only its earlier decay rows (-Y); decay took `rate*X` and ignored `-Y`,
+leaving `rate*X - Y` instead of `rate*(X - Y)`. `decay.ts` now builds one
+`BalanceUnit` per player (`unitBalances`), decays/wipes the net, and writes the
+row on `players.main_character_id` (`pickTargetCharacter`). Rows with no
+`player_id` stay per-character. Regression: `npm run verify:decay-per-player`
+(fails on the old code, passes now). `verify:expansion-decay`'s historical match
+rate dips 87% -> 85% only because it matches by character name and the computed
+row now lands on the main. **Production still needs a correction pass for the
+9/29 event** — diagnostic at `drizzle/seed/decay-diagnostic-2026-09-30.sql`
+(gitignored), then one positive correction row per over-decayed player linked
+to the event via `decay_event_id`. Must be deployed before the 10/17 global
+cycle decay.
+
 **Leader-team feedback batch, 2026-09-30 (branch `feature/leader-feedback-2026-09-30`;
 committed, NOT deployed; migration 0055 local-only).**
 - **Ledger**: numbered pagination (`ui/Pagination.tsx`, total-count queries in
