@@ -1,4 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { GuildLeadership } from "@/components/dashboard/GuildLeadership";
@@ -7,6 +8,7 @@ import { RosterOverview, type RosterEntry } from "@/components/dashboard/RosterO
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characterPopFlags, characters, players, users } from "@/db";
 import { LEADERSHIP_ROLES } from "@/lib/authz";
+import { DASHBOARD_WINDOW_COOKIE } from "@/lib/dashboard-window";
 import { getDb } from "@/lib/db";
 import { getStandings } from "@/lib/epgp/standings";
 import { resolveFlags } from "@/lib/pop-flags";
@@ -43,6 +45,8 @@ function aggregatePop(chars: Character[], flagsByCharacter: Map<number, FlagRow[
 export default async function DashboardPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+
+  const savedWindow = (await cookies()).get(DASHBOARD_WINDOW_COOKIE)?.value;
 
   const db = await getDb();
   const [allCharacters, standings, flagRows, roleHolders, playerStatuses] = await Promise.all([
@@ -116,7 +120,7 @@ export default async function DashboardPage() {
         <GuildLeadership leadership={leadership} officers={officers} />
         <GuildPopMeter mainsOnly={{ done: pop.mainDone, total: pop.mainTotal }} all={{ done: pop.allDone, total: pop.allTotal }} />
       </div>
-      <RosterOverview roster={rosterEntries} nowMs={Date.now()} />
+      <RosterOverview roster={rosterEntries} nowMs={Date.now()} initialWindow={savedWindow} />
     </div>
   );
 }

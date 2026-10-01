@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { DASHBOARD_WINDOW_COOKIE, DEFAULT_WINDOW } from "@/lib/dashboard-window";
 import { CHAR_CLASSES, classColor, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 
 import { Card } from "../ui/Card";
@@ -34,6 +35,7 @@ const DAY = 86_400_000;
 const WINDOWS = [
   { value: "1d", label: "24h", ms: DAY },
   { value: "7d", label: "7 days", ms: 7 * DAY },
+  { value: "14d", label: "14 days", ms: 14 * DAY },
   { value: "30d", label: "1 month", ms: 30 * DAY },
   { value: "365d", label: "1 year", ms: 365 * DAY },
   { value: "all", label: "All time", ms: Infinity },
@@ -49,12 +51,23 @@ const WINDOWS = [
 // scope switch, since removed; ActiveByClass's own window toggle, folded
 // in here). Mules are excluded upstream (dashboard/page.tsx never sends
 // one into `roster`), matching "mules can be ignored".
-export function RosterOverview({ roster, nowMs }: { roster: RosterEntry[]; nowMs: number }) {
+function isDashboardWindow(v: string | undefined): v is string {
+  return v !== undefined && WINDOWS.some((w) => w.value === v);
+}
+
+export function RosterOverview({ roster, nowMs, initialWindow }: { roster: RosterEntry[]; nowMs: number; initialWindow?: string }) {
   const [showAlts, setShowAlts] = useState(true);
-  // Default to 7 days, not "All time" (leader, 2026-09-05) — "all" buried
-  // the guild's actual recent-activity picture behind every character
-  // who's ever existed, including long-departed/inactive ones.
-  const [win, setWin] = useState<string>("7d");
+  // Default to 14 days, not "All time" (leader, 2026-09-05; 14d added
+  // 2026-09-30) — "all" buried the guild's actual recent-activity picture
+  // behind every character who's ever existed. The choice is remembered per
+  // browser in a cookie the page reads server-side, so there's no flicker.
+  const [win, setWinState] = useState<string>(isDashboardWindow(initialWindow) ? initialWindow : DEFAULT_WINDOW);
+  function setWin(v: string) {
+    setWinState(v);
+    try {
+      document.cookie = `${DASHBOARD_WINDOW_COOKIE}=${v}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {}
+  }
   const windowDef = WINDOWS.find((w) => w.value === win) ?? WINDOWS[WINDOWS.length - 1];
   const cutoff = nowMs - windowDef.ms;
 
