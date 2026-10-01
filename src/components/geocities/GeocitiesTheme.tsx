@@ -105,10 +105,10 @@ export function GeocitiesTheme() {
 
   return (
     <>
-      <div className="gc-decor" aria-hidden="true">
+      <div className="gc-decor">
         <div className="gc-banner">
-          <div className="gc-globe" />
-          <div className="gc-counter">
+          <div className="gc-globe" aria-hidden="true" />
+          <div className="gc-counter" aria-hidden="true">
             <span className="gc-odo">
               {digits.map((d, i) => (
                 <i key={i}>{d}</i>
@@ -116,18 +116,21 @@ export function GeocitiesTheme() {
             </span>
             <em>Visitors Since 1997!</em>
           </div>
-          <div className="gc-fairy" />
-          <div className="gc-title">
+          <div className="gc-fairy" aria-hidden="true" />
+          <div className="gc-title" aria-hidden="true">
             <span>Seekers of Souls</span>
           </div>
-          <div className="gc-sword" />
-          <div className="gc-tagline">A World of Warriors, Friends &amp; Fun!</div>
-          <div className="gc-castle" />
-          <div className="gc-dragon" />
-          <div className="gc-welcome">Welcome to our Guild!</div>
-          <div className="gc-flames" />
+          <div className="gc-sword" aria-hidden="true" />
+          <div className="gc-tagline" aria-hidden="true">A World of Warriors, Friends &amp; Fun!</div>
+          <div className="gc-castle" aria-hidden="true" />
+          <div className="gc-dragon" aria-hidden="true" />
+          <div className="gc-welcome" aria-hidden="true">Welcome to our Guild!</div>
+          <div className="gc-flames" aria-hidden="true" />
+          <button type="button" className="gc-exit" onClick={exit}>
+            Exit 1997 mode
+          </button>
         </div>
-        <div className="gc-rail">
+        <div className="gc-rail" aria-hidden="true">
           <div className="gc-knight">
             <span>EPGP 4 LYFE!!!</span>
           </div>
@@ -138,9 +141,6 @@ export function GeocitiesTheme() {
           <div className="gc-box gc-netscape" />
         </div>
       </div>
-      <button type="button" className="gc-exit" onClick={exit}>
-        Exit 1997 mode
-      </button>
     </>
   );
 }

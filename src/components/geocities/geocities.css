@@ -8,20 +8,20 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-neutral-100: #1a1204;
   --color-neutral-200: #241907;
   --color-neutral-300: #33260c;
-  --color-neutral-400: #4d3a18;
-  --color-neutral-500: #6b5428;
-  --color-neutral-600: #8a7240;
-  --color-neutral-700: #b49c64;
+  --color-neutral-400: #4a3714;
+  --color-neutral-500: #57431c;
+  --color-neutral-600: #5f4a20;
+  --color-neutral-700: #9c8650;
   --color-neutral-800: #cdb985;
   --color-neutral-900: #e6d6a2;
   --color-neutral-950: #f4e9be;
   --color-red-50: #360808;
   --color-red-100: #3e0909;
   --color-red-200: #4c0b0b;
-  --color-red-300: #5e0d0d;
-  --color-red-400: #741111;
-  --color-red-500: #8a1414;
-  --color-red-600: #bb1b1b;
+  --color-red-300: #550c0c;
+  --color-red-400: #620e0e;
+  --color-red-500: #7d1212;
+  --color-red-600: #d21e1e;
   --color-red-700: #e23636;
   --color-red-800: #ed9797;
   --color-red-900: #f5c7c7;
@@ -29,10 +29,10 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-emerald-50: #08361f;
   --color-emerald-100: #093e24;
   --color-emerald-200: #0b4c2b;
-  --color-emerald-300: #0d5e36;
-  --color-emerald-400: #117442;
-  --color-emerald-500: #148a4f;
-  --color-emerald-600: #1bbb6b;
+  --color-emerald-300: #0c5530;
+  --color-emerald-400: #0e6238;
+  --color-emerald-500: #127d47;
+  --color-emerald-600: #1ed278;
   --color-emerald-700: #36e28c;
   --color-emerald-800: #97edc2;
   --color-emerald-900: #c7f5de;
@@ -40,10 +40,10 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-amber-50: #362508;
   --color-amber-100: #3e2b09;
   --color-amber-200: #4c340b;
-  --color-amber-300: #5e400d;
-  --color-amber-400: #745011;
-  --color-amber-500: #8a5f14;
-  --color-amber-600: #bb811b;
+  --color-amber-300: #553a0c;
+  --color-amber-400: #62430e;
+  --color-amber-500: #7d5612;
+  --color-amber-600: #d2901e;
   --color-amber-700: #e2a336;
   --color-amber-800: #edcd97;
   --color-amber-900: #f5e4c7;
@@ -51,10 +51,10 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-sky-50: #082636;
   --color-sky-100: #092d3e;
   --color-sky-200: #0b364c;
-  --color-sky-300: #0d435e;
-  --color-sky-400: #115374;
-  --color-sky-500: #14638a;
-  --color-sky-600: #1b86bb;
+  --color-sky-300: #0c3d55;
+  --color-sky-400: #0e4662;
+  --color-sky-500: #12597d;
+  --color-sky-600: #1e96d2;
   --color-sky-700: #36a9e2;
   --color-sky-800: #97d0ed;
   --color-sky-900: #c7e6f5;
@@ -62,10 +62,10 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-violet-50: #1f0836;
   --color-violet-100: #24093e;
   --color-violet-200: #2b0b4c;
-  --color-violet-300: #360d5e;
-  --color-violet-400: #421174;
-  --color-violet-500: #4f148a;
-  --color-violet-600: #6b1bbb;
+  --color-violet-300: #300c55;
+  --color-violet-400: #380e62;
+  --color-violet-500: #47127d;
+  --color-violet-600: #781ed2;
   --color-violet-700: #8c36e2;
   --color-violet-800: #c297ed;
   --color-violet-900: #dec7f5;
@@ -73,10 +73,10 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-lime-50: #223608;
   --color-lime-100: #283e09;
   --color-lime-200: #314c0b;
-  --color-lime-300: #3c5e0d;
-  --color-lime-400: #4b7411;
-  --color-lime-500: #598a14;
-  --color-lime-600: #78bb1b;
+  --color-lime-300: #37550c;
+  --color-lime-400: #3f620e;
+  --color-lime-500: #507d12;
+  --color-lime-600: #87d21e;
   --color-lime-700: #9be236;
   --color-lime-800: #c9ed97;
   --color-lime-900: #e2f5c7;
@@ -84,10 +84,10 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
   --color-cyan-50: #083236;
   --color-cyan-100: #093a3e;
   --color-cyan-200: #0b464c;
-  --color-cyan-300: #0d575e;
-  --color-cyan-400: #116c74;
-  --color-cyan-500: #14808a;
-  --color-cyan-600: #1baebb;
+  --color-cyan-300: #0c4f55;
+  --color-cyan-400: #0e5b62;
+  --color-cyan-500: #12747d;
+  --color-cyan-600: #1ec3d2;
   --color-cyan-700: #36d4e2;
   --color-cyan-800: #97e6ed;
   --color-cyan-900: #c7f1f5;
@@ -109,6 +109,10 @@ html[data-theme="geocities"] div.min-h-screen.bg-surface {
 @media (min-width: 640px) {
   html[data-theme="geocities"] div.min-h-screen.bg-surface { gap: 10px; }
 }
+/* The right rail is ~1004px tall; keep the page at least that tall so it never hangs below the columns. */
+@media (min-width: 1280px) {
+  html[data-theme="geocities"] div.min-h-screen.bg-surface { min-height: max(100vh, 1016px); }
+}
 html[data-theme="geocities"] :is(main, aside, dialog, header) { color: #1a1204; }
 
 /* Parchment content panel */
@@ -119,12 +123,12 @@ html[data-theme="geocities"] main {
   font-family: "Times New Roman", Times, serif;
 }
 @media (min-width: 1280px) {
-  html[data-theme="geocities"] main { margin-right: 212px; }
+  html[data-theme="geocities"] main { margin-right: 204px; }
 }
 
 /* Green-marble sidebar */
 html[data-theme="geocities"] aside {
-  background: #2f8a45 url(/geocities/marble-green.svg);
+  background: #7fdc8f url(/geocities/marble-green.svg);
   border: 6px ridge #3fae5a;
   font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive;
 }
@@ -162,50 +166,57 @@ html[data-theme="geocities"] dialog[aria-label="Menu"] nav a[class*="bg-neutral-
   width: 30px;
   background-image: url(/geocities/arrow-red.svg);
 }
-html[data-theme="geocities"] aside nav a > span {
-  background: #ff2d2d;
+html[data-theme="geocities"] :is(aside, dialog[aria-label="Menu"]) nav a > span {
+  background: #c40000;
   color: #fff;
   border: 2px outset #ff9a9a;
   border-radius: 0;
 }
-/* "Join our guild!" wizard at the foot of the nav, GeoCities badge under the account block */
-html[data-theme="geocities"] aside nav::after {
+/* Sidebar column order: logo, nav, wizard, account block, GeoCities badge. The art lives in
+   pseudo-elements that shrink first when the viewport is short, so the nav never has to scroll. */
+html[data-theme="geocities"] aside { gap: 8px; }
+html[data-theme="geocities"] aside > nav { order: 1; flex: 0 1 auto; min-height: 0; }
+html[data-theme="geocities"] aside::after {
   content: "JOIN\A OUR GUILD!";
+  order: 2;
   white-space: pre;
-  flex: none;
+  flex: 0 100 190px;
+  min-height: 0;
   margin-top: auto;
-  height: 176px;
+  overflow: hidden;
   padding-top: 4px;
   text-align: center;
   font: italic 900 22px/1 Impact, "Arial Black", sans-serif;
   color: #ff7a00;
   -webkit-text-stroke: 4px #5a1d00;
   paint-order: stroke fill;
-  transform: rotate(-4deg);
   background: url(/geocities/wizard.svg) center bottom / 96px no-repeat;
 }
-html[data-theme="geocities"] aside::after {
+html[data-theme="geocities"] aside > div:last-of-type { order: 3; }
+html[data-theme="geocities"] aside::before {
   content: "";
-  flex: none;
-  height: 112px;
+  order: 4;
+  flex: 0 100 112px;
+  min-height: 0;
   background: url(/geocities/geocities-badge.svg) center / contain no-repeat;
 }
-@media (max-height: 820px) {
+@media (max-height: 960px) {
+  html[data-theme="geocities"] aside::before { display: none; }
+}
+@media (max-height: 800px) {
   html[data-theme="geocities"] aside::after { display: none; }
 }
-@media (max-height: 640px) {
-  html[data-theme="geocities"] aside nav::after { display: none; }
-}
 html[data-theme="geocities"] aside a:not(nav a) { color: #1a0a40; font-weight: 700; }
+html[data-theme="geocities"] aside button { color: #1a0a40; font-weight: 700; }
 
 /* Mobile header + drawer wear the marble too */
 html[data-theme="geocities"] header.sticky {
-  background: #2f8a45 url(/geocities/marble-green.svg);
+  background: #7fdc8f url(/geocities/marble-green.svg);
   border-bottom: 4px ridge #3fae5a;
   backdrop-filter: none;
 }
 html[data-theme="geocities"] dialog[aria-label="Menu"] {
-  background: #2f8a45 url(/geocities/marble-green.svg);
+  background: #7fdc8f url(/geocities/marble-green.svg);
 }
 
 /* 3) Banner + right rail (decorative, never interactive) ------------------ */
@@ -292,13 +303,12 @@ html[data-theme="geocities"] .gc-netscape { height: 130px; background-image: url
 html[data-theme="geocities"] .gc-knight { position: relative; height: 120px; background: url(/geocities/knight.svg) right bottom / 100px no-repeat; }
 html[data-theme="geocities"] .gc-knight span { position: absolute; left: 0; top: 4px; padding: 4px 8px; background: #fff; border: 2px solid #000; border-radius: 12px; font: 700 13px/1.1 Arial, sans-serif; color: #000; }
 
-/* Exit button: the one interactive bit of chrome */
+/* Exit button: the one interactive bit of chrome (lives in the banner, never over page content) */
 html[data-theme="geocities"] .gc-exit {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 10px;
   bottom: 6px;
-  z-index: 45;
+  z-index: 3;
+  pointer-events: auto;
   padding: 3px 10px;
   font: 700 12px Arial, sans-serif;
   color: #000;
@@ -335,13 +345,15 @@ html[data-theme="geocities"] main h3 { font-family: "Comic Sans MS", "Comic Sans
 /* 5) Tables ------------------------------------------------------------- */
 html[data-theme="geocities"] main table { font-family: Arial, Helvetica, sans-serif; color: #111; }
 html[data-theme="geocities"] main table thead tr { background: #1a2f9c; border-color: #0b1a6a; }
-html[data-theme="geocities"] main table thead th { color: #ffe24d; font-family: "Comic Sans MS", cursive; text-transform: none; letter-spacing: 0; font-size: 0.85rem; text-decoration: underline; }
-html[data-theme="geocities"] main table thead th button { color: inherit; }
+html[data-theme="geocities"] main table thead th { background-color: #1a2f9c; color: #ffe24d; font-family: "Comic Sans MS", cursive; text-transform: none; letter-spacing: 0; font-size: 0.85rem; text-decoration: underline; }
+html[data-theme="geocities"] main table thead th :is(button, span) { color: inherit; }
 html[data-theme="geocities"] main table > tbody > tr:nth-child(3n+1) { background-color: #ffd0f0; }
 html[data-theme="geocities"] main table > tbody > tr:nth-child(3n+2) { background-color: #b9f6ff; }
 html[data-theme="geocities"] main table > tbody > tr:nth-child(3n) { background-color: #fff0b0; }
 html[data-theme="geocities"] main table td, html[data-theme="geocities"] main table th { border-color: rgba(60, 40, 90, 0.25); }
 html[data-theme="geocities"] main table td { color: #111; }
+html[data-theme="geocities"] main table :is(td, th) { padding-left: 8px; padding-right: 8px; }
+html[data-theme="geocities"] main table td[class*="sticky"] { background-color: inherit; }
 html[data-theme="geocities"] main [class*="border-border"][class*="rounded"] { border-color: #8a5be0; }
 
 /* 6) Links, cards, controls ------------------------------------------------ */
@@ -372,6 +384,12 @@ html[data-theme="geocities"] :is(main, dialog) :is(button, a)[class*="rounded-fu
   border: 3px outset #ffffff;
   border-radius: 0;
   font-family: Arial, Helvetica, sans-serif;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 0;
+  padding-left: 6px;
+  padding-right: 6px;
+  font-size: 11px;
 }
 html[data-theme="geocities"] :is(main, dialog) :is(button, a)[class*="rounded-full"][class*="border-field"]:active { border-style: inset; }
 
@@ -417,6 +435,21 @@ html[data-theme="geocities"] .scrollbar-visible { scrollbar-color: #8a5be0 #e3d4
 html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-track { background: #e3d49b; }
 html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-thumb { background: #8a5be0; border-color: #e3d49b; }
 
+/* PQDI item tooltip (our own .pqdi-tip in globals.css; portalled to <body>) */
+html[data-theme="geocities"] .pqdi-tip {
+  background: #f6ecc4 url(/geocities/parchment.svg);
+  color: #1a1204;
+  border: 4px ridge #8a5be0;
+  border-radius: 0;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.5);
+  font-family: "Times New Roman", Times, serif;
+}
+html[data-theme="geocities"] .pqdi-tip h4 { font-family: "Comic Sans MS", cursive; color: #3a0a8a; }
+html[data-theme="geocities"] .pqdi-tip .pqdi-icon { border: 2px inset #8a8a8a; }
+html[data-theme="geocities"] .pqdi-tip a,
+html[data-theme="geocities"] .pqdi-tip .pqdi-tip-link { color: #0000ee; }
+html[data-theme="geocities"] .pqdi-tip .pqdi-tip-status { color: #5a4a28; }
+
 /* 7) Reduced motion: swap animated art for static copies, stop CSS animation */
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="geocities"] * { animation: none !important; }
@@ -429,5 +462,5 @@ html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-thumb { backg
   html[data-theme="geocities"] .gc-bestguild { background-image: url(/geocities/best-guild.static.svg); }
   html[data-theme="geocities"] .gc-raid { background-image: url(/geocities/raid-tonight.static.svg); }
   html[data-theme="geocities"] .gc-favorites { background-image: url(/geocities/add-favorites.static.svg); }
-  html[data-theme="geocities"] aside nav::after { background-image: url(/geocities/wizard.static.svg); }
+  html[data-theme="geocities"] aside::after { background-image: url(/geocities/wizard.static.svg); }
 }

@@ -101,10 +101,10 @@ const STATE_META: Record<ZoneState, { swatch: string; label: string }> = {
   complete: { swatch: "bg-emerald-500", label: "Complete" },
 };
 
-function ZoneCell({ zone }: { zone: ZoneStatus }) {
+function ZoneCell({ zone, bandStart }: { zone: ZoneStatus; bandStart: boolean }) {
   const meta = STATE_META[zone.state];
   return (
-    <td className="px-0.5 py-1.5 text-center">
+    <td className={`px-0.5 py-1.5 text-center ${bandStart ? "border-l border-border" : ""}`}>
       <div
         title={`${zone.zone} — ${zone.done}/${zone.total} (${meta.label})`}
         className={`mx-auto h-4 w-4 rounded-sm ${meta.swatch}`}
@@ -176,9 +176,7 @@ function MilestoneGraph({ rows, zoneCatalog }: { rows: ProgressionRow[]; zoneCat
                 {r.zones.map((z, i) => {
                   const isBandStart = i === 0 || r.zones[i - 1]!.tier !== z.tier;
                   return (
-                    <td key={z.zone} className={isBandStart ? "border-l border-border" : ""}>
-                      <ZoneCell zone={z} />
-                    </td>
+                    <ZoneCell key={z.zone} zone={z} bandStart={isBandStart} />
                   );
                 })}
               </tr>
