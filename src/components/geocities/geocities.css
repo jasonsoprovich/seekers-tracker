@@ -1,0 +1,433 @@
+/* GeoCities 1997 joke theme. EVERY rule is scoped under html[data-theme="geocities"];
+   nothing here applies unless GeocitiesTheme.tsx sets that attribute. Presentation only. */
+
+/* 1) Palette remap. Tailwind utilities read var(--color-*), so redefining the scale inside
+   the signed-in regions restyles every page (light ink on tan -> dark ink on parchment). */
+html[data-theme="geocities"] :is(main, aside, dialog, header) {
+  --color-neutral-50: #150d02;
+  --color-neutral-100: #1a1204;
+  --color-neutral-200: #241907;
+  --color-neutral-300: #33260c;
+  --color-neutral-400: #4d3a18;
+  --color-neutral-500: #6b5428;
+  --color-neutral-600: #8a7240;
+  --color-neutral-700: #b49c64;
+  --color-neutral-800: #cdb985;
+  --color-neutral-900: #e6d6a2;
+  --color-neutral-950: #f4e9be;
+  --color-red-50: #360808;
+  --color-red-100: #3e0909;
+  --color-red-200: #4c0b0b;
+  --color-red-300: #5e0d0d;
+  --color-red-400: #741111;
+  --color-red-500: #8a1414;
+  --color-red-600: #bb1b1b;
+  --color-red-700: #e23636;
+  --color-red-800: #ed9797;
+  --color-red-900: #f5c7c7;
+  --color-red-950: #fae1e1;
+  --color-emerald-50: #08361f;
+  --color-emerald-100: #093e24;
+  --color-emerald-200: #0b4c2b;
+  --color-emerald-300: #0d5e36;
+  --color-emerald-400: #117442;
+  --color-emerald-500: #148a4f;
+  --color-emerald-600: #1bbb6b;
+  --color-emerald-700: #36e28c;
+  --color-emerald-800: #97edc2;
+  --color-emerald-900: #c7f5de;
+  --color-emerald-950: #e1faed;
+  --color-amber-50: #362508;
+  --color-amber-100: #3e2b09;
+  --color-amber-200: #4c340b;
+  --color-amber-300: #5e400d;
+  --color-amber-400: #745011;
+  --color-amber-500: #8a5f14;
+  --color-amber-600: #bb811b;
+  --color-amber-700: #e2a336;
+  --color-amber-800: #edcd97;
+  --color-amber-900: #f5e4c7;
+  --color-amber-950: #faf0e1;
+  --color-sky-50: #082636;
+  --color-sky-100: #092d3e;
+  --color-sky-200: #0b364c;
+  --color-sky-300: #0d435e;
+  --color-sky-400: #115374;
+  --color-sky-500: #14638a;
+  --color-sky-600: #1b86bb;
+  --color-sky-700: #36a9e2;
+  --color-sky-800: #97d0ed;
+  --color-sky-900: #c7e6f5;
+  --color-sky-950: #e1f1fa;
+  --color-violet-50: #1f0836;
+  --color-violet-100: #24093e;
+  --color-violet-200: #2b0b4c;
+  --color-violet-300: #360d5e;
+  --color-violet-400: #421174;
+  --color-violet-500: #4f148a;
+  --color-violet-600: #6b1bbb;
+  --color-violet-700: #8c36e2;
+  --color-violet-800: #c297ed;
+  --color-violet-900: #dec7f5;
+  --color-violet-950: #ede1fa;
+  --color-lime-50: #223608;
+  --color-lime-100: #283e09;
+  --color-lime-200: #314c0b;
+  --color-lime-300: #3c5e0d;
+  --color-lime-400: #4b7411;
+  --color-lime-500: #598a14;
+  --color-lime-600: #78bb1b;
+  --color-lime-700: #9be236;
+  --color-lime-800: #c9ed97;
+  --color-lime-900: #e2f5c7;
+  --color-lime-950: #effae1;
+  --color-cyan-50: #083236;
+  --color-cyan-100: #093a3e;
+  --color-cyan-200: #0b464c;
+  --color-cyan-300: #0d575e;
+  --color-cyan-400: #116c74;
+  --color-cyan-500: #14808a;
+  --color-cyan-600: #1baebb;
+  --color-cyan-700: #36d4e2;
+  --color-cyan-800: #97e6ed;
+  --color-cyan-900: #c7f1f5;
+  --color-cyan-950: #e1f8fa;
+  --color-white: #ffffff;
+}
+/* 2) Page chrome ------------------------------------------------------- */
+html[data-theme="geocities"] { color-scheme: light; }
+html[data-theme="geocities"] body {
+  position: relative;
+  background: #05031a url(/geocities/starfield.svg);
+  font-family: "Times New Roman", Times, serif;
+}
+html[data-theme="geocities"] div.min-h-screen.bg-surface {
+  background: transparent;
+  color: #1a1204;
+  padding: 0 10px 12px;
+}
+@media (min-width: 640px) {
+  html[data-theme="geocities"] div.min-h-screen.bg-surface { gap: 10px; }
+}
+html[data-theme="geocities"] :is(main, aside, dialog, header) { color: #1a1204; }
+
+/* Parchment content panel */
+html[data-theme="geocities"] main {
+  position: relative;
+  background: #f1e4b3 url(/geocities/parchment.svg);
+  border: 6px ridge #d7c078;
+  font-family: "Times New Roman", Times, serif;
+}
+@media (min-width: 1280px) {
+  html[data-theme="geocities"] main { margin-right: 212px; }
+}
+
+/* Green-marble sidebar */
+html[data-theme="geocities"] aside {
+  background: #2f8a45 url(/geocities/marble-green.svg);
+  border: 6px ridge #3fae5a;
+  font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive;
+}
+html[data-theme="geocities"] aside nav a,
+html[data-theme="geocities"] dialog[aria-label="Menu"] nav a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 0;
+  padding: 4px 6px;
+  background: transparent;
+  color: #0000ee;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-shadow: 0 0 3px #d9ffdc, 0 0 2px #d9ffdc;
+}
+html[data-theme="geocities"] aside nav a:visited { color: #3a0aa8; }
+html[data-theme="geocities"] aside nav a::before,
+html[data-theme="geocities"] dialog[aria-label="Menu"] nav a::before {
+  content: "";
+  flex: none;
+  width: 24px;
+  height: 24px;
+  background: url(/geocities/skull.svg) center / contain no-repeat;
+}
+html[data-theme="geocities"] aside nav a[class*="bg-neutral-800"],
+html[data-theme="geocities"] dialog[aria-label="Menu"] nav a[class*="bg-neutral-800"] {
+  background: #ffff00;
+  color: #c00000;
+  text-shadow: none;
+}
+html[data-theme="geocities"] aside nav a[class*="bg-neutral-800"]::before,
+html[data-theme="geocities"] dialog[aria-label="Menu"] nav a[class*="bg-neutral-800"]::before {
+  width: 30px;
+  background-image: url(/geocities/arrow-red.svg);
+}
+html[data-theme="geocities"] aside nav a > span {
+  background: #ff2d2d;
+  color: #fff;
+  border: 2px outset #ff9a9a;
+  border-radius: 0;
+}
+/* "Join our guild!" wizard at the foot of the nav, GeoCities badge under the account block */
+html[data-theme="geocities"] aside nav::after {
+  content: "JOIN\A OUR GUILD!";
+  white-space: pre;
+  flex: none;
+  margin-top: auto;
+  height: 176px;
+  padding-top: 4px;
+  text-align: center;
+  font: italic 900 22px/1 Impact, "Arial Black", sans-serif;
+  color: #ff7a00;
+  -webkit-text-stroke: 4px #5a1d00;
+  paint-order: stroke fill;
+  transform: rotate(-4deg);
+  background: url(/geocities/wizard.svg) center bottom / 96px no-repeat;
+}
+html[data-theme="geocities"] aside::after {
+  content: "";
+  flex: none;
+  height: 112px;
+  background: url(/geocities/geocities-badge.svg) center / contain no-repeat;
+}
+@media (max-height: 820px) {
+  html[data-theme="geocities"] aside::after { display: none; }
+}
+@media (max-height: 640px) {
+  html[data-theme="geocities"] aside nav::after { display: none; }
+}
+html[data-theme="geocities"] aside a:not(nav a) { color: #1a0a40; font-weight: 700; }
+
+/* Mobile header + drawer wear the marble too */
+html[data-theme="geocities"] header.sticky {
+  background: #2f8a45 url(/geocities/marble-green.svg);
+  border-bottom: 4px ridge #3fae5a;
+  backdrop-filter: none;
+}
+html[data-theme="geocities"] dialog[aria-label="Menu"] {
+  background: #2f8a45 url(/geocities/marble-green.svg);
+}
+
+/* 3) Banner + right rail (decorative, never interactive) ------------------ */
+/* Tailwind's preflight forces [hidden] to display:none !important, so visibility is driven by the
+   theme attribute here instead of a hidden attribute. */
+html:not([data-theme="geocities"]) :is(.gc-decor, .gc-exit) { display: none; }
+html[data-theme="geocities"] .gc-decor { display: block; pointer-events: none; }
+html[data-theme="geocities"] .gc-banner {
+  position: relative;
+  height: 190px;
+  overflow: hidden;
+  background: #05031a url(/geocities/starfield.svg);
+  margin: 0 0 10px;
+}
+html[data-theme="geocities"] .gc-banner > * { position: absolute; z-index: 1; }
+html[data-theme="geocities"] .gc-globe { left: 28px; top: 4px; width: 104px; height: 104px; background: url(/geocities/globe.svg) center / contain no-repeat; }
+html[data-theme="geocities"] .gc-counter { left: 10px; top: 108px; width: 180px; text-align: center; }
+html[data-theme="geocities"] .gc-odo { display: inline-flex; gap: 2px; padding: 3px; background: #000; border: 2px inset #888; }
+html[data-theme="geocities"] .gc-odo i { font: normal 700 20px/1.1 "Courier New", monospace; color: #e8e8e8; background: #222; border: 1px solid #777; padding: 0 3px; }
+html[data-theme="geocities"] .gc-counter em { display: block; margin-top: 3px; font: italic 700 14px/1.1 "Comic Sans MS", cursive; color: #ffee33; text-shadow: 1px 1px #000; }
+html[data-theme="geocities"] .gc-fairy { left: 168px; top: 24px; width: 90px; height: 90px; background: url(/geocities/fairy.svg) center / contain no-repeat; }
+html[data-theme="geocities"] .gc-title { left: 262px; top: 0; }
+html[data-theme="geocities"] .gc-title span {
+  display: block;
+  font: italic 900 clamp(38px, 4.6vw, 68px) / 1.1 "Comic Sans MS", "Chalkboard SE", "Marker Felt", cursive;
+  white-space: nowrap;
+  color: transparent;
+  background: linear-gradient(95deg, #ff3df0, #b45cff 28%, #3fd0ff 55%, #5cff9a 78%, #ffe83d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-stroke: 1.5px #1b0b4d;
+  filter: drop-shadow(0 0 1px #1b0b4d) drop-shadow(0 0 1px #1b0b4d) drop-shadow(3px 3px 0 #000);
+  animation: gc-hue 8s linear infinite;
+}
+html[data-theme="geocities"] .gc-sword { left: 300px; top: 70px; width: 420px; height: 40px; background: url(/geocities/sword.svg) center / contain no-repeat; max-width: 40vw; }
+html[data-theme="geocities"] .gc-tagline { left: 400px; top: 106px; font: italic 700 clamp(15px, 1.6vw, 23px) / 1 "Comic Sans MS", cursive; color: #ff9cf2; text-shadow: 2px 2px #2b0a55, -1px -1px #2b0a55; white-space: nowrap; }
+html[data-theme="geocities"] .gc-castle { right: 440px; top: 18px; width: 190px; height: 130px; background: url(/geocities/castle.svg) center / contain no-repeat; }
+html[data-theme="geocities"] .gc-dragon { right: 150px; top: 6px; width: 260px; height: 170px; background: url(/geocities/dragon.svg) center / contain no-repeat; }
+html[data-theme="geocities"] .gc-welcome { right: 8px; top: 18px; width: 150px; transform: rotate(-14deg); text-align: center; font: italic 900 34px / 1.05 "Brush Script MT", "Lucida Handwriting", cursive; color: #ffd21c; -webkit-text-stroke: 4px #5a1d00; paint-order: stroke fill; }
+html[data-theme="geocities"] .gc-flames { z-index: 0; left: 0; right: 0; bottom: 0; height: 58px; background: url(/geocities/flames.svg) repeat-x left bottom / 240px 58px; }
+@keyframes gc-hue { to { filter: drop-shadow(0 0 1px #1b0b4d) drop-shadow(0 0 1px #1b0b4d) drop-shadow(3px 3px 0 #000) hue-rotate(360deg); } }
+
+@media (max-width: 1399px) {
+  html[data-theme="geocities"] :is(.gc-castle, .gc-dragon, .gc-welcome) { display: none; }
+}
+@media (max-width: 999px) {
+  html[data-theme="geocities"] :is(.gc-fairy, .gc-sword) { display: none; }
+  html[data-theme="geocities"] .gc-title { left: 200px; }
+  html[data-theme="geocities"] .gc-tagline { left: 214px; top: 98px; }
+}
+@media (max-width: 639px) {
+  html[data-theme="geocities"] .gc-banner { height: 112px; }
+  html[data-theme="geocities"] :is(.gc-globe, .gc-tagline) { display: none; }
+  html[data-theme="geocities"] .gc-counter { left: 6px; top: 6px; width: 150px; }
+  html[data-theme="geocities"] .gc-odo i { font-size: 13px; }
+  html[data-theme="geocities"] .gc-counter em { font-size: 11px; }
+  html[data-theme="geocities"] .gc-title { left: 0; right: 0; top: 40px; text-align: center; }
+  html[data-theme="geocities"] .gc-flames { height: 36px; background-size: 240px 36px; }
+}
+
+/* Right rail (wide screens only; main reserves room for it above) */
+html[data-theme="geocities"] .gc-rail { display: none; }
+@media (min-width: 1280px) {
+  html[data-theme="geocities"] .gc-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: absolute;
+    top: 200px;
+    right: 10px;
+    width: 190px;
+    padding: 6px;
+    background: #4a1b8c url(/geocities/marble-purple.svg);
+    border: 6px ridge #8a5be0;
+    box-sizing: content-box;
+  }
+}
+html[data-theme="geocities"] .gc-box { width: 190px; background-repeat: no-repeat; background-position: center; background-size: contain; }
+html[data-theme="geocities"] .gc-construction { height: 160px; background-image: url(/geocities/under-construction.svg); }
+html[data-theme="geocities"] .gc-bestguild { height: 200px; background-image: url(/geocities/best-guild.svg); }
+html[data-theme="geocities"] .gc-raid { height: 170px; background-image: url(/geocities/raid-tonight.svg); }
+html[data-theme="geocities"] .gc-favorites { height: 150px; background-image: url(/geocities/add-favorites.svg); }
+html[data-theme="geocities"] .gc-netscape { height: 130px; background-image: url(/geocities/netscape-badge.svg); }
+html[data-theme="geocities"] .gc-knight { position: relative; height: 120px; background: url(/geocities/knight.svg) right bottom / 100px no-repeat; }
+html[data-theme="geocities"] .gc-knight span { position: absolute; left: 0; top: 4px; padding: 4px 8px; background: #fff; border: 2px solid #000; border-radius: 12px; font: 700 13px/1.1 Arial, sans-serif; color: #000; }
+
+/* Exit button: the one interactive bit of chrome */
+html[data-theme="geocities"] .gc-exit {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 6px;
+  z-index: 45;
+  padding: 3px 10px;
+  font: 700 12px Arial, sans-serif;
+  color: #000;
+  background: #ffe34a;
+  border: 3px outset #fff6a0;
+  cursor: pointer;
+}
+html[data-theme="geocities"] .gc-exit:active { border-style: inset; }
+
+/* 4) Headings: stone plaque + rainbow fire text ---------------------------- */
+html[data-theme="geocities"] main h1 {
+  display: inline-block;
+  padding: 6px 64px;
+  font: 900 clamp(28px, 3.6vw, 46px) / 1.1 Impact, Haettenschweiler, "Arial Black", sans-serif;
+  color: transparent;
+  -webkit-text-stroke: 2px #2a0000;
+  border: 4px ridge #bdb8ae;
+  /* layer 1 = rainbow fire clipped to the glyphs; the rest = skull-capped stone plaque behind it */
+  background-image:
+    linear-gradient(#ff2a1a, #ff9a1a 55%, #ffe14a),
+    url(/geocities/skull.svg),
+    url(/geocities/skull.svg),
+    linear-gradient(#a9a49b, #6f6b66);
+  background-size: auto, 38px 38px, 38px 38px, auto;
+  background-position: 0 0, left 8px center, right 8px center, 0 0;
+  background-repeat: no-repeat;
+  background-origin: padding-box;
+  -webkit-background-clip: text, border-box, border-box, border-box;
+  background-clip: text, border-box, border-box, border-box;
+}
+html[data-theme="geocities"] main h2,
+html[data-theme="geocities"] main h3 { font-family: "Comic Sans MS", "Comic Sans", cursive; }
+
+/* 5) Tables ------------------------------------------------------------- */
+html[data-theme="geocities"] main table { font-family: Arial, Helvetica, sans-serif; color: #111; }
+html[data-theme="geocities"] main table thead tr { background: #1a2f9c; border-color: #0b1a6a; }
+html[data-theme="geocities"] main table thead th { color: #ffe24d; font-family: "Comic Sans MS", cursive; text-transform: none; letter-spacing: 0; font-size: 0.85rem; text-decoration: underline; }
+html[data-theme="geocities"] main table thead th button { color: inherit; }
+html[data-theme="geocities"] main table > tbody > tr:nth-child(3n+1) { background-color: #ffd0f0; }
+html[data-theme="geocities"] main table > tbody > tr:nth-child(3n+2) { background-color: #b9f6ff; }
+html[data-theme="geocities"] main table > tbody > tr:nth-child(3n) { background-color: #fff0b0; }
+html[data-theme="geocities"] main table td, html[data-theme="geocities"] main table th { border-color: rgba(60, 40, 90, 0.25); }
+html[data-theme="geocities"] main table td { color: #111; }
+html[data-theme="geocities"] main [class*="border-border"][class*="rounded"] { border-color: #8a5be0; }
+
+/* 6) Links, cards, controls ------------------------------------------------ */
+html[data-theme="geocities"] main a:not([class*="rounded-full"]):not([class*="bg-accent"]),
+html[data-theme="geocities"] dialog a:not([class*="rounded-full"]) { color: #0000ee; text-decoration: underline; }
+html[data-theme="geocities"] main a:not([class*="rounded-full"]):visited { color: #551a8b; }
+html[data-theme="geocities"] main [class*="rounded-lg"][class*="border-border"],
+html[data-theme="geocities"] main [class*="rounded-xl"][class*="border-border"] {
+  border: 3px ridge #9b6bd8;
+  border-radius: 0;
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Yellow beveled primary buttons */
+html[data-theme="geocities"] :is(main, dialog) :is(button, a)[class*="bg-accent"] {
+  background: #ffe34a;
+  color: #000;
+  border: 3px outset #fff6a0;
+  border-radius: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+}
+html[data-theme="geocities"] :is(main, dialog) :is(button, a)[class*="bg-accent"]:active { border-style: inset; }
+/* Outline buttons: grey Win95 bevel */
+html[data-theme="geocities"] :is(main, dialog) :is(button, a)[class*="rounded-full"][class*="border-field"] {
+  background: #e6e2d6;
+  color: #111;
+  border: 3px outset #ffffff;
+  border-radius: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+html[data-theme="geocities"] :is(main, dialog) :is(button, a)[class*="rounded-full"][class*="border-field"]:active { border-style: inset; }
+
+/* Inputs: white, inset bevel */
+html[data-theme="geocities"] :is(main, dialog) :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) {
+  background: #fff;
+  color: #000;
+  border: 2px inset #8a8a8a;
+  border-radius: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+html[data-theme="geocities"] :is(main, dialog) ::placeholder { color: #6b6b6b; }
+html[data-theme="geocities"] :is(main, aside, dialog) :focus-visible { outline: 3px solid #ff00cc; outline-offset: 1px; }
+
+/* Role / status badges */
+html[data-theme="geocities"] main span[class*="uppercase"][class*="border"][class*="rounded"] {
+  border-style: outset;
+  border-width: 2px;
+  border-radius: 2px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+}
+
+/* Dialogs (ConfirmDialog etc.) */
+html[data-theme="geocities"] dialog:not([aria-label="Menu"]) {
+  background: #f1e4b3 url(/geocities/parchment.svg);
+  border: 5px ridge #8a5be0;
+  border-radius: 0;
+}
+
+/* Markdown cards (Guild Information) hard-code dark-theme colours */
+html[data-theme="geocities"] .guild-md { color: #241907; }
+html[data-theme="geocities"] .guild-md :is(h1, h2, h3, h4) { color: #1a1204; font-family: "Comic Sans MS", cursive; }
+html[data-theme="geocities"] .guild-md a { color: #0000ee; }
+html[data-theme="geocities"] .guild-md blockquote { color: #241907; border-left-color: #8a5be0; background: rgba(138, 91, 224, 0.12); }
+html[data-theme="geocities"] .guild-md code { background: #e3d49b; color: #1a1204; }
+html[data-theme="geocities"] .guild-md pre { background: #efe2ac; border-color: #b49c64; color: #1a1204; }
+html[data-theme="geocities"] .guild-md hr { border-color: #b49c64; }
+html[data-theme="geocities"] .guild-md :is(th, td) { border-color: #b49c64; }
+html[data-theme="geocities"] .guild-md th { background: #e3d49b; }
+html[data-theme="geocities"] .pqdi-link:hover { color: #0000ee; }
+html[data-theme="geocities"] .scrollbar-visible { scrollbar-color: #8a5be0 #e3d49b; }
+html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-track { background: #e3d49b; }
+html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-thumb { background: #8a5be0; border-color: #e3d49b; }
+
+/* 7) Reduced motion: swap animated art for static copies, stop CSS animation */
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="geocities"] * { animation: none !important; }
+  html[data-theme="geocities"] body,
+  html[data-theme="geocities"] .gc-banner { background-image: url(/geocities/starfield.static.svg); }
+  html[data-theme="geocities"] .gc-globe { background-image: url(/geocities/globe.static.svg); }
+  html[data-theme="geocities"] .gc-fairy { background-image: url(/geocities/fairy.static.svg); }
+  html[data-theme="geocities"] .gc-dragon { background-image: url(/geocities/dragon.static.svg); }
+  html[data-theme="geocities"] .gc-flames { background-image: url(/geocities/flames.static.svg); }
+  html[data-theme="geocities"] .gc-bestguild { background-image: url(/geocities/best-guild.static.svg); }
+  html[data-theme="geocities"] .gc-raid { background-image: url(/geocities/raid-tonight.static.svg); }
+  html[data-theme="geocities"] .gc-favorites { background-image: url(/geocities/add-favorites.static.svg); }
+  html[data-theme="geocities"] aside nav::after { background-image: url(/geocities/wizard.static.svg); }
+}
