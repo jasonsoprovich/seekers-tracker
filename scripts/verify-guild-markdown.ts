@@ -52,6 +52,9 @@ check("numbered list stays an ordered list", /<ol/.test(numbered) && (numbered.m
 const item = render("Grab the [[Short Sword of the Ykesha]] now");
 check("[[item]] becomes an #item= link", item.includes("#item=Short%20Sword%20of%20the%20Ykesha"), item);
 
+const multi = render("**EPGP** is based on the concept of **Effort Points (EP)** and **Gear Points (GP)**.");
+check("several bold phrases on one line keep their spaces", multi.includes("</strong> is based on the concept of <strong>") && multi.includes("</strong> and <strong>"), multi);
+
 check("slugify", slugify("EP/GP Decay & Caps") === "ep-gp-decay-and-caps");
 
 if (failed) {

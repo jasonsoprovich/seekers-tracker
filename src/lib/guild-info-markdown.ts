@@ -12,10 +12,14 @@ const BULLET = /^(\s*)(?:[•·▪‣◦●]|[-*+](?=\s))\s*(.*)$/;
 const NUMBERED = /^(\s*)(\d+[.)])\s+(.*)$/;
 const BLOCK_START = /^(\s*)(#{1,6}\s|>|---+\s*$|\*\*\*+\s*$|\|)/;
 
-// Discord pastes often have "** Heading**" (space after the opening **),
-// which Markdown refuses to treat as bold.
+// Discord pastes sometimes have a whole bold line with a stray space after the
+// opening ** ("** Heading**", "•** Player Quests**"), which Markdown refuses to
+// treat as bold. Only that whole-line shape is repaired: a looser pattern would
+// pair the closing ** of one bold phrase with the opening ** of the next on a
+// line like "**EPGP** is based on **Effort Points**" and eat the spaces between.
 function fixLooseBold(line: string): string {
-  return line.replace(/\*\*[ \t]+([^*\n]+?)[ \t]*\*\*/g, "**$1**").replace(/\*\*([^*\n]+?)[ \t]+\*\*/g, "**$1**");
+  const m = /^(\s*(?:[•·▪‣◦●]\s*|[-*+]\s+|\d+[.)]\s+)?)\*\*[ \t]+([^*\n]+?)[ \t]*\*\*\s*$/.exec(line);
+  return m ? `${m[1]}**${m[2]}**` : line;
 }
 
 // [[Item Name]] -> a link our renderer turns into an item tooltip link.

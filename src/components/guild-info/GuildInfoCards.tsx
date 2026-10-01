@@ -243,7 +243,7 @@ function CardActions({
   return (
     <>
       {/* sm and up: the compact button row */}
-      <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
+      <div className="hidden shrink-0 flex-wrap items-center gap-1.5 sm:flex">
         <Button type="button" size="sm" variant="outline" disabled={busy || first} onClick={() => move("up")} aria-label="Move up">
           ↑
         </Button>
@@ -433,8 +433,8 @@ export function GuildInfoCards({ cards, canEdit }: { cards: Card[]; canEdit: boo
             }
             return (
               <section key={card.id} id={slugs[i]} className={`scroll-mt-4 rounded-lg border border-border p-4 sm:p-5 ${span}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <h2 className="group min-w-0 text-lg font-semibold leading-snug text-neutral-100">
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                  <h2 className="group min-w-0 flex-1 basis-40 text-lg font-semibold leading-snug text-neutral-100">
                     {card.title}
                     <a href={`#${slugs[i]}`} aria-label={`Link to ${card.title}`} className="ml-2 text-sm font-normal text-neutral-600 opacity-0 hover:text-emerald-400 group-hover:opacity-100 focus:opacity-100">
                       #
