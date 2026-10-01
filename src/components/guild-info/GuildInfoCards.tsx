@@ -137,14 +137,14 @@ function CardEditor({
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className={`${view === "write" ? "flex" : "hidden"} min-w-0 flex-col gap-2 lg:flex`}>
-            <div role="toolbar" aria-label="Formatting" className="flex gap-1 overflow-x-auto pb-1">
+            <div role="toolbar" aria-label="Formatting" className="flex flex-wrap gap-1">
               {TOOLS.map((t) => (
                 <button
                   key={t.label}
                   type="button"
                   title={t.title}
                   onClick={() => apply(t.run)}
-                  className={`shrink-0 rounded-md border border-border px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 ${t.className ?? ""}`}
+                  className={`rounded-md border border-border px-2 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800 ${t.className ?? ""}`}
                 >
                   {t.label}
                 </button>

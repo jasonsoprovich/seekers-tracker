@@ -334,6 +334,40 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Guild Info overhaul + PQDI item tooltips + dashboard 14-day filter, 2026-09-30
+(branch `feature/guild-info-tooltips-2026-09-30`; committed, NOT deployed; migration
+0056 local-only; content restructure NOT yet done).**
+- **Guild Information**: Discord's tab-indented `•` bullets were Markdown indented
+  *code blocks* (the monospace box with literal `**`). `src/lib/guild-info-markdown.ts`
+  (`normalizeGuildMarkdown`, pure; `npm run verify:guild-markdown`) turns them into nested
+  lists, fixes `** loose**` bold, makes each extra blank line a spacer (`:::spacer` →
+  `.guild-md-spacer`), and tokenizes `[[Item Name]]`. Editor: formatting toolbar, live
+  side-by-side preview (Write/Preview tabs below lg), "Tidy pasted Discord bullets",
+  formatting help. Page: sticky Contents + mobile "Jump to section", per-card `#anchor`
+  (`slugify(title)`), ⋯ card menu below `sm`, move to top/bottom. Callouts are plain `>`.
+- **Item tooltips (PQDI)**: `GET https://www.pqdi.cc/get-item-tooltip/{id}` returns an HTML
+  fragment with relative `/static/…` icon URLs (CORS `*`). We proxy it at
+  `/api/items/[id]/tooltip` (session-gated, edge-cached 7d), resolve names at
+  `/api/items/resolve`, and `components/items/ItemLink.tsx` sanitizes the fragment
+  client-side (allowlist, URLs forced to pqdi.cc, icon sprite style rebuilt) — styled by
+  `.pqdi-tip` in globals.css. `items` table (migration 0056, 25,444 normalized names →
+  ids) is seeded from the parser's `internal/items/items.tsv.gz` by `npm run import:items`
+  (writes gitignored `data/items-seed.sql`; apply to remote by hand). Normalizer is a port
+  of the Go one (`src/lib/items/normalize.ts`) — keep in sync; `npm run verify:item-resolve`.
+  **Admin-only switch**: `site_settings.item_tooltips`, default OFF, "Site features" on
+  `/admin` (real-admin check, audited as `system.setting.change`). Off = plain text and no
+  requests. Wired into Raid loot, Bids History, Live Bids, GP ledger, Bank, Guild Info.
+- **Dashboard**: 14 days added and the default; choice saved per-browser in cookie
+  `dashboard_window` (read by the page server-side; constants in `lib/dashboard-window.ts`
+  — never export them from the client component).
+- Verified: tsc, webpack build, e2e 131/132 (`e2e/guild-info-tooltips.spec.ts` new; the one
+  failure is the known baseline `roster-correctness` one), screenshots at 1280 and 390px.
+- **Open**: restructure the real cards (split the EPGP Loot Guide, link Discord channel
+  URLs to the new cards) — needs the prod export `data/backups/guild-info-cards-*.json`
+  (auto mode can't read remote D1).
+- **Deploy order**: bookmark + export → `migrations apply --remote` (0056) → apply
+  `data/items-seed.sql` remote → `npm run deploy` → restructure SQL → flip tooltips on.
+
 **Decay is now per ACCOUNT, not per character, 2026-09-30 (branch
 `fix/decay-per-player`; committed, NOT deployed; no migration).** The 9/29
 expansion decay left Korrek/Blesko/Youmadin/Tunedup near zero or negative.

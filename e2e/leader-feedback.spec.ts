@@ -45,7 +45,7 @@ test.describe("guild information (leader)", () => {
     await page.getByRole("button", { name: "+ Add card" }).click();
     await page.getByLabel("Title").fill("E2E Rules");
     await page.getByLabel("Text").fill("**bold rule**\n<script>alert(1)</script>");
-    await page.getByRole("button", { name: "Preview" }).click();
+    // preview renders live beside the editor on desktop (tabs only below lg)
     await expect(page.locator(".guild-md strong")).toHaveText("bold rule");
     await expect(page.locator(".guild-md script")).toHaveCount(0);
     await page.getByRole("button", { name: "Add card" }).click();
