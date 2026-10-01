@@ -61,11 +61,25 @@ function loadTip(id: number): Promise<string | null> {
     p = fetch(`/api/items/${id}/tooltip`)
       .then((r) => (r.ok ? r.text() : null))
       .then((html) => (html ? sanitizeTooltip(html) : null))
+      .then((clean) => {
+        if (clean) preloadIcons(clean);
+        return clean;
+      })
       .catch(() => null);
     tipCache.set(id, p);
     p.then((v) => v === null && tipCache.delete(id)); // retry later after a failure
   }
   return p;
+}
+
+// Warm the browser cache for the icon sprite so it doesn't pop in after the text.
+const preloaded = new Set<string>();
+function preloadIcons(html: string) {
+  for (const m of html.matchAll(/url\(&quot;([^&]+)&quot;\)/g)) {
+    if (preloaded.has(m[1])) continue;
+    preloaded.add(m[1]);
+    new Image().src = m[1];
+  }
 }
 
 function Tooltip({ id, anchor, onClose }: { id: number; anchor: DOMRect; onClose: () => void }) {
@@ -175,10 +189,14 @@ export function ItemLink({ name, itemId, children, className }: { name: string; 
         className={`pqdi-link ${className ?? ""}`}
         onMouseEnter={() => {
           if (touch) return;
+          void loadTip(itemIdResolved); // start fetching now; the popup opens after the delay
           timer.current = setTimeout(open, 150);
         }}
         onMouseLeave={() => !touch && close()}
-        onFocus={open}
+        onFocus={() => {
+          void loadTip(itemIdResolved);
+          open();
+        }}
         onBlur={close}
         onClick={(e) => {
           e.stopPropagation(); // item links sit in clickable rows (raid loot, bank groups)

@@ -739,6 +739,18 @@ export const items = sqliteTable(
   (table) => [index("items_norm_name_idx").on(table.normName)],
 );
 
+// PQDI's raw tooltip HTML per item id, kept permanently (item stats don't
+// change) so each item is fetched from PQDI once ever, not once per edge
+// cache. No FK to items: an id PQDI knows but our items table doesn't must
+// still be storable.
+export const itemTooltips = sqliteTable("item_tooltips", {
+  itemId: integer("item_id").primaryKey(),
+  html: text("html").notNull(),
+  fetchedAt: integer("fetched_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 // Small admin-controlled key/value flags (first use: "item_tooltips").
 export const siteSettings = sqliteTable("site_settings", {
   key: text("key").primaryKey(),
