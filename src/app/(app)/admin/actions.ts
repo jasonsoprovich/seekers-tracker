@@ -20,6 +20,7 @@ import {
 } from "@/lib/players";
 import { getPermissionMatrix, getPermissions, roleCan } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { setSiteSetting } from "@/lib/site-settings";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
 
 export type SetRoleResult = { error?: string };
@@ -260,4 +261,16 @@ export async function reinstatePlayer(playerId: number): Promise<MemberGuildStat
   }
   const db = await getDb();
   return reinstatePlayerFromGuildCore(db, session.user.id, playerId);
+}
+
+export type SiteFeatureResult = { error?: string };
+
+// Admin-only (the REAL role — a "view as" preview must not be able to flip
+// site-wide switches, same rule as the Preview controls themselves).
+export async function setItemTooltipsAction(enabled: boolean): Promise<SiteFeatureResult> {
+  const session = await getSession();
+  if (!session) return { error: "Not signed in." };
+  if ((await getRealUserRole(session.user.id)) !== "admin") return { error: "Only admins can change site features." };
+  await setSiteSetting(await getDb(), "item_tooltips", enabled ? "on" : "off", session.user.id);
+  return {};
 }

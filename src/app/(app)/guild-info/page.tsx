@@ -19,7 +19,7 @@ export default async function GuildInformationPage() {
   const cards = await listGuildInfoCards(db);
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-6xl">
       <PageHeader title="Guild Information" subtitle="Guild rules, policies, and info — kept up to date by the guild leaders." />
       <GuildInfoCards
         canEdit={perms.can("guild.info.edit")}

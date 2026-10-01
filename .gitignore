@@ -72,3 +72,7 @@ drizzle/seed/
 /test-results/
 /playwright-report/
 /blob-report/
+
+# Generated item seed (npm run import:items) and one-off table exports
+data/items-seed.sql
+data/backups/

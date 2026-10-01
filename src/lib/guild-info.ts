@@ -80,14 +80,18 @@ export async function setGuildInfoCardWidth(db: Db, id: number, width: CardWidth
 // Swaps sort_order with the neighbouring card. Normalises the whole list to
 // 1..n first, so duplicate/gappy sort_order values can never make a move a
 // no-op.
-export async function moveGuildInfoCard(db: Db, id: number, direction: "up" | "down", userId: string): Promise<{ error?: string }> {
+export type MoveDirection = "up" | "down" | "top" | "bottom";
+
+export async function moveGuildInfoCard(db: Db, id: number, direction: MoveDirection, userId: string): Promise<{ error?: string }> {
   const cards = await listGuildInfoCards(db);
   const i = cards.findIndex((c) => c.id === id);
   if (i < 0) return { error: "Card not found." };
-  const j = direction === "up" ? i - 1 : i + 1;
-  if (j < 0 || j >= cards.length) return {};
+  const j = direction === "up" ? i - 1 : direction === "down" ? i + 1 : direction === "top" ? 0 : cards.length - 1;
+  if (j < 0 || j >= cards.length || j === i) return {};
   const order = cards.map((c) => c.id);
-  [order[i], order[j]] = [order[j], order[i]];
+  // up/down swap neighbours; top/bottom pull the card out and re-insert it.
+  if (direction === "up" || direction === "down") [order[i], order[j]] = [order[j], order[i]];
+  else order.splice(j, 0, order.splice(i, 1)[0]);
   const stmts: BatchItem<"sqlite">[] = order.map((cardId, idx) =>
     db.update(guildInfoCards).set({ sortOrder: idx + 1 }).where(eq(guildInfoCards.id, cardId)),
   );

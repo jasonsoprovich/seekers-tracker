@@ -722,6 +722,33 @@ export const guildInfoCards = sqliteTable("guild_info_cards", {
     .default(sql`(unixepoch())`),
 });
 
+// Every Quarm item name -> id, seeded from the officer app's embedded
+// items.tsv.gz (scripts/import-items.ts). Exists so the website can link an
+// item NAME (all that loot/bid rows store) to its PQDI page + tooltip without
+// calling PQDI's search. `norm_name` is the officer app's normalize() — lower
+// case, collapsed whitespace, backtick/curly quote -> '. Names that map to
+// several ids resolve to a droppable one, then the lowest id.
+export const items = sqliteTable(
+  "items",
+  {
+    id: integer("id").primaryKey(),
+    name: text("name").notNull(),
+    normName: text("norm_name").notNull(),
+    droppable: integer("droppable").notNull().default(0),
+  },
+  (table) => [index("items_norm_name_idx").on(table.normName)],
+);
+
+// Small admin-controlled key/value flags (first use: "item_tooltips").
+export const siteSettings = sqliteTable("site_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by").references(() => users.id),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 // Edit/delete trail for ep_ledger/gp_ledger rows — who's recorded points is
 // already on each row (entered_by), but that only ever shows the ORIGINAL
 // entry; an officer correcting or removing someone else's entry left no

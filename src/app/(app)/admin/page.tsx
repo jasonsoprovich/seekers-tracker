@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AccountSetupQueue } from "@/components/admin/AccountSetupQueue";
+import { SiteFeatureToggles } from "@/components/admin/SiteFeatureToggles";
 import { LiveBidVisibilityControl } from "@/components/admin/LiveBidVisibilityControl";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -13,6 +14,7 @@ import { getDb } from "@/lib/db";
 import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { type Capability, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { itemTooltipsEnabled } from "@/lib/site-settings";
 
 // Latest published officer-app build — the release page always redirects to
 // the newest tag, so this never goes stale.
@@ -170,6 +172,14 @@ export default async function AdminPage() {
         <div className="mt-6">
           <ViewAsControls />
         </div>
+      )}
+
+      {realRole === "admin" && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold">Site features</h2>
+          <p className="mt-1 text-sm text-neutral-400">Site-wide switches. Admins only.</p>
+          <SiteFeatureToggles itemTooltips={await itemTooltipsEnabled()} />
+        </section>
       )}
 
       {ADMIN_SECTIONS.map((section, index) => {

@@ -92,6 +92,7 @@ export const SYSTEM_EVENTS = {
   // --- System --------------------------------------------------------
   "system.apikey.revoke": { category: "system", label: "API keys revoked" },
   "system.apikey.create": { category: "system", label: "API key generated" },
+  "system.setting.change": { category: "system", label: "Site feature toggled" },
 } as const satisfies Record<string, SystemEventDef>;
 
 export type SystemEventAction = keyof typeof SYSTEM_EVENTS;

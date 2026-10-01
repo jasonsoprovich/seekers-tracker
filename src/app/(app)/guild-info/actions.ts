@@ -59,7 +59,7 @@ export async function setCardWidthAction(id: number, width: string): Promise<Gui
 export async function moveCardAction(id: number, direction: string): Promise<GuildInfoResult> {
   const auth = await requireEditor();
   if ("error" in auth) return auth;
-  if (direction !== "up" && direction !== "down") return { error: "Invalid direction." };
+  if (direction !== "up" && direction !== "down" && direction !== "top" && direction !== "bottom") return { error: "Invalid direction." };
   return done(await moveGuildInfoCard(await getDb(), id, direction, auth.userId));
 }
 

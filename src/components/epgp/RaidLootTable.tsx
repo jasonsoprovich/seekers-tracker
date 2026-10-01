@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import type { RaidLoot } from "@/lib/epgp/raids";
+import { ItemLink } from "@/components/items/ItemLink";
 
 const TIER_RANK: Record<string, number> = { "High Bid": 4, "Medium Bid": 3, "Low Bid": 2, "Alt Loot": 1 };
 
@@ -60,14 +61,23 @@ export function RaidLootTable({ loot, timeZone }: { loot: RaidLoot[]; timeZone: 
             return (
               <tr key={l.lootEventId}>
                 <td colSpan={6} className="p-0">
-                  <button
-                    type="button"
+                  {/* div, not button: the item name can be a link when item tooltips are on, and a link can't nest in a button. */}
+                  <div
+                    role="button"
+                    tabIndex={hasBids ? 0 : -1}
+                    aria-expanded={hasBids ? isOpen : undefined}
                     onClick={() => hasBids && toggle(l.lootEventId)}
-                    className={`flex w-full items-center px-3 py-2 text-left ${hasBids ? "hover:bg-neutral-900/40" : "cursor-default"}`}
+                    onKeyDown={(e) => {
+                      if (hasBids && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        toggle(l.lootEventId);
+                      }
+                    }}
+                    className={`flex w-full items-center px-3 py-2 text-left ${hasBids ? "cursor-pointer hover:bg-neutral-900/40" : "cursor-default"}`}
                   >
                     <span className="flex-[2] font-medium">
                       <span className="mr-1 text-[10px] text-neutral-500">{hasBids && isOpen ? "▾" : "▸"}</span>
-                      {l.itemName}
+                      <ItemLink name={l.itemName} />
                       {hasBids && <span className="ml-2 text-[11px] font-normal text-neutral-500">{l.bids.length} bids</span>}
                     </span>
                     <span className="flex-[2] space-y-1">
@@ -83,7 +93,7 @@ export function RaidLootTable({ loot, timeZone }: { loot: RaidLoot[]; timeZone: 
                     <span className="flex-[2] space-y-1 pl-3 text-neutral-500">
                       {winners.map((winner, index) => <span key={index} className="block">{winner.note ?? ""}</span>)}
                     </span>
-                  </button>
+                  </div>
 
                   {isOpen && (
                     <div className="border-t border-border bg-neutral-950/40 px-3 py-2 pl-8">

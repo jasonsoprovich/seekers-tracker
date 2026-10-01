@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { ItemTooltipsProvider } from "@/components/items/ItemTooltipsProvider";
 import { AppShell } from "@/components/shell/AppShell";
 import { ViewAsBanner } from "@/components/shell/ViewAsBanner";
 import { players, users } from "@/db";
@@ -13,6 +14,7 @@ import { getDb } from "@/lib/db";
 import { timed } from "@/lib/perf";
 import { getPermissionMatrix } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { itemTooltipsEnabled } from "@/lib/site-settings";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await getSession();
@@ -60,13 +62,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const realRole = me?.role ?? null;
   const viewAsRole = realRole === "admin" ? await getViewAsRole() : null;
   const effectiveRole = viewAsRole ?? realRole;
-  const matrix = await getPermissionMatrix();
+  const [matrix, tooltipsOn] = await Promise.all([getPermissionMatrix(), itemTooltipsEnabled()]);
 
   return (
     <>
       {viewAsRole && <ViewAsBanner role={viewAsRole} />}
       <AppShell username={me?.username ?? "Member"} avatarUrl={me?.avatarUrl ?? null} role={effectiveRole} matrix={matrix}>
-        {children}
+        <ItemTooltipsProvider enabled={tooltipsOn}>{children}</ItemTooltipsProvider>
       </AppShell>
     </>
   );

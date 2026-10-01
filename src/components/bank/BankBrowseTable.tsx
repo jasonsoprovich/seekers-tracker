@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
 
 import { addManualHoldingAction, deleteHoldingAction, removeUnverifiedHoldingAction, updateHoldingAction, type AddHoldingInput } from "@/app/(app)/bank/actions";
+import { ItemLink } from "@/components/items/ItemLink";
 import { Button } from "@/components/ui/Button";
 import { useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
@@ -427,7 +428,7 @@ export function BankBrowseTable({
         <td className="px-3 py-2 text-neutral-400">{row.ownerMainName ?? "—"}</td>
         <td className="px-3 py-2 text-neutral-400 capitalize">{row.category}</td>
         <td className="px-3 py-2">
-          {row.itemName}
+          <ItemLink name={row.itemName} itemId={row.itemId} />
           {row.itemId !== null && <span className="ml-1.5 text-xs text-neutral-600">#{row.itemId}</span>}
           {row.noDrop && (
             <span className="ml-1.5 rounded-full bg-red-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
@@ -599,7 +600,7 @@ export function BankBrowseTable({
               <ul className="space-y-1.5">
                 {verification.needsReview.map(({ row, alsoOn }) => (
                   <li key={row.id} className="flex items-center gap-2 text-neutral-400">
-                    <span className="text-neutral-200">{row.itemName}</span>
+                    <span className="text-neutral-200"><ItemLink name={row.itemName} itemId={row.itemId} /></span>
                     <span className="text-neutral-500">
                       ×{row.quantity} — {row.holderName} ({formatLocation(row.container, row.slotIndex, row.legacyLocation)})
                     </span>
@@ -832,7 +833,7 @@ export function BankBrowseTable({
                     <td className="px-3 py-2 text-neutral-400">{multiDisplay(g.mainNames)}</td>
                     <td className="px-3 py-2 text-neutral-400 capitalize">{g.category}</td>
                     <td className="px-3 py-2">
-                      {g.itemName}
+                      <ItemLink name={g.itemName} itemId={g.itemId} />
                       {g.itemId !== null && <span className="ml-1.5 text-xs text-neutral-600">#{g.itemId}</span>}
                       <span className="ml-1.5 rounded-full bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">×{g.rows.length}</span>
                       {g.noDrop && (

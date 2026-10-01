@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ItemLink } from "@/components/items/ItemLink";
+
 // Mirrors BidsPanel.tsx's own tier ordering (seekers-epgp-parser) — the
 // live view should rank bids the same way the officer's "Determine
 // Winner" will, so "who's currently ahead" here matches what actually
@@ -368,7 +370,7 @@ export function LiveBidsView() {
                 <header className="border-b border-border px-4 py-3">
                   <div className="flex items-start gap-2">
                     <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-neutral-100" title={round.itemName}>
-                      {round.itemName}
+                      <ItemLink name={round.itemName} />
                     </h2>
                     <StatusPill status={round.status} />
                   </div>

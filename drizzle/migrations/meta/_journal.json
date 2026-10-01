@@ -393,6 +393,13 @@
       "when": 1790804460992,
       "tag": "0055_legal_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1790824415334,
+      "tag": "0056_famous_red_ghost",
+      "breakpoints": true
     }
   ]
 }

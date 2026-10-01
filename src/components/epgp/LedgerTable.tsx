@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { deleteLedgerEntry, updateLedgerEntry } from "@/app/(app)/epgp/ledger/actions";
 import { decodeEvent, encodeEvent, EventSelect, type EventOption } from "@/components/epgp/EventSelect";
+import { ItemLink } from "@/components/items/ItemLink";
 import { HScroll } from "@/components/ui/HScroll";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { fieldClasses, Field } from "@/components/ui/Field";
@@ -470,7 +471,7 @@ export function LedgerTable(props: Props) {
                         </>
                       ) : (
                         <>
-                          <td className="px-3 py-2 text-neutral-400">{(r as GpRow).itemName ?? "—"}</td>
+                          <td className="px-3 py-2 text-neutral-400">{(r as GpRow).itemName ? <ItemLink name={(r as GpRow).itemName!} /> : "—"}</td>
                           <td className="px-3 py-2 text-neutral-400">{(r as GpRow).tier}</td>
                         </>
                       )}
