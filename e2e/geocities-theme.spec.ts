@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Page } from "@playwright/test";
 
 // The joke GeoCities skin is presentation-only, off by default, and toggled by
@@ -75,4 +77,13 @@ test("login page is never themed", async ({ browser }) => {
   await page.goto("/login");
   expect(await theme(page)).toBeNull();
   await ctx.close();
+});
+
+test("theme CSS has no color-first multi-layer background shorthand", () => {
+  // Browsers differ in how strictly they parse `background: #fff linear-gradient(...), url(...)`
+  // (a color is only legal in the LAST layer). Windows Chrome drops the whole rule, which left
+  // the panels untextured. Keep color and images in separate longhands.
+  const css = readFileSync("src/components/geocities/geocities.css", "utf8");
+  const bad = css.match(/background:\s*#[0-9a-fA-F]{3,8}\s+[^;]*?\)\s*,/g);
+  expect(bad, "color must not precede the first layer of a multi-layer background").toBeNull();
 });

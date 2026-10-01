@@ -118,7 +118,8 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) { color: #1a1204; 
 /* Parchment content panel */
 html[data-theme="geocities"] main {
   position: relative;
-  background: #f1e4b3 linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
+  background-color: #f1e4b3;
+  background-image: linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
   background-size: auto, 400px;
   border: 6px ridge #d7c078;
   font-family: "Times New Roman", Times, serif;
@@ -129,7 +130,8 @@ html[data-theme="geocities"] main {
 
 /* Green-marble sidebar */
 html[data-theme="geocities"] aside {
-  background: #7fdc8f linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
+  background-color: #7fdc8f;
+  background-image: linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
   background-size: auto, 320px;
   border: 6px ridge #3fae5a;
   font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive;
@@ -213,13 +215,15 @@ html[data-theme="geocities"] aside button { color: #1a0a40; font-weight: 700; }
 
 /* Mobile header + drawer wear the marble too */
 html[data-theme="geocities"] header.sticky {
-  background: #7fdc8f linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
+  background-color: #7fdc8f;
+  background-image: linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
   background-size: auto, 320px;
   border-bottom: 4px ridge #3fae5a;
   backdrop-filter: none;
 }
 html[data-theme="geocities"] dialog[aria-label="Menu"] {
-  background: #7fdc8f linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
+  background-color: #7fdc8f;
+  background-image: linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
   background-size: auto, 320px;
 }
 
@@ -449,7 +453,8 @@ html[data-theme="geocities"] main span[class*="uppercase"][class*="border"][clas
 
 /* Dialogs (ConfirmDialog etc.) */
 html[data-theme="geocities"] dialog:not([aria-label="Menu"]) {
-  background: #f1e4b3 linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
+  background-color: #f1e4b3;
+  background-image: linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
   background-size: auto, 400px;
   border: 5px ridge #8a5be0;
   border-radius: 0;
@@ -472,7 +477,8 @@ html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-thumb { backg
 
 /* PQDI item tooltip (our own .pqdi-tip in globals.css; portalled to <body>) */
 html[data-theme="geocities"] .pqdi-tip {
-  background: #f6ecc4 linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
+  background-color: #f6ecc4;
+  background-image: linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
   background-size: auto, 400px;
   color: #1a1204;
   border: 4px ridge #8a5be0;
