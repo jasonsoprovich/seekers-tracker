@@ -335,8 +335,8 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Guild Info overhaul + PQDI item tooltips + dashboard 14-day filter, 2026-09-30
-(branch `feature/guild-info-tooltips-2026-09-30`; committed, NOT deployed; migration
-0056 local-only; content restructure NOT yet done).**
+(merged to `main`; DEPLOYED 2026-10-01 incl. migrations 0056 + 0057; item tooltips
+confirmed working live; content restructure NOT yet done).**
 - **Guild Information**: Discord's tab-indented `•` bullets were Markdown indented
   *code blocks* (the monospace box with literal `**`). `src/lib/guild-info-markdown.ts`
   (`normalizeGuildMarkdown`, pure; `npm run verify:guild-markdown`) turns them into nested
@@ -347,7 +347,7 @@ contents, and never print raw Discord IDs into logs or commit messages.
   (`slugify(title)`), ⋯ card menu below `sm`, move to top/bottom. Callouts are plain `>`.
 - **Item tooltips (PQDI)**: `GET https://www.pqdi.cc/get-item-tooltip/{id}` returns an HTML
   fragment with relative `/static/…` icon URLs (CORS `*`). We proxy it at
-  `/api/items/[id]/tooltip` (session-gated, edge-cached 7d), resolve names at
+  `/api/items/[id]/tooltip` (session-gated; see caching below), resolve names at
   `/api/items/resolve`, and `components/items/ItemLink.tsx` sanitizes the fragment
   client-side (allowlist, URLs forced to pqdi.cc, icon sprite style rebuilt) — styled by
   `.pqdi-tip` in globals.css. `items` table (migration 0056, 25,444 normalized names →
@@ -357,6 +357,14 @@ contents, and never print raw Discord IDs into logs or commit messages.
   **Admin-only switch**: `site_settings.item_tooltips`, default OFF, "Site features" on
   `/admin` (real-admin check, audited as `system.setting.change`). Off = plain text and no
   requests. Wired into Raid loot, Bids History, Live Bids, GP ledger, Bank, Guild Info.
+- **Tooltip caching (2026-10-01, migration 0057 `item_tooltips`)**: the route looks up
+  edge cache (per data center, 30d) -> D1 `item_tooltips` (permanent, global) -> PQDI, and
+  writes both on a PQDI fetch, so each item hits PQDI once ever. Browser copy is
+  `private, max-age=30d, immutable`. Every response carries `x-tooltip-source: edge|d1|pqdi`
+  (check it in DevTools; tick "Disable cache" or you'll see a stale pre-deploy response).
+  Items already in the old edge cache are served as `edge` and are NOT backfilled into D1
+  until that entry expires (an edge-hit backfill was offered, not built). `ItemLink` starts
+  the tooltip fetch on hover/focus (before the 150ms open delay) and preloads the icon sprite.
 - **Dashboard**: 14 days added and the default; choice saved per-browser in cookie
   `dashboard_window` (read by the page server-side; constants in `lib/dashboard-window.ts`
   — never export them from the client component).
@@ -365,8 +373,9 @@ contents, and never print raw Discord IDs into logs or commit messages.
 - **Open**: restructure the real cards (split the EPGP Loot Guide, link Discord channel
   URLs to the new cards) — needs the prod export `data/backups/guild-info-cards-*.json`
   (auto mode can't read remote D1).
-- **Deploy order**: bookmark + export → `migrations apply --remote` (0056) → apply
-  `data/items-seed.sql` remote → `npm run deploy` → restructure SQL → flip tooltips on.
+- **Remaining**: the restructure SQL for the real cards, once the prod export exists.
+  (Deploy order used: `migrations apply --remote` → `npm run deploy`. A stale wrangler OAuth
+  token gave API error 7403 on the remote migration — `wrangler login` again fixed it.)
 
 **Decay is now per ACCOUNT, not per character, 2026-09-30 (branch
 `fix/decay-per-player`; committed, NOT deployed; no migration).** The 9/29
