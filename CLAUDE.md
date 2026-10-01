@@ -463,8 +463,8 @@ balance, once the sheet was retired:
   cancelled bidders are dropped from the live snapshot. See its commits.
 
 **Guild bank sync — 2026-09-25 officer/bank-team feedback pass, same
-branch (`feature/guild-bank-sync`, both repos; still local-only; migration
-0050 local-only).** Jason demoed the 09-24 build to the officers and the
+branch (`feature/guild-bank-sync`, both repos; merged and deployed per the user
+2026-10-01; migrations 0049/0050 applied to remote).** Jason demoed the 09-24 build to the officers and the
 guild bank team; this is what they asked for, all built and
 unit/integration-tested this session — see the status artifact
 (https://claude.ai/artifact/TxQZM3baZsEeKDHBe15fZb, kept current, also
@@ -553,7 +553,7 @@ linked from PLAN.md §9) for the officer-facing writeup, and
   `vet`/`test`, a full frontend `tsc`+`vite build`, and a complete
   `wails3 build` all clean on the parser side, with the built binary
   launched and confirmed not crashing (headless smoke check).
-  Migration 0050 is local-only.
+  (Migrations 0049/0050 have since been applied to remote.)
 
 **GUI click-through, 2026-09-25 (same session/branch) — found and fixed
 one real bug, confirmed everything else clean.** Ran the actual rebuilt
@@ -586,7 +586,8 @@ restored over it and removed.
 
 **PLAN.md §11 Phase 8.4 — guild bank sync from real inventory exports,
 2026-09-24 (branch `feature/guild-bank-sync` in both this repo and
-`seekers-epgp-parser`; not merged to `main`, not deployed).** The last open
+`seekers-epgp-parser`; since merged and deployed per the user 2026-10-01 — the
+"Not yet done" list below is the 09-24 snapshot and is out of date).** The last open
 Phase 8 task — a real `POST /api/officer/bank/import`-equivalent endpoint —
 is built, plus the per-slot guild/personal designation model §9's addendum
 had left as an open design question.
@@ -648,7 +649,7 @@ had left as an open design question.
   Wails app itself).
 
 **Guild bank sync — first real click-through, 2026-09-24 (same branch,
-`feature/guild-bank-sync`, still local-only).** The user ran the actual
+`feature/guild-bank-sync`; since merged and deployed).** The user ran the actual
 built app against a real local server and Darkclaw's real inventory
 export (not the curl-driven HTTP pass above) — found and fixed two real
 bugs neither that pass nor the unit tests had exercised, both narrow
