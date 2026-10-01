@@ -117,9 +117,7 @@ export function GeocitiesTheme() {
             <em>Visitors Since 1997!</em>
           </div>
           <div className="gc-fairy" aria-hidden="true" />
-          <div className="gc-title" aria-hidden="true">
-            <span>Seekers of Souls</span>
-          </div>
+          <div className="gc-title" aria-hidden="true" />
           <div className="gc-sword" aria-hidden="true" />
           <div className="gc-tagline" aria-hidden="true">A World of Warriors, Friends &amp; Fun!</div>
           <div className="gc-castle" aria-hidden="true" />

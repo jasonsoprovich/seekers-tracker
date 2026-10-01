@@ -98,7 +98,7 @@ html[data-theme="geocities"] :is(main, aside, dialog, header) {
 html[data-theme="geocities"] { color-scheme: light; }
 html[data-theme="geocities"] body {
   position: relative;
-  background: #05031a url(/geocities/starfield.svg);
+  background: #05031a url(/geocities/starfield.webp);
   font-family: "Times New Roman", Times, serif;
 }
 html[data-theme="geocities"] div.min-h-screen.bg-surface {
@@ -109,16 +109,17 @@ html[data-theme="geocities"] div.min-h-screen.bg-surface {
 @media (min-width: 640px) {
   html[data-theme="geocities"] div.min-h-screen.bg-surface { gap: 10px; }
 }
-/* The right rail is ~1004px tall; keep the page at least that tall so it never hangs below the columns. */
+/* The right rail is ~1032px tall; keep the page at least that tall so it never hangs below the columns. */
 @media (min-width: 1280px) {
-  html[data-theme="geocities"] div.min-h-screen.bg-surface { min-height: max(100vh, 1016px); }
+  html[data-theme="geocities"] div.min-h-screen.bg-surface { min-height: max(100vh, 1044px); }
 }
 html[data-theme="geocities"] :is(main, aside, dialog, header) { color: #1a1204; }
 
 /* Parchment content panel */
 html[data-theme="geocities"] main {
   position: relative;
-  background: #f1e4b3 url(/geocities/parchment.svg);
+  background: #f1e4b3 linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
+  background-size: auto, 400px;
   border: 6px ridge #d7c078;
   font-family: "Times New Roman", Times, serif;
 }
@@ -128,7 +129,8 @@ html[data-theme="geocities"] main {
 
 /* Green-marble sidebar */
 html[data-theme="geocities"] aside {
-  background: #7fdc8f url(/geocities/marble-green.svg);
+  background: #7fdc8f linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
+  background-size: auto, 320px;
   border: 6px ridge #3fae5a;
   font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive;
 }
@@ -151,9 +153,9 @@ html[data-theme="geocities"] aside nav a::before,
 html[data-theme="geocities"] dialog[aria-label="Menu"] nav a::before {
   content: "";
   flex: none;
-  width: 24px;
-  height: 24px;
-  background: url(/geocities/skull.svg) center / contain no-repeat;
+  width: 22px;
+  height: 28px;
+  background: url(/geocities/skull.webp) center / contain no-repeat;
 }
 html[data-theme="geocities"] aside nav a[class*="bg-neutral-800"],
 html[data-theme="geocities"] dialog[aria-label="Menu"] nav a[class*="bg-neutral-800"] {
@@ -180,7 +182,7 @@ html[data-theme="geocities"] aside::after {
   content: "JOIN\A OUR GUILD!";
   order: 2;
   white-space: pre;
-  flex: 0 100 190px;
+  flex: 0 100 250px;
   min-height: 0;
   margin-top: auto;
   overflow: hidden;
@@ -190,20 +192,20 @@ html[data-theme="geocities"] aside::after {
   color: #ff7a00;
   -webkit-text-stroke: 4px #5a1d00;
   paint-order: stroke fill;
-  background: url(/geocities/wizard.svg) center bottom / 96px no-repeat;
+  background: url(/geocities/wizard.webp) center bottom / auto 170px no-repeat;
 }
 html[data-theme="geocities"] aside > div:last-of-type { order: 3; }
 html[data-theme="geocities"] aside::before {
   content: "";
   order: 4;
-  flex: 0 100 112px;
+  flex: 0 100 68px;
   min-height: 0;
-  background: url(/geocities/geocities-badge.svg) center / contain no-repeat;
+  background: url(/geocities/geocities-badge.webp) center / contain no-repeat;
 }
-@media (max-height: 960px) {
+@media (max-height: 900px) {
   html[data-theme="geocities"] aside::before { display: none; }
 }
-@media (max-height: 800px) {
+@media (max-height: 820px) {
   html[data-theme="geocities"] aside::after { display: none; }
 }
 html[data-theme="geocities"] aside a:not(nav a) { color: #1a0a40; font-weight: 700; }
@@ -211,12 +213,14 @@ html[data-theme="geocities"] aside button { color: #1a0a40; font-weight: 700; }
 
 /* Mobile header + drawer wear the marble too */
 html[data-theme="geocities"] header.sticky {
-  background: #7fdc8f url(/geocities/marble-green.svg);
+  background: #7fdc8f linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
+  background-size: auto, 320px;
   border-bottom: 4px ridge #3fae5a;
   backdrop-filter: none;
 }
 html[data-theme="geocities"] dialog[aria-label="Menu"] {
-  background: #7fdc8f url(/geocities/marble-green.svg);
+  background: #7fdc8f linear-gradient(rgba(214, 255, 222, 0.62), rgba(214, 255, 222, 0.62)), url(/geocities/marble-green.webp);
+  background-size: auto, 320px;
 }
 
 /* 3) Banner + right rail (decorative, never interactive) ------------------ */
@@ -226,55 +230,44 @@ html:not([data-theme="geocities"]) :is(.gc-decor, .gc-exit) { display: none; }
 html[data-theme="geocities"] .gc-decor { display: block; pointer-events: none; }
 html[data-theme="geocities"] .gc-banner {
   position: relative;
-  height: 190px;
+  height: 230px;
   overflow: hidden;
-  background: #05031a url(/geocities/starfield.svg);
+  background: #05031a url(/geocities/starfield.webp);
   margin: 0 0 10px;
 }
 html[data-theme="geocities"] .gc-banner > * { position: absolute; z-index: 1; }
-html[data-theme="geocities"] .gc-globe { left: 28px; top: 4px; width: 104px; height: 104px; background: url(/geocities/globe.svg) center / contain no-repeat; }
-html[data-theme="geocities"] .gc-counter { left: 10px; top: 108px; width: 180px; text-align: center; }
+html[data-theme="geocities"] :is(.gc-globe, .gc-fairy, .gc-title, .gc-sword, .gc-castle, .gc-dragon) { background-repeat: no-repeat; background-position: center; background-size: 100% 100%; }
+html[data-theme="geocities"] .gc-globe { left: 24px; top: 6px; width: 104px; height: 104px; background-image: url(/geocities/globe.webp); }
+html[data-theme="geocities"] .gc-counter { left: 10px; top: 114px; width: 180px; text-align: center; }
 html[data-theme="geocities"] .gc-odo { display: inline-flex; gap: 2px; padding: 3px; background: #000; border: 2px inset #888; }
 html[data-theme="geocities"] .gc-odo i { font: normal 700 20px/1.1 "Courier New", monospace; color: #e8e8e8; background: #222; border: 1px solid #777; padding: 0 3px; }
 html[data-theme="geocities"] .gc-counter em { display: block; margin-top: 3px; font: italic 700 14px/1.1 "Comic Sans MS", cursive; color: #ffee33; text-shadow: 1px 1px #000; }
-html[data-theme="geocities"] .gc-fairy { left: 168px; top: 24px; width: 90px; height: 90px; background: url(/geocities/fairy.svg) center / contain no-repeat; }
-html[data-theme="geocities"] .gc-title { left: 262px; top: 0; }
-html[data-theme="geocities"] .gc-title span {
-  display: block;
-  font: italic 900 clamp(38px, 4.6vw, 68px) / 1.1 "Comic Sans MS", "Chalkboard SE", "Marker Felt", cursive;
-  white-space: nowrap;
-  color: transparent;
-  background: linear-gradient(95deg, #ff3df0, #b45cff 28%, #3fd0ff 55%, #5cff9a 78%, #ffe83d);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-stroke: 1.5px #1b0b4d;
-  filter: drop-shadow(0 0 1px #1b0b4d) drop-shadow(0 0 1px #1b0b4d) drop-shadow(3px 3px 0 #000);
-  animation: gc-hue 8s linear infinite;
-}
-html[data-theme="geocities"] .gc-sword { left: 300px; top: 70px; width: 420px; height: 40px; background: url(/geocities/sword.svg) center / contain no-repeat; max-width: 40vw; }
-html[data-theme="geocities"] .gc-tagline { left: 400px; top: 106px; font: italic 700 clamp(15px, 1.6vw, 23px) / 1 "Comic Sans MS", cursive; color: #ff9cf2; text-shadow: 2px 2px #2b0a55, -1px -1px #2b0a55; white-space: nowrap; }
-html[data-theme="geocities"] .gc-castle { right: 440px; top: 18px; width: 190px; height: 130px; background: url(/geocities/castle.svg) center / contain no-repeat; }
-html[data-theme="geocities"] .gc-dragon { right: 150px; top: 6px; width: 260px; height: 170px; background: url(/geocities/dragon.svg) center / contain no-repeat; }
+html[data-theme="geocities"] .gc-fairy { left: 160px; top: 26px; width: 100px; height: 94px; background-image: url(/geocities/fairy.webp); animation: gc-bob 3s ease-in-out infinite; }
+html[data-theme="geocities"] .gc-title { left: 270px; top: 2px; width: clamp(300px, 36vw, 520px); aspect-ratio: 1100 / 213; background-image: url(/geocities/title.webp); }
+html[data-theme="geocities"] .gc-sword { left: 292px; top: 92px; width: 380px; height: 60px; background-image: url(/geocities/sword.webp); }
+html[data-theme="geocities"] .gc-tagline { left: 330px; top: 154px; font: italic 700 clamp(15px, 1.6vw, 23px) / 1 "Comic Sans MS", cursive; color: #ff9cf2; text-shadow: 2px 2px #2b0a55, -1px -1px #2b0a55; white-space: nowrap; }
+html[data-theme="geocities"] .gc-castle { right: 430px; top: 22px; width: 230px; height: 150px; background-image: url(/geocities/castle.webp); }
+html[data-theme="geocities"] .gc-dragon { right: 118px; top: 10px; width: 310px; height: 200px; background-image: url(/geocities/dragon.webp); }
 html[data-theme="geocities"] .gc-welcome { right: 8px; top: 18px; width: 150px; transform: rotate(-14deg); text-align: center; font: italic 900 34px / 1.05 "Brush Script MT", "Lucida Handwriting", cursive; color: #ffd21c; -webkit-text-stroke: 4px #5a1d00; paint-order: stroke fill; }
-html[data-theme="geocities"] .gc-flames { z-index: 0; left: 0; right: 0; bottom: 0; height: 58px; background: url(/geocities/flames.svg) repeat-x left bottom / 240px 58px; }
-@keyframes gc-hue { to { filter: drop-shadow(0 0 1px #1b0b4d) drop-shadow(0 0 1px #1b0b4d) drop-shadow(3px 3px 0 #000) hue-rotate(360deg); } }
+html[data-theme="geocities"] .gc-flames { z-index: 0; left: 0; right: 0; bottom: 0; height: 58px; background: url(/geocities/flames.webp) repeat-x left bottom / auto 58px; }
+@keyframes gc-bob { 50% { transform: translateY(-6px); } }
 
 @media (max-width: 1399px) {
   html[data-theme="geocities"] :is(.gc-castle, .gc-dragon, .gc-welcome) { display: none; }
 }
 @media (max-width: 999px) {
   html[data-theme="geocities"] :is(.gc-fairy, .gc-sword) { display: none; }
-  html[data-theme="geocities"] .gc-title { left: 200px; }
-  html[data-theme="geocities"] .gc-tagline { left: 214px; top: 98px; }
+  html[data-theme="geocities"] .gc-title { left: 190px; }
+  html[data-theme="geocities"] .gc-tagline { left: 200px; top: 112px; }
 }
 @media (max-width: 639px) {
-  html[data-theme="geocities"] .gc-banner { height: 112px; }
+  html[data-theme="geocities"] .gc-banner { height: 120px; }
   html[data-theme="geocities"] :is(.gc-globe, .gc-tagline) { display: none; }
   html[data-theme="geocities"] .gc-counter { left: 6px; top: 6px; width: 150px; }
   html[data-theme="geocities"] .gc-odo i { font-size: 13px; }
   html[data-theme="geocities"] .gc-counter em { font-size: 11px; }
-  html[data-theme="geocities"] .gc-title { left: 0; right: 0; top: 40px; text-align: center; }
-  html[data-theme="geocities"] .gc-flames { height: 36px; background-size: 240px 36px; }
+  html[data-theme="geocities"] .gc-title { left: 50%; top: 40px; width: 260px; transform: translateX(-50%); }
+  html[data-theme="geocities"] .gc-flames { height: 36px; background-size: auto 36px; }
 }
 
 /* Right rail (wide screens only; main reserves room for it above) */
@@ -285,22 +278,23 @@ html[data-theme="geocities"] .gc-rail { display: none; }
     flex-direction: column;
     gap: 10px;
     position: absolute;
-    top: 200px;
+    top: 240px;
     right: 10px;
     width: 190px;
     padding: 6px;
-    background: #4a1b8c url(/geocities/marble-purple.svg);
+    background: #4a1b8c url(/geocities/marble-purple.webp);
+    background-size: 320px;
     border: 6px ridge #8a5be0;
     box-sizing: content-box;
   }
 }
-html[data-theme="geocities"] .gc-box { width: 190px; background-repeat: no-repeat; background-position: center; background-size: contain; }
-html[data-theme="geocities"] .gc-construction { height: 160px; background-image: url(/geocities/under-construction.svg); }
-html[data-theme="geocities"] .gc-bestguild { height: 200px; background-image: url(/geocities/best-guild.svg); }
-html[data-theme="geocities"] .gc-raid { height: 170px; background-image: url(/geocities/raid-tonight.svg); }
-html[data-theme="geocities"] .gc-favorites { height: 150px; background-image: url(/geocities/add-favorites.svg); }
-html[data-theme="geocities"] .gc-netscape { height: 130px; background-image: url(/geocities/netscape-badge.svg); }
-html[data-theme="geocities"] .gc-knight { position: relative; height: 120px; background: url(/geocities/knight.svg) right bottom / 100px no-repeat; }
+html[data-theme="geocities"] .gc-box { width: 190px; background-repeat: no-repeat; background-position: center; background-size: 100% 100%; }
+html[data-theme="geocities"] .gc-construction { height: 190px; background-image: url(/geocities/under-construction.webp); }
+html[data-theme="geocities"] .gc-bestguild { height: 190px; background-image: url(/geocities/best-guild.webp); }
+html[data-theme="geocities"] .gc-raid { height: 190px; background-image: url(/geocities/raid-tonight.webp); }
+html[data-theme="geocities"] .gc-favorites { height: 190px; background-image: url(/geocities/favorites.webp); }
+html[data-theme="geocities"] .gc-netscape { height: 48px; background-image: url(/geocities/netscape.webp); }
+html[data-theme="geocities"] .gc-knight { position: relative; height: 150px; background: url(/geocities/knight.webp) right bottom / auto 150px no-repeat; }
 html[data-theme="geocities"] .gc-knight span { position: absolute; left: 0; top: 4px; padding: 4px 8px; background: #fff; border: 2px solid #000; border-radius: 12px; font: 700 13px/1.1 Arial, sans-serif; color: #000; }
 
 /* Exit button: the one interactive bit of chrome (lives in the banner, never over page content) */
@@ -321,7 +315,7 @@ html[data-theme="geocities"] .gc-exit:active { border-style: inset; }
 /* 4) Headings: stone plaque + rainbow fire text ---------------------------- */
 html[data-theme="geocities"] main h1 {
   display: inline-block;
-  padding: 6px 64px;
+  padding: 6px 66px;
   font: 900 clamp(28px, 3.6vw, 46px) / 1.1 Impact, Haettenschweiler, "Arial Black", sans-serif;
   color: transparent;
   -webkit-text-stroke: 2px #2a0000;
@@ -329,11 +323,11 @@ html[data-theme="geocities"] main h1 {
   /* layer 1 = rainbow fire clipped to the glyphs; the rest = skull-capped stone plaque behind it */
   background-image:
     linear-gradient(#ff2a1a, #ff9a1a 55%, #ffe14a),
-    url(/geocities/skull.svg),
-    url(/geocities/skull.svg),
+    url(/geocities/skull.webp),
+    url(/geocities/skull.webp),
     linear-gradient(#a9a49b, #6f6b66);
-  background-size: auto, 38px 38px, 38px 38px, auto;
-  background-position: 0 0, left 8px center, right 8px center, 0 0;
+  background-size: auto, auto 34px, auto 34px, auto;
+  background-position: 0 0, left 12px center, right 12px center, 0 0;
   background-repeat: no-repeat;
   background-origin: padding-box;
   -webkit-background-clip: text, border-box, border-box, border-box;
@@ -415,7 +409,8 @@ html[data-theme="geocities"] main span[class*="uppercase"][class*="border"][clas
 
 /* Dialogs (ConfirmDialog etc.) */
 html[data-theme="geocities"] dialog:not([aria-label="Menu"]) {
-  background: #f1e4b3 url(/geocities/parchment.svg);
+  background: #f1e4b3 linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
+  background-size: auto, 400px;
   border: 5px ridge #8a5be0;
   border-radius: 0;
 }
@@ -437,7 +432,8 @@ html[data-theme="geocities"] .scrollbar-visible::-webkit-scrollbar-thumb { backg
 
 /* PQDI item tooltip (our own .pqdi-tip in globals.css; portalled to <body>) */
 html[data-theme="geocities"] .pqdi-tip {
-  background: #f6ecc4 url(/geocities/parchment.svg);
+  background: #f6ecc4 linear-gradient(rgba(255, 246, 214, 0.6), rgba(255, 246, 214, 0.6)), url(/geocities/parchment.webp);
+  background-size: auto, 400px;
   color: #1a1204;
   border: 4px ridge #8a5be0;
   border-radius: 0;
@@ -450,17 +446,7 @@ html[data-theme="geocities"] .pqdi-tip a,
 html[data-theme="geocities"] .pqdi-tip .pqdi-tip-link { color: #0000ee; }
 html[data-theme="geocities"] .pqdi-tip .pqdi-tip-status { color: #5a4a28; }
 
-/* 7) Reduced motion: swap animated art for static copies, stop CSS animation */
+/* 7) Reduced motion: the art is static; just stop CSS animation */
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="geocities"] * { animation: none !important; }
-  html[data-theme="geocities"] body,
-  html[data-theme="geocities"] .gc-banner { background-image: url(/geocities/starfield.static.svg); }
-  html[data-theme="geocities"] .gc-globe { background-image: url(/geocities/globe.static.svg); }
-  html[data-theme="geocities"] .gc-fairy { background-image: url(/geocities/fairy.static.svg); }
-  html[data-theme="geocities"] .gc-dragon { background-image: url(/geocities/dragon.static.svg); }
-  html[data-theme="geocities"] .gc-flames { background-image: url(/geocities/flames.static.svg); }
-  html[data-theme="geocities"] .gc-bestguild { background-image: url(/geocities/best-guild.static.svg); }
-  html[data-theme="geocities"] .gc-raid { background-image: url(/geocities/raid-tonight.static.svg); }
-  html[data-theme="geocities"] .gc-favorites { background-image: url(/geocities/add-favorites.static.svg); }
-  html[data-theme="geocities"] aside::after { background-image: url(/geocities/wizard.static.svg); }
 }
