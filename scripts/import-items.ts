@@ -23,7 +23,7 @@ const ROWS_PER_INSERT = 100;
 type Row = { id: number; name: string; norm: string; droppable: number };
 
 const best = new Map<string, Row>();
-for (const line of gunzipSync(readFileSync(SRC)).toString("utf8").split("\n")) {
+for (const line of new TextDecoder("utf-8").decode(gunzipSync(readFileSync(SRC))).split("\n")) {
   if (!line.trim()) continue;
   const [idStr, name, drop] = line.split("\t");
   const id = Number(idStr);
