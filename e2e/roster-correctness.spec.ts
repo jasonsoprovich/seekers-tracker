@@ -42,7 +42,7 @@ test("departed accounts show removal state without a member role control", async
   await page.getByRole("combobox", { name: "Status" }).selectOption("all");
   await page.getByRole("textbox", { name: "Search" }).fill("E2E Departed Character");
   const row = page.locator("tbody tr").filter({ hasText: "E2E Departed Character" });
-  await expect(row.getByText("Removed from guild", { exact: true })).toBeVisible();
+  await expect(row.getByText("Removed", { exact: true })).toBeVisible();
   await expect(row.getByText("Member", { exact: true })).toHaveCount(0);
 
   await page.goto(`/characters/${fixtures.departedCharacterId}/account`);

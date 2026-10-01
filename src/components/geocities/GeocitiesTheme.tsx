@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
-import { GEOCITIES_STORAGE_KEY } from "./boot-script";
+const GEOCITIES_STORAGE_KEY = "seekers-geocities";
 import "./geocities.css";
 
 // Joke "GeoCities 1997" skin. Purely presentational: toggled by the Konami
@@ -59,10 +59,15 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function GeocitiesTheme() {
   const [visitors, setVisitors] = useState(SEED_VISITORS);
 
-  useEffect(() => {
+  // Re-apply the saved preference before paint. (No inline <script>: React warns about
+  // script tags rendered inside components on client navigations.)
+  useLayoutEffect(() => {
     const initial = readStored();
     setActive(initial);
     if (initial) setVisitors(bumpVisitors());
+  }, []);
+
+  useEffect(() => {
 
     let progress = 0;
     function onKeyDown(e: KeyboardEvent) {

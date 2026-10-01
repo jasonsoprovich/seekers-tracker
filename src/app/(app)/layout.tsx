@@ -3,7 +3,6 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { GEOCITIES_BOOT_SCRIPT } from "@/components/geocities/boot-script";
 import { GeocitiesTheme } from "@/components/geocities/GeocitiesTheme";
 import { ItemTooltipsProvider } from "@/components/items/ItemTooltipsProvider";
 import { AppShell } from "@/components/shell/AppShell";
@@ -69,7 +68,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <>
       {/* Joke 1997 skin: off unless the member entered the Konami code (see GeocitiesTheme). */}
-      <script dangerouslySetInnerHTML={{ __html: GEOCITIES_BOOT_SCRIPT }} />
       <GeocitiesTheme />
       {viewAsRole && <ViewAsBanner role={viewAsRole} />}
       <AppShell username={me?.username ?? "Member"} avatarUrl={me?.avatarUrl ?? null} role={effectiveRole} matrix={matrix}>
