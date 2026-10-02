@@ -10,7 +10,7 @@ import { MobileCard } from "@/components/ui/MobileCard";
 import { roleRank, RoleBadge } from "@/components/ui/RoleBadge";
 import type { Role } from "@/lib/authz";
 import { characterStatusLabel, type CharacterStatus } from "@/lib/character-status";
-import { CHAR_CLASSES, CHAR_RACES } from "@/lib/eq/enums";
+import { CHAR_CLASSES, CHAR_RACES, MAX_CHAR_LEVEL } from "@/lib/eq/enums";
 
 // The Class and Race filter dropdowns list alphabetically with "Unknown"
 // pinned last (it's a catch-all, not a real class/race). The enums stay in
@@ -543,7 +543,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <input
             type="number"
             min={1}
-            max={60}
+            max={MAX_CHAR_LEVEL}
             value={minLevel}
             onChange={(e) => setMinLevel(e.target.value)}
             className={`${fieldClasses({ size: "sm" })} w-20`}
@@ -554,7 +554,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
           <input
             type="number"
             min={1}
-            max={60}
+            max={MAX_CHAR_LEVEL}
             value={maxLevel}
             onChange={(e) => setMaxLevel(e.target.value)}
             className={`${fieldClasses({ size: "sm" })} w-20`}

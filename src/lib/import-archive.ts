@@ -9,7 +9,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 // shouldn't block the import itself (the D1 rows are the state that
 // matters), so callers get `null` back on failure rather than a thrown
 // error, and just omit r2Key from the import_log row.
-export type ImportArchiveKind = "seer_text" | "pqc_export" | "gear_export";
+export type ImportArchiveKind = "seer_text" | "pqc_export" | "gear_export" | "popflags_text";
 
 export async function archiveImportPayload(
   kind: ImportArchiveKind,

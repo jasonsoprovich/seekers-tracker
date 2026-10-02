@@ -9,7 +9,15 @@ import { computeDerivedStats } from "@/lib/eqstat";
 import { getDb } from "@/lib/db";
 import { getItemIcon, gearSlotLabel, parseQuarmyGear, parseQuarmyStats } from "@/lib/gear";
 import { archiveImportPayload } from "@/lib/import-archive";
-import { deriveCompletion, getFlagById, parsePqExport, parseSeer } from "@/lib/pop-flags";
+import {
+  deriveCompletion,
+  extractPopFlagsBlocks,
+  getFlagById,
+  mergeReportsToQglobals,
+  parsePopFlagsReport,
+  parsePqExport,
+  parseSeer,
+} from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 
 export type SeerImportState = {
@@ -84,6 +92,96 @@ export async function importSeerText(
         .map((id) => getFlagById(id))
         .filter((f) => f !== undefined)
         .map((f) => ({ id: f.id, label: f.label, zoneShort: f.zone_short })),
+    },
+  };
+}
+
+export type PopFlagsImportState = {
+  error?: string;
+  result?: {
+    sections: string[];
+    detected: number;
+    changed: { id: string; label: string; zoneShort: string }[];
+    keptManual: number;
+    pendingMemories: number;
+  };
+};
+
+// Applies pasted '#popflags' output (with or without EQ log timestamps; can
+// contain several reports at once — overview, tiers 1-4, Plane of Time).
+// ADDITIVE ONLY: a report can only mark flags done, never un-mark one, and a
+// manual row (checked/unchecked by the member) is never overwritten — so
+// existing progress is never wiped or reset by an import.
+export async function importPopFlagsText(
+  characterId: number,
+  _prevState: PopFlagsImportState,
+  formData: FormData,
+): Promise<PopFlagsImportState> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const text = String(formData.get("text") ?? "").trim();
+  if (!text) return { error: "Paste your #popflags output first." };
+
+  const db = await getDb();
+  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
+  if (!character || !(await canManageCharacter(character, session.user.id))) {
+    return { error: "You don't have permission to import for this character." };
+  }
+
+  const blocks = extractPopFlagsBlocks(text);
+  if (blocks.length === 0) {
+    return {
+      error:
+        'Didn\'t find any #popflags output. Run #popflags (and #popflags 1 through 4) in game, then copy those lines from your log — they start with "=== Planes of Power Progression ===" or "=== Tier N Progression ===".',
+    };
+  }
+  const reports = blocks.map(parsePopFlagsReport);
+  const detectedIds = deriveCompletion(mergeReportsToQglobals(reports));
+
+  const existingRows = await db
+    .select()
+    .from(characterPopFlags)
+    .where(eq(characterPopFlags.characterId, characterId));
+  const existingByFlag = new Map(existingRows.map((r) => [r.flagId, r]));
+
+  const keptManual = detectedIds.filter((id) => existingByFlag.get(id)?.source === "manual").length;
+  const toUpsert = detectedIds.filter((id) => existingByFlag.get(id)?.source !== "manual");
+  const changedIds = toUpsert.filter((id) => !existingByFlag.get(id)?.done);
+
+  const now = new Date();
+  for (const flagId of changedIds) {
+    await db
+      .insert(characterPopFlags)
+      .values({ characterId, flagId, done: true, source: "seer", updatedAt: now })
+      .onConflictDoUpdate({
+        target: [characterPopFlags.characterId, characterPopFlags.flagId],
+        set: { done: true, source: "seer", updatedAt: now },
+      });
+  }
+
+  const sections = [...new Set(reports.map((r) => r.section).filter((s): s is NonNullable<typeof s> => !!s))];
+  const pendingMemories = new Set(reports.flatMap((r) => Object.keys(r.pending))).size;
+  const summary = `${blocks.length} report(s) [${sections.join(", ")}], ${detectedIds.length} flags detected, ${changedIds.length} changed`;
+  const r2Key = await archiveImportPayload("popflags_text", characterId, text);
+  await db.insert(importLog).values({
+    characterId,
+    uploadedBy: session.user.id,
+    kind: "popflags_text",
+    r2Key,
+    summary,
+  });
+
+  return {
+    result: {
+      sections,
+      detected: detectedIds.length,
+      changed: changedIds
+        .map((id) => getFlagById(id))
+        .filter((f) => f !== undefined)
+        .map((f) => ({ id: f.id, label: f.label, zoneShort: f.zone_short })),
+      keptManual,
+      pendingMemories,
     },
   };
 }

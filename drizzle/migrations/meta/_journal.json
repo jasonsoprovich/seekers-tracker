@@ -407,6 +407,13 @@
       "when": 1790830847813,
       "tag": "0057_item_tooltips",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1790959275441,
+      "tag": "0058_pop_flags_sync",
+      "breakpoints": true
     }
   ]
 }

@@ -1017,7 +1017,7 @@ export const importLog = sqliteTable("import_log", {
   uploadedBy: text("uploaded_by")
     .notNull()
     .references(() => users.id),
-  kind: text("kind", { enum: ["seer_text", "pqc_export", "gear_export"] }).notNull(),
+  kind: text("kind", { enum: ["seer_text", "pqc_export", "gear_export", "popflags_text"] }).notNull(),
   r2Key: text("r2_key"),
   summary: text("summary"),
   createdAt: integer("created_at", { mode: "timestamp" })

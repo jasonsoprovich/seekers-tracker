@@ -7,10 +7,11 @@ import { canManageCharacter } from "@/lib/permissions";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { ImportPqExportForm } from "@/components/ImportPqExportForm";
+import { ImportPopFlagsForm } from "@/components/ImportPopFlagsForm";
 import { ImportSeerForm } from "@/components/ImportSeerForm";
 import { ImportTabs } from "@/components/import/ImportTabs";
 
-import { importPqCompanionExport, importSeerText } from "./actions";
+import { importPopFlagsText, importPqCompanionExport, importSeerText } from "./actions";
 
 export default async function ImportSeerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,6 +27,7 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
   if (!(await canManageCharacter(character, session.user.id))) redirect("/characters");
 
   const boundImportSeer = importSeerText.bind(null, characterId);
+  const boundImportPopFlags = importPopFlagsText.bind(null, characterId);
   const boundImportPqExport = importPqCompanionExport.bind(null, characterId);
 
   return (
@@ -49,6 +51,20 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
               upsert.
             </p>
             <ImportPqExportForm action={boundImportPqExport} />
+          </div>
+        }
+        popflags={
+          <div className="flex flex-col gap-4">
+            <p className="max-w-xl text-sm text-neutral-400">
+              In game, type <code className="text-neutral-200">#popflags</code> and then{" "}
+              <code className="text-neutral-200">#popflags 1</code> through{" "}
+              <code className="text-neutral-200">#popflags 4</code> (and <code className="text-neutral-200">#popflags 5</code>{" "}
+              for Plane of Time). Then copy those lines out of your EverQuest log file and paste them below — one
+              report or all of them at once, timestamps and unrelated chat lines are fine. The same output
+              pq-companion reads. Only flags the report proves are done get added; your existing tracking is never
+              removed.
+            </p>
+            <ImportPopFlagsForm action={boundImportPopFlags} />
           </div>
         }
         seer={

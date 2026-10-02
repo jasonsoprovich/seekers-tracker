@@ -33,7 +33,8 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
   const resolved = resolveFlags(rows.map((r) => ({ flagId: r.flagId, done: r.done, source: r.source })));
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-3xl">
       <CharacterHeader
         character={character}
         active="pop"
@@ -56,6 +57,7 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
         <p className="mb-1 text-xs tracking-wider text-neutral-500 uppercase">PoP progress</p>
         <ProgressBar done={resolved.done} total={resolved.total} height="md" />
       </Card>
+      </div>
 
       <div className="mt-6">
         <PopFlagChecklist characterId={character.id} flags={resolved.flags} tiers={resolved.tiers} readOnly={!canManage} />

@@ -167,8 +167,8 @@ function assertHeaders(sheet: Worksheet, headerRow: number, expected: Record<num
 const CLASS_BY_NAME = new Map(CHAR_CLASSES.map((c) => [c.name.toLowerCase(), c.id]));
 
 // Classic EverQuest's automatic /who class title, awarded at 51/55/60 (this
-// server caps at level 60 per MAX_CHAR_LEVEL, so there's no 65+ tier to
-// worry about) — the sheet's "Class" column sometimes holds one of these
+// server's cap is MAX_CHAR_LEVEL, but the sheet predates the 65 cap and only
+// ever used the 51/55/60 titles) — the sheet's "Class" column sometimes holds one of these
 // instead of the base class name (e.g. "Virtuoso" for a level-60 Bard,
 // "Assassin" for a level-60 Rogue), confirmed by direct inspection of both
 // the Totals and EP Log tabs. Verified against two independent title

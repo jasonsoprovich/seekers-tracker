@@ -9,6 +9,7 @@ import { useState, type ReactNode } from "react";
 // back.
 const TABS = [
   { key: "pqc", label: "pq-companion" },
+  { key: "popflags", label: "#popflags" },
   { key: "seer", label: "Seer Text" },
 ] as const;
 
@@ -18,9 +19,9 @@ type TabKey = (typeof TABS)[number]["key"];
 // rendering — each import form keeps its result summary in useActionState,
 // and unmounting on tab-switch would discard a just-completed import's
 // result the moment the member looked at another tab.
-export function ImportTabs({ pqc, seer }: { pqc: ReactNode; seer: ReactNode }) {
-  const [active, setActive] = useState<TabKey>("pqc");
-  const panels: Record<TabKey, ReactNode> = { pqc, seer };
+export function ImportTabs({ pqc, popflags, seer }: { pqc: ReactNode; popflags: ReactNode; seer: ReactNode }) {
+  const [active, setActive] = useState<TabKey>("popflags");
+  const panels: Record<TabKey, ReactNode> = { pqc, popflags, seer };
 
   return (
     <div>

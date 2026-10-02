@@ -11,6 +11,7 @@ import { getSession } from "@/lib/session";
 
 const KIND_LABELS: Record<string, string> = {
   seer_text: "Seer Text",
+  popflags_text: "#popflags Log",
   pqc_export: "pq-companion Export",
   gear_export: "Gear Export",
 };

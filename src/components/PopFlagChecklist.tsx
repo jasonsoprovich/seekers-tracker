@@ -1,111 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { setManualFlag } from "@/app/(app)/characters/[id]/actions";
+import PopFlagFlow from "@/components/PopFlagFlow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { roleMeta, stepKindMeta, type FlagStatus, type Progress } from "@/lib/pop-flags";
-
-function SourceChip({ source }: { source?: string }) {
-  if (!source) return null;
-  return (
-    <span className="ml-2 shrink-0 rounded border border-neutral-700 bg-neutral-800/60 px-1.5 py-0.5 text-[9px] tracking-wider text-neutral-400 uppercase">
-      {source}
-    </span>
-  );
-}
-
-function FlagRow({
-  flag,
-  allFlags,
-  requiredByDone,
-  busy,
-  readOnly,
-  onToggle,
-}: {
-  flag: FlagStatus;
-  allFlags: FlagStatus[];
-  requiredByDone: Set<string>;
-  busy: boolean;
-  readOnly: boolean;
-  onToggle: (flag: FlagStatus) => void;
-}) {
-  const missingLabels = (flag.missing ?? [])
-    .map((id) => allFlags.find((f) => f.id === id)?.label ?? id)
-    .join(", ");
-  const lockedForCheck = flag.locked && !flag.done;
-  const lockedForUncheck = flag.done && requiredByDone.has(flag.id);
-  // An any-of anchor satisfied via a checked member: toggling it would be a
-  // no-op, so steer the member toward the member row instead.
-  const anchorViaMember = flag.done && allFlags.some((o) => o.group === flag.id && o.done);
-  const disabled = readOnly || busy || lockedForCheck || lockedForUncheck || anchorViaMember;
-  const title = readOnly
-    ? "You don't have permission to edit this character"
-    : lockedForCheck
-      ? `Complete prerequisites first: ${missingLabels}`
-      : lockedForUncheck
-        ? "Required by a completed later step"
-        : anchorViaMember
-          ? "Completed via an option below — toggle that instead"
-          : flag.done
-            ? "Mark not done"
-            : "Mark done";
-
-  const km = stepKindMeta(flag.step_kind);
-  const rm = roleMeta(flag.role);
-  const dimmed = flag.done || flag.superseded;
-
-  return (
-    <div
-      className={`flex items-start gap-2 border-t border-neutral-800 px-4 py-2 ${flag.group ? "pl-8" : ""}`}
-      style={{ opacity: flag.superseded ? 0.45 : flag.locked && !flag.done ? 0.6 : rm && !flag.done ? 0.85 : 1 }}
-    >
-      <button
-        type="button"
-        onClick={() => onToggle(flag)}
-        disabled={disabled}
-        title={title}
-        className={`mt-0.5 shrink-0 text-base leading-none ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
-      >
-        {flag.done ? <span className="text-emerald-400">●</span> : <span className="text-neutral-600">○</span>}
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span className={dimmed ? "text-sm text-neutral-500 line-through" : "text-sm text-neutral-100"}>
-            {flag.label}
-          </span>
-          {km && (
-            <span className={`rounded border px-1.5 py-0.5 text-[9px] tracking-wider uppercase ${km.className}`} title={km.tip}>
-              {km.label}
-            </span>
-          )}
-          {rm && (
-            <span className={`rounded border px-1.5 py-0.5 text-[9px] tracking-wider uppercase ${rm.className}`} title={rm.tip}>
-              {rm.label}
-            </span>
-          )}
-          {flag.superseded && (
-            <span
-              className="rounded border border-neutral-700 bg-neutral-800/60 px-1.5 py-0.5 text-[9px] tracking-wider text-neutral-400 uppercase"
-              title="Another option in this group is done — this one is no longer needed."
-            >
-              not needed
-            </span>
-          )}
-          {flag.locked && !flag.done && (
-            <span title={`Needs: ${missingLabels}`} className="text-[11px] text-red-400">
-              🔒
-            </span>
-          )}
-          {flag.level ? <span className="text-[10px] text-neutral-500">L{flag.level}</span> : null}
-          {flag.done && <SourceChip source={flag.source} />}
-        </div>
-        {flag.detail && <p className="mt-0.5 text-[11px] leading-snug text-neutral-500">{flag.detail}</p>}
-      </div>
-    </div>
-  );
-}
+import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+import { PopFlagRow } from "@/components/PopFlagRow";
+import type { FlagStatus, Progress } from "@/lib/pop-flags";
 
 function TierSection({
   progress,
@@ -159,7 +62,7 @@ function TierSection({
               {zone}
             </div>
             {zoneFlags.map((f) => (
-              <FlagRow
+              <PopFlagRow
                 key={f.id}
                 flag={f}
                 allFlags={allFlags}
@@ -190,6 +93,21 @@ export function PopFlagChecklist({
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"checklist" | "flow">("checklist");
+
+  // Remembered per browser; read after mount so SSR markup stays stable.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("pop_flag_view") === "flow") setView("flow");
+    } catch {}
+  }, []);
+  function changeView(v: string) {
+    const next = v === "flow" ? "flow" : "checklist";
+    setView(next);
+    try {
+      localStorage.setItem("pop_flag_view", next);
+    } catch {}
+  }
 
   const requiredByDone = useMemo(() => {
     const s = new Set<string>();
@@ -223,19 +141,42 @@ export function PopFlagChecklist({
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <SegmentedToggle
+          value={view}
+          onChange={changeView}
+          options={[
+            { value: "checklist", label: "Checklist" },
+            { value: "flow", label: "Flow chart" },
+          ]}
+        />
+        {view === "flow" && <span className="text-[11px] text-neutral-500">Same steps as the checklist, laid out by zone.</span>}
+      </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
-      {byTier.map(({ progress, flags: tierFlags }) => (
-        <TierSection
-          key={progress.tier}
-          progress={progress}
-          flags={tierFlags}
-          allFlags={flags}
-          requiredByDone={requiredByDone}
-          busyId={busyId}
+      {view === "flow" ? (
+        <PopFlagFlow
+          flags={flags}
           readOnly={readOnly}
+          busyId={busyId}
+          requiredByDone={requiredByDone}
           onToggle={onToggle}
         />
-      ))}
+      ) : (
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+        {byTier.map(({ progress, flags: tierFlags }) => (
+          <TierSection
+            key={progress.tier}
+            progress={progress}
+            flags={tierFlags}
+            allFlags={flags}
+            requiredByDone={requiredByDone}
+            busyId={busyId}
+            readOnly={readOnly}
+            onToggle={onToggle}
+          />
+        ))}
+        </div>
+      )}
     </div>
   );
 }
