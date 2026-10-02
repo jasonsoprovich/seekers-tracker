@@ -141,7 +141,7 @@ export function PopFlagChecklist({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className={`flex items-center justify-between gap-3 ${view === "flow" ? "" : "mx-auto w-full max-w-3xl"}`}>
         <SegmentedToggle
           value={view}
           onChange={changeView}
