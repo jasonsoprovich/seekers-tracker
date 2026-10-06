@@ -49,7 +49,7 @@ export interface ZoneCatalogEntry {
 }
 
 // The canonical, character-independent list of milestone zones (tier +
-// zone, dataset order), for the Pop Progression milestone graph's column
+// zone, dataset order), for the PoP Progression milestone graph's column
 // headers — same optional/group exclusion as resolveFlags' zone tally, so
 // the header set always matches what a Resolved.zones array would contain
 // for any character.

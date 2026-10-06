@@ -20,7 +20,7 @@ export default async function RaidsPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="Raids & Events" subtitle="Every attendance capture and loot event, grouped by night." />
+      <PageHeader title="Raids and Events History" subtitle="Every attendance capture and loot event, grouped by night." />
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">

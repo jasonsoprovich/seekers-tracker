@@ -47,7 +47,7 @@ export default async function EpgpInfoPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Cycle & Rules Info" subtitle="Where the numbers come from, and the rules behind them." />
+      <PageHeader title="EPGP Cycle Overview" subtitle="Where the numbers come from, and the rules behind them." />
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <section className="rounded-lg border border-border p-4">

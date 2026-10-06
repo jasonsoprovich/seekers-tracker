@@ -13,7 +13,7 @@ export function decodeEvent(value: string): { raidDate: string; raidName: string
   return i < 0 ? { raidDate: value, raidName: "" } : { raidDate: value.slice(0, i), raidName: value.slice(i + 1) };
 }
 
-// Optional link to an EXISTING event (same list as Raids & Events). Replaces
+// Optional link to an EXISTING event (same list as Raids and Events History). Replaces
 // free-typed date/name fields, which could quietly create a phantom event.
 // A row's current link that isn't in the list (legacy data) stays selectable
 // so opening an edit never drops it.

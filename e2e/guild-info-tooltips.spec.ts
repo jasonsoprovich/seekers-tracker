@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// 2026-09-30 Guild Information overhaul, PQDI item tooltips, and the
+// 2026-09-30 Guild Rules/Policies overhaul, PQDI item tooltips, and the
 // dashboard 14-day filter.
 
 const DISCORD_PASTE = [

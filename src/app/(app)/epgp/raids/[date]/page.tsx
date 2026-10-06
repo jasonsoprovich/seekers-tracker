@@ -59,7 +59,7 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
     <div className="mx-auto max-w-6xl">
       <PageHeader
         breadcrumbs={[
-          { label: "Raids & Events", href: "/epgp/raids" },
+          { label: "Raids and Events History", href: "/epgp/raids" },
           { label: detail.raidDate },
         ]}
         title={detail.name ? `${detail.name} — ${detail.raidDate}` : detail.raidDate}

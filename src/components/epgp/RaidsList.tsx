@@ -7,7 +7,7 @@ import type { RaidListRow } from "@/lib/epgp/raids";
 
 type Col = "date" | "name" | "leader" | "zones" | "attended" | "items" | "ep" | "gp";
 
-// Client wrapper so the Raids & Events list columns are click-to-sort
+// Client wrapper so the Raids and Events History list columns are click-to-sort
 // (LT-19). Default order is whatever listRaids returns (newest night first).
 export function RaidsList({ rows }: { rows: RaidListRow[] }) {
   const { sorted, sort, toggle } = useTableSort<RaidListRow, Col>(rows, {

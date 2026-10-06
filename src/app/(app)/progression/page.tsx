@@ -68,7 +68,7 @@ export default async function ProgressionPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Pop Progression"
+        title="PoP Progression"
         subtitle="Every character's Planes of Power flagging, at a glance — search, filter, and see which zones are unlocked."
       />
       <PopProgressionView rows={rows} zoneCatalog={getZoneCatalog()} nowMs={Date.now()} />

@@ -98,7 +98,7 @@ export default async function EpgpLedgerPage({ searchParams }: { searchParams: P
       db.selectDistinct({ itemName: gpLedger.itemName }).from(gpLedger).where(isNotNull(gpLedger.itemName)).orderBy(asc(gpLedger.itemName)),
       listRaids(db),
     ]);
-    // Existing events only (same list as Raids & Events) — a free-typed date
+    // Existing events only (same list as Raids and Events History) — a free-typed date
     // could silently create a phantom event. Value is "date|name".
     eventOptions = events.map((e) => ({
       value: `${e.raidDate}|${e.eventName ?? ""}`,

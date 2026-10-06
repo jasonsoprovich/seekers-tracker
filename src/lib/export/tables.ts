@@ -98,8 +98,8 @@ export const EXPORT_TABLES: ExportTable[] = [
   { key: "sky_bank_rewards", label: "Sky Bank Rewards", table: "sky_bank_rewards", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
   { key: "cycles", label: "EPGP Cycles", table: "cycles", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
   { key: "role_permissions", label: "Permission Overrides", table: "role_permissions", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
-  { key: "guild_info_cards", label: "Guild Information Cards", table: "guild_info_cards", dateColumn: "updated_at", dateColumnType: "timestamp", columns: null, group: "Reference" },
-  { key: "info_sections", label: "Rules Info Sections", table: "epgp_info_sections", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
+  { key: "guild_info_cards", label: "Guild Rules/Policies Cards", table: "guild_info_cards", dateColumn: "updated_at", dateColumnType: "timestamp", columns: null, group: "Reference" },
+  { key: "info_sections", label: "EPGP Cycle Overview Sections", table: "epgp_info_sections", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
 ];
 
 export function getExportTable(key: string): ExportTable | undefined {

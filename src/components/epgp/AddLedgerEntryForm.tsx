@@ -150,7 +150,7 @@ export function AddLedgerEntryForm({
       <Field className="w-64">
         <span className="text-neutral-400">Link to event (optional)</span>
         <EventSelect name="event" value="" events={events} />
-        <span className="text-xs text-neutral-500">Optional. Shows this entry on that event's Raids & Events page. Only existing events are listed.</span>
+        <span className="text-xs text-neutral-500">Optional. Shows this entry on that event's Raids and Events History page. Only existing events are listed.</span>
       </Field>
 
       <Field className="w-56">

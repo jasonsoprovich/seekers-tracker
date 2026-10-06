@@ -20,7 +20,7 @@ export default async function GuildInformationPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="Guild Information" subtitle="Guild rules, policies, and info — kept up to date by the guild leaders." />
+      <PageHeader title="Guild Rules/Policies" subtitle="Guild rules, policies, and info — kept up to date by the guild leaders." />
       <GuildInfoCards
         canEdit={perms.can("guild.info.edit")}
         cards={cards.map((c) => ({ id: c.id, title: c.title, body: c.body, width: c.width }))}

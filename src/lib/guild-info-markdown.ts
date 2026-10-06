@@ -1,4 +1,4 @@
-// Pure text normalizer for Guild Information card bodies. Leaders paste from
+// Pure text normalizer for Guild Rules/Policies card bodies. Leaders paste from
 // Discord, whose tab-indented "•" bullets are, to Markdown, *indented code
 // blocks* — which is what turned the EPGP Loot Guide into a monospace wall
 // with literal ** marks. This turns that paste into real nested lists,

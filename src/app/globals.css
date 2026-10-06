@@ -52,7 +52,7 @@ body {
   background: #737373;
 }
 
-/* Guild Information cards — Markdown body styling. */
+/* Guild Rules/Policies cards — Markdown body styling. */
 .guild-md { font-size: 0.875rem; line-height: 1.6; color: #d4d4d4; overflow-wrap: anywhere; }
 .guild-md > * + * { margin-top: 1rem; }
 .guild-md > .guild-md-spacer { height: 1rem; margin-top: 0; }

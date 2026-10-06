@@ -460,7 +460,7 @@ html[data-theme="geocities"] dialog:not([aria-label="Menu"]) {
   border-radius: 0;
 }
 
-/* Markdown cards (Guild Information) hard-code dark-theme colours */
+/* Markdown cards (Guild Rules/Policies) hard-code dark-theme colours */
 html[data-theme="geocities"] .guild-md { color: #241907; }
 html[data-theme="geocities"] .guild-md :is(h1, h2, h3, h4) { color: #1a1204; font-family: "Comic Sans MS", cursive; }
 html[data-theme="geocities"] .guild-md a { color: #0000ee; }

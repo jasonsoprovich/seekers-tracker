@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// 2026-09-30 leader-team feedback batch: ledger paging, Guild Information
+// 2026-09-30 leader-team feedback batch: ledger paging, Guild Rules/Policies
 // cards, and the character-edit save staying on the page.
 
 test.describe("ledger pagination (officer)", () => {
@@ -66,7 +66,7 @@ test.describe("guild information (member)", () => {
 
   test("members can read the page but get no editing controls", async ({ page }) => {
     await page.goto("/guild-info");
-    await expect(page.getByRole("heading", { name: "Guild Information" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Guild Rules/Policies" })).toBeVisible();
     await expect(page.getByRole("button", { name: "+ Add card" })).toHaveCount(0);
   });
 });

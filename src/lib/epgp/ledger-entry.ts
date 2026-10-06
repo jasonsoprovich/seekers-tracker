@@ -103,7 +103,7 @@ export async function insertLedgerEntry(
   if (raidDate && opts.requireExistingEvent && !(await eventExists(db, raidDate, raidName))) {
     return { ok: false, error: "Pick an event from the list." };
   }
-  // Raids & Events are grouped by this guild-local date rather than a
+  // Raids and Events History are grouped by this guild-local date rather than a
   // separate event id. Any manual correction can belong to that date: missed
   // attendance, a missed bid winner, or a rot-loot charge.
 

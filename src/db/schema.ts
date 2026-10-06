@@ -433,7 +433,7 @@ export const epLedger = sqliteTable(
     // written before this column existed.
     zone: text("zone"),
     // Optional guild-local event date for a manual attendance correction.
-    // Raids & Events are date-based (not a separate capture table), so this
+    // Raids and Events History are date-based (not a separate capture table), so this
     // lets a correction entered later appear on the right event without
     // rewriting the ledger row's actual entry date.
     raidDate: text("raid_date"),
@@ -700,7 +700,7 @@ export const epgpInfoSections = sqliteTable("epgp_info_sections", {
     .default(sql`(unixepoch())`),
 });
 
-// Leader-editable "Guild Information" cards (leader request, 2026-09-30) —
+// Leader-editable "Guild Rules/Policies" cards (leader request, 2026-09-30) —
 // free-form rules/info sections with a Markdown body, so leaders can add,
 // reorder, resize and remove guild info without a code change. Distinct
 // from epgp_info_sections, which is a fixed set of seeded prose blocks

@@ -30,7 +30,7 @@ export function SiteFeatureToggles({ itemTooltips }: { itemTooltips: boolean }) 
       <div className="max-w-2xl">
         <h3 className="font-medium text-neutral-200">Item tooltips (PQDI)</h3>
         <p className="mt-1 text-sm text-neutral-400">
-          Item names on Live Bids, Raids &amp; Events loot, Bids History, the ledger, the guild bank and Guild Information become links to
+          Item names on Live Bids, Raids and Events History loot, Bids History, the ledger, the guild bank and Guild Rules/Policies become links to
           pqdi.cc with a hover/tap tooltip. Turn this off to show plain text again — nothing is requested from PQDI while it&apos;s off.
         </p>
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}

@@ -1,4 +1,4 @@
-// Verifies the Guild Information Markdown normalizer against the shapes of
+// Verifies the Guild Rules/Policies Markdown normalizer against the shapes of
 // real Discord pastes (tab-indented "•" bullets, loose bold, spacer runs).
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";

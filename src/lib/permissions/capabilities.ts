@@ -126,19 +126,19 @@ export const CAPABILITIES = {
   "epgp.raids.manage": {
     group: "EPGP",
     label: "Name and annotate raids",
-    description: "Set a raid's display name and notes on the Raids & Events page.",
+    description: "Set a raid's display name and notes on the Raids and Events History page.",
     defaults: ["officer", "leader"],
   },
   "epgp.info.edit": {
     group: "EPGP",
-    label: "Edit Cycle & Rules Info pages",
-    description: "Edit the prose sections shown on the member-facing Cycle & Rules Info page.",
+    label: "Edit EPGP Cycle Overview pages",
+    description: "Edit the prose sections shown on the member-facing EPGP Cycle Overview page.",
     defaults: ["officer", "leader"],
   },
   "guild.info.edit": {
     group: "Membership",
-    label: "Edit Guild Information cards",
-    description: "Add, edit, reorder, resize, and delete the Markdown cards on the Guild Information page. Everyone can read them.",
+    label: "Edit Guild Rules/Policies cards",
+    description: "Add, edit, reorder, resize, and delete the Markdown cards on the Guild Rules/Policies page. Everyone can read them.",
     defaults: ["leader"],
   },
   "epgp.bank.manage": {
