@@ -4,6 +4,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, ledgerAuditLog, lootEvents, players, raids, users } from "@/db";
 import { ATTENDANCE_GATED_ACTIVITIES } from "@/lib/epgp/attendance";
+import { buildEventSpans, inferEventName } from "@/lib/epgp/event-assignment";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { insertLedgerEntry } from "@/lib/epgp/ledger-entry";
@@ -117,10 +118,13 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
 
   type Bucket = { members: Set<number>; ep: number; zones: Set<string>; leaderCandidate: LeaderCandidate | null };
   const eventKey = (date: string, name: string | null) => `${date}\u0000${name ?? ""}`;
+  // Parser-written rows carry no event name; with 2+ named events on a date
+  // they're assigned by time (see event-assignment.ts).
+  const spans = buildEventSpans(attRows);
   const attByEvent = new Map<string, Bucket>();
   for (const r of attRows) {
     const d = r.raidDate ?? toGuildDateString(r.occurredAt);
-    const key = eventKey(d, r.raidName);
+    const key = eventKey(d, r.raidName ?? (r.source === "parse" && !r.raidDate ? inferEventName(spans, d, r.occurredAt) : null));
     let b = attByEvent.get(key);
     if (!b) {
       b = { members: new Set(), ep: 0, zones: new Set(), leaderCandidate: null };
@@ -140,14 +144,14 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
   const lootByEvent = new Map<string, number>();
   for (const r of lootRows) {
     const d = toGuildDateString(r.occurredAt);
-    const key = eventKey(d, null);
+    const key = eventKey(d, inferEventName(spans, d, r.occurredAt));
     lootByEvent.set(key, (lootByEvent.get(key) ?? 0) + 1);
   }
 
   const gpByEvent = new Map<string, number>();
   for (const r of gpRows) {
     const d = r.raidDate ?? toGuildDateString(r.occurredAt);
-    const key = eventKey(d, r.raidName);
+    const key = eventKey(d, r.raidName ?? (r.source === "parse" && !r.raidDate ? inferEventName(spans, d, r.occurredAt) : null));
     gpByEvent.set(key, (gpByEvent.get(key) ?? 0) + r.points);
     if (r.source === "manual" && r.raidDate && r.itemName) {
       lootByEvent.set(key, (lootByEvent.get(key) ?? 0) + 1);
@@ -381,15 +385,19 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     ...attRows.flatMap((row) => row.raidName ? [row.raidName] : []),
   ]).size;
   const includeDateOnlyActivity = raidName === null || namedEventCount === 1;
-  attRows.splice(0, attRows.length, ...attRows.filter((row) => row.raidName === raidName || (includeDateOnlyActivity && row.raidName === null)));
-  if (!includeDateOnlyActivity) {
-    lootRows.length = 0;
-    allBidRows.length = 0;
-  }
-  gpRows.splice(0, gpRows.length, ...gpRows.filter((row) => {
-    if (row.raidName === raidName) return true;
-    return includeDateOnlyActivity && row.raidName === null;
-  }));
+  // Parser rows have no event name; with 2+ named events on the date they
+  // belong to whichever event was running (event-assignment.ts). Spans must
+  // be built before attendance is filtered down to this event.
+  const spans = buildEventSpans(attRows);
+  const belongs = (explicit: string | null, parsed: boolean, at: Date) => {
+    const effective = explicit ?? (parsed ? inferEventName(spans, raidDate, at) : null);
+    return effective === raidName || (includeDateOnlyActivity && effective === null);
+  };
+  attRows.splice(0, attRows.length, ...attRows.filter((row) => belongs(row.raidName, row.source === "parse" && !row.raidDate, row.occurredAt)));
+  lootRows.splice(0, lootRows.length, ...lootRows.filter((row) => belongs(null, true, row.occurredAt)));
+  const keptLootIds = new Set(lootRows.map((row) => row.id));
+  allBidRows.splice(0, allBidRows.length, ...allBidRows.filter((row) => keptLootIds.has(row.lootEventId)));
+  gpRows.splice(0, gpRows.length, ...gpRows.filter((row) => belongs(row.raidName, row.source === "parse" && !row.raidDate, row.occurredAt)));
 
   if (attRows.length === 0 && lootRows.length === 0 && gpRows.length === 0 && meta.length === 0) return null;
 

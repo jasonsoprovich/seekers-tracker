@@ -37,6 +37,7 @@
     "verify:item-resolve": "tsx scripts/verify-item-resolve.ts",
     "import:items": "tsx scripts/import-items.ts",
     "verify:bank-sync": "tsx scripts/verify-bank-sync.ts",
+    "verify:event-assignment": "tsx scripts/verify-event-assignment.ts",
     "verify:bid-finalization": "tsx scripts/verify-bid-finalization.ts",
     "verify:pre-golive-fixes": "tsx scripts/verify-pre-golive-fixes.ts",
     "verify:bid-history-priority": "tsx scripts/verify-bid-history-priority.ts",
