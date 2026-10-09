@@ -186,22 +186,37 @@ export async function importPopFlagsText(
   };
 }
 
+type PqFlagRef = { id: string; label: string; zoneShort: string };
+
 export type PqExportImportState = {
   error?: string;
+  // Step 1 (preview): nothing written yet. `json` is echoed back so the apply
+  // step submits exactly what was previewed.
+  preview?: {
+    json: string;
+    characterName: string;
+    toMarkDone: PqFlagRef[];
+    toUnmark: PqFlagRef[];
+    keptManual: number;
+    unknown: number;
+  };
   result?: {
-    total: number;
-    changed: { id: string; label: string; zoneShort: string; done: boolean }[];
-    skippedManual: number;
-    skippedUnknown: number;
+    characterName: string;
+    markedDone: PqFlagRef[];
+    unmarked: PqFlagRef[];
+    keptManual: number;
+    unknown: number;
   };
 };
 
-// Task 14: the "preferred once available" import path from §6 — a
-// pq-companion "Export Guild Progress" JSON, not yet built on pq-companion's
-// side (see src/lib/pop-flags/pqc-export.ts). Unlike importSeerText above,
-// this is a full sync of pq-companion's resolved per-flag state (both
-// done=true and done=false are meaningful and applied), not an additive-only
-// signal — pq-companion has already done the resolution work.
+// pq-companion's PoP Flagging export (see src/lib/pop-flags/pqc-export.ts).
+// The file covers every character on the exporting PC; only the entry whose
+// name matches THIS page's character is used — nothing else is read or
+// created. It's a full sync of pq-companion's resolved state (done=false also
+// applies), so it can un-check flags: the preview lists those and the apply
+// step refuses to run until the member confirms them. A manual row on the
+// site always wins and is never touched (same precedence as the other
+// imports).
 export async function importPqCompanionExport(
   characterId: number,
   _prevState: PqExportImportState,
@@ -210,8 +225,9 @@ export async function importPqCompanionExport(
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const raw = String(formData.get("json") ?? "").trim();
-  if (!raw) return { error: "Paste the exported JSON first." };
+  const intent = String(formData.get("intent") ?? "preview");
+  const raw = String(formData.get(intent === "apply" ? "applyJson" : "json") ?? "").trim();
+  if (!raw) return { error: "Choose or paste the exported JSON first." };
 
   const db = await getDb();
   const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
@@ -221,11 +237,13 @@ export async function importPqCompanionExport(
 
   const parsed = parsePqExport(raw);
   if ("error" in parsed) return { error: parsed.error };
-  const { data } = parsed;
 
-  if (data.characterName.trim().toLowerCase() !== character.name.trim().toLowerCase()) {
+  const wanted = character.name.trim().toLowerCase();
+  const entry = parsed.data.characters.find((c) => c.name.toLowerCase() === wanted);
+  if (!entry) {
+    const names = parsed.data.characters.map((c) => c.name).join(", ");
     return {
-      error: `This export is for "${data.characterName}", but you're importing to "${character.name}". Paste the right character's export.`,
+      error: `"${character.name}" isn't in this export (it contains: ${names}). Open the Import page of the character you want to import.`,
     };
   }
 
@@ -235,37 +253,54 @@ export async function importPqCompanionExport(
     .where(eq(characterPopFlags.characterId, characterId));
   const existingByFlag = new Map(existingRows.map((r) => [r.flagId, r]));
 
-  let skippedManual = 0;
-  let skippedUnknown = 0;
-  const changed: { id: string; label: string; zoneShort: string; done: boolean }[] = [];
-  const now = new Date();
-
-  for (const flag of data.flags) {
+  let keptManual = 0;
+  let unknown = 0;
+  const toMarkDone: PqFlagRef[] = [];
+  const toUnmark: PqFlagRef[] = [];
+  for (const flag of entry.flags) {
     const dataset = getFlagById(flag.flagId);
     if (!dataset) {
-      skippedUnknown++;
+      unknown++;
       continue;
     }
-    // A local manual override (set through the checklist) always wins over
-    // an imported reading, same precedence as importSeerText.
     const existing = existingByFlag.get(flag.flagId);
     if (existing?.source === "manual") {
-      skippedManual++;
+      if (existing.done !== flag.done) keptManual++;
       continue;
     }
-    if (existing && existing.done === flag.done) continue;
-
-    await db
-      .insert(characterPopFlags)
-      .values({ characterId, flagId: flag.flagId, done: flag.done, source: "import", updatedAt: now })
-      .onConflictDoUpdate({
-        target: [characterPopFlags.characterId, characterPopFlags.flagId],
-        set: { done: flag.done, source: "import", updatedAt: now },
-      });
-    changed.push({ id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short, done: flag.done });
+    const ref = { id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short };
+    if (flag.done && !existing?.done) toMarkDone.push(ref);
+    else if (!flag.done && existing?.done) toUnmark.push(ref);
   }
 
-  const summary = `${data.flags.length} flags in export, ${changed.length} changed, ${skippedManual} kept manual, ${skippedUnknown} unknown`;
+  if (intent !== "apply") {
+    return {
+      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, keptManual, unknown },
+    };
+  }
+
+  if (toUnmark.length > 0 && formData.get("confirmUnmark") !== "on") {
+    return {
+      error: `This import would un-check ${toUnmark.length} flag${toUnmark.length === 1 ? "" : "s"}. Preview again and tick the confirmation box to proceed.`,
+      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, keptManual, unknown },
+    };
+  }
+
+  const now = new Date();
+  for (const [ref, done] of [
+    ...toMarkDone.map((r) => [r, true] as const),
+    ...toUnmark.map((r) => [r, false] as const),
+  ]) {
+    await db
+      .insert(characterPopFlags)
+      .values({ characterId, flagId: ref.id, done, source: "import", updatedAt: now })
+      .onConflictDoUpdate({
+        target: [characterPopFlags.characterId, characterPopFlags.flagId],
+        set: { done, source: "import", updatedAt: now },
+      });
+  }
+
+  const summary = `${entry.flags.length} flags in export, ${toMarkDone.length} marked done, ${toUnmark.length} un-checked, ${keptManual} kept manual, ${unknown} unknown`;
   const r2Key = await archiveImportPayload("pqc_export", characterId, raw);
   await db.insert(importLog).values({
     characterId,
@@ -275,14 +310,7 @@ export async function importPqCompanionExport(
     summary,
   });
 
-  return {
-    result: {
-      total: data.flags.length,
-      changed,
-      skippedManual,
-      skippedUnknown,
-    },
-  };
+  return { result: { characterName: character.name, markedDone: toMarkDone, unmarked: toUnmark, keptManual, unknown } };
 }
 
 export type GearImportState = {

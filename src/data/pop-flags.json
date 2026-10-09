@@ -264,7 +264,10 @@
     "detail": "Enter the Factory and hail the gnome. Say 'I will test the machine.'",
     "prereqs": [],
     "level": 46,
-    "step_kind": "hail"
+    "step_kind": "hail",
+    "qglobal": "zeks",
+    "qglobal_value": "1",
+    "counter": true
   },
   {
     "id": "poi_mb",
