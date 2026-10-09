@@ -49,7 +49,7 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
               all your characters — only the one matching <strong>{character.name}</strong> is used, so repeat
               from each character&apos;s own Import page. You&apos;ll see a preview first. It mirrors
               pq-companion&apos;s state, so flags it says aren&apos;t done will be un-checked — you must confirm
-              that — and flags you checked by hand on the site are always kept.
+              that — and flags you set by hand on the site are kept unless you choose to overwrite them.
             </p>
             <ImportPqExportForm action={boundImportPqExport} />
           </div>

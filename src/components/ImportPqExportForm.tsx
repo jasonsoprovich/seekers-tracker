@@ -29,7 +29,11 @@ export function ImportPqExportForm({
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const preview = state.preview;
-  const nothingToDo = preview && preview.toMarkDone.length === 0 && preview.toUnmark.length === 0;
+  const nothingToDo =
+    preview &&
+    preview.toMarkDone.length === 0 &&
+    preview.toUnmark.length === 0 &&
+    preview.manualConflicts.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,7 +62,6 @@ export function ImportPqExportForm({
           <Card className="flex flex-col gap-3 p-4">
             <p className="text-sm text-neutral-300">
               Changes for <strong>{preview.characterName}</strong>
-              {preview.keptManual > 0 && ` — ${preview.keptManual} kept as manual overrides`}
               {preview.unknown > 0 && `, ${preview.unknown} unrecognized`}.
             </p>
 
@@ -87,6 +90,28 @@ export function ImportPqExportForm({
               </div>
             )}
 
+            {preview.manualConflicts.length > 0 && (
+              <div className="rounded border border-neutral-600 p-3">
+                <p className="text-sm font-medium text-neutral-200">
+                  {preview.manualConflicts.length} flag{preview.manualConflicts.length === 1 ? "" : "s"} you set by
+                  hand differ from pq-companion
+                </p>
+                <p className="mt-1 text-xs text-neutral-400">These are kept unless you tick the box below.</p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {preview.manualConflicts.map((f) => (
+                    <li key={f.id} className={f.exportDone ? "text-emerald-400" : "text-amber-300"}>
+                      [{f.zoneShort}] {f.label} — site: {f.exportDone ? "not done" : "done"} → pq-companion:{" "}
+                      {f.exportDone ? "done" : "not done"}
+                    </li>
+                  ))}
+                </ul>
+                <label className="mt-3 flex items-center gap-2 text-sm text-neutral-200">
+                  <input type="checkbox" name="overwriteManual" />
+                  Overwrite my manual settings with pq-companion&apos;s
+                </label>
+              </div>
+            )}
+
             {nothingToDo ? (
               <p className="text-sm text-neutral-400">Nothing to change — already up to date.</p>
             ) : (
@@ -106,6 +131,7 @@ export function ImportPqExportForm({
           <p className="text-sm text-neutral-300">
             Imported for <strong>{state.result.characterName}</strong>: {state.result.markedDone.length} marked done,{" "}
             {state.result.unmarked.length} un-checked
+            {state.result.overwroteManual > 0 && ` (${state.result.overwroteManual} of them overwrote manual settings)`}
             {state.result.keptManual > 0 && `, ${state.result.keptManual} kept as manual overrides`}
             {state.result.unknown > 0 && `, ${state.result.unknown} unrecognized`}.
           </p>

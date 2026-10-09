@@ -197,13 +197,16 @@ export type PqExportImportState = {
     characterName: string;
     toMarkDone: PqFlagRef[];
     toUnmark: PqFlagRef[];
-    keptManual: number;
+    // Manual rows whose state differs from the export; only applied when the
+    // member opts in to overwriting their manual settings.
+    manualConflicts: (PqFlagRef & { exportDone: boolean })[];
     unknown: number;
   };
   result?: {
     characterName: string;
     markedDone: PqFlagRef[];
     unmarked: PqFlagRef[];
+    overwroteManual: number;
     keptManual: number;
     unknown: number;
   };
@@ -215,8 +218,8 @@ export type PqExportImportState = {
 // created. It's a full sync of pq-companion's resolved state (done=false also
 // applies), so it can un-check flags: the preview lists those and the apply
 // step refuses to run until the member confirms them. A manual row on the
-// site always wins and is never touched (same precedence as the other
-// imports).
+// site wins by default; where it differs from the export the preview offers
+// an explicit "overwrite my manual settings" opt-in.
 export async function importPqCompanionExport(
   characterId: number,
   _prevState: PqExportImportState,
@@ -253,7 +256,7 @@ export async function importPqCompanionExport(
     .where(eq(characterPopFlags.characterId, characterId));
   const existingByFlag = new Map(existingRows.map((r) => [r.flagId, r]));
 
-  let keptManual = 0;
+  const manualConflicts: (PqFlagRef & { exportDone: boolean })[] = [];
   let unknown = 0;
   const toMarkDone: PqFlagRef[] = [];
   const toUnmark: PqFlagRef[] = [];
@@ -264,32 +267,37 @@ export async function importPqCompanionExport(
       continue;
     }
     const existing = existingByFlag.get(flag.flagId);
+    const ref = { id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short };
     if (existing?.source === "manual") {
-      if (existing.done !== flag.done) keptManual++;
+      if (existing.done !== flag.done) manualConflicts.push({ ...ref, exportDone: flag.done });
       continue;
     }
-    const ref = { id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short };
     if (flag.done && !existing?.done) toMarkDone.push(ref);
     else if (!flag.done && existing?.done) toUnmark.push(ref);
   }
 
   if (intent !== "apply") {
     return {
-      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, keptManual, unknown },
+      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, manualConflicts, unknown },
     };
   }
 
   if (toUnmark.length > 0 && formData.get("confirmUnmark") !== "on") {
     return {
       error: `This import would un-check ${toUnmark.length} flag${toUnmark.length === 1 ? "" : "s"}. Preview again and tick the confirmation box to proceed.`,
-      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, keptManual, unknown },
+      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, manualConflicts, unknown },
     };
   }
+
+  // Manual rows only change on explicit opt-in.
+  const overwrite = formData.get("overwriteManual") === "on" ? manualConflicts : [];
+  const keptManual = manualConflicts.length - overwrite.length;
 
   const now = new Date();
   for (const [ref, done] of [
     ...toMarkDone.map((r) => [r, true] as const),
     ...toUnmark.map((r) => [r, false] as const),
+    ...overwrite.map((r) => [r, r.exportDone] as const),
   ]) {
     await db
       .insert(characterPopFlags)
@@ -300,7 +308,7 @@ export async function importPqCompanionExport(
       });
   }
 
-  const summary = `${entry.flags.length} flags in export, ${toMarkDone.length} marked done, ${toUnmark.length} un-checked, ${keptManual} kept manual, ${unknown} unknown`;
+  const summary = `${entry.flags.length} flags in export, ${toMarkDone.length} marked done, ${toUnmark.length} un-checked, ${overwrite.length} manual overwritten, ${keptManual} kept manual, ${unknown} unknown`;
   const r2Key = await archiveImportPayload("pqc_export", characterId, raw);
   await db.insert(importLog).values({
     characterId,
@@ -310,7 +318,16 @@ export async function importPqCompanionExport(
     summary,
   });
 
-  return { result: { characterName: character.name, markedDone: toMarkDone, unmarked: toUnmark, keptManual, unknown } };
+  return {
+    result: {
+      characterName: character.name,
+      markedDone: [...toMarkDone, ...overwrite.filter((r) => r.exportDone)],
+      unmarked: [...toUnmark, ...overwrite.filter((r) => !r.exportDone)],
+      overwroteManual: overwrite.length,
+      keptManual,
+      unknown,
+    },
+  };
 }
 
 export type GearImportState = {
