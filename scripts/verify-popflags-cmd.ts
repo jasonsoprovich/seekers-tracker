@@ -107,5 +107,23 @@ const none = mergeReportsToQglobals([
 ]);
 check("not-started report derives nothing", deriveCompletion(none).length === 0, deriveCompletion(none).join(","));
 
+// Giwin Mirakon preflag completes from the zeks counter (pq-companion 398eacf2).
+const giwinYes = mergeReportsToQglobals([
+  parsePopFlagsReport([
+    "=== Tier 1 Progression ===",
+    "--- Plane of Innovation ---",
+    "Giwin and Manaetic Behemoth progression: Progress recorded",
+  ]),
+]);
+check("giwin progress recorded -> poi_preflag", deriveCompletion(giwinYes).includes("poi_preflag"));
+const giwinNo = mergeReportsToQglobals([
+  parsePopFlagsReport([
+    "=== Tier 1 Progression ===",
+    "--- Plane of Innovation ---",
+    "Giwin and Manaetic Behemoth progression: Not started",
+  ]),
+]);
+check("giwin not started -> no poi_preflag", !deriveCompletion(giwinNo).includes("poi_preflag"));
+
 console.log(failed === 0 ? "\nAll checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);
