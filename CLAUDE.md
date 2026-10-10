@@ -334,6 +334,24 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Bank spell-prefix fix + live-bid "Remove for everyone", 2026-10-10 (branch
+`fix/bank-spell-prefix-and-live-bid-clear`; no migration; not yet deployed).**
+- **Bank**: the sheet's Spell Bank lists bare names ("Breath of Tunare"); Zeal exports
+  "Spell: Breath of Tunare". `reconcileUnverified` compared exact names, so Darkclaw's
+  first real sync left 158 sheet rows "not found" (Darkseller 101, Darkspeed 1) — 4 of
+  165 matched vs 153 with the prefix folded. `src/lib/bank/item-name.ts`
+  (`normalizeBankItemName`) strips `spell:`/`song:`; shared by sync + the /bank "also on"
+  hint. Existing not-found rows clear on the holder's NEXT sync (matching re-runs every
+  sync); leftovers are real (sheet typos) → per-holder "Remove all remaining". Unsynced
+  mules' "unverified" rows are expected, not errors.
+- **Live bids**: capability `epgp.liveBids.clear` (officer/leader) + `POST
+  /api/live-bids/force-clear` (custom-worker.ts → DO `/clear`) + a confirmed per-card
+  button. Known, not fixed: an officer app left open re-sends its snapshot ~60s and
+  re-creates a round the 5-min sweep removed — have the officer Discard first.
+- Verified: verify:bank-sync (new Scenario 10), live-bids e2e 7/7, real route vs local
+  preview+DO (member 403 / signed-out 401 / officer 200), tsc, OpenNext build; bundle
+  3087.94 KiB gzip (over the old Free cap, fine on Paid's 10 MiB).
+
 **Guild Info overhaul + PQDI item tooltips + dashboard 14-day filter, 2026-09-30
 (merged to `main`; DEPLOYED 2026-10-01 incl. migrations 0056 + 0057; item tooltips
 confirmed working live; content restructure NOT yet done).**
