@@ -134,6 +134,46 @@ async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Prom
   return forwardToDO(env, "dismiss", { itemName: itemName.trim(), userId: session.user.id });
 }
 
+// POST /api/live-bids/force-clear — browser-session "Remove for everyone"
+// (2026-10-10). A round whose officer app crashed or was never ended has no
+// one left to clear it — the Ring of Nobility card after the 10/9 instance
+// crash sat on the board until an officer key was used by hand. Gated by
+// epgp.liveBids.clear (officer/leader by default), role read fresh and
+// narrowed by view-as exactly like /config. Forwards to the DO's existing
+// /clear — the same handler the officer app's Discard uses — so it removes
+// the round, its persisted copy and every viewer's dismissal. Writes no
+// ledger rows.
+async function handleLiveBidsForceClear(request: Request, env: CloudflareEnv): Promise<Response> {
+  const auth = createAuth(env, cfOf(request));
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return Response.json({ error: "Not signed in." }, { status: 401 });
+
+  const db = drizzle(env.DATABASE, { schema });
+  const [memberAllowed, roleRow] = await Promise.all([
+    fetchIsMemberAllowed(db, session.user.id),
+    db.select({ role: users.role }).from(users).where(eq(users.id, session.user.id)).then((rows) => rows[0]),
+  ]);
+  if (!memberAllowed) return Response.json({ error: "Not allowed." }, { status: 403 });
+
+  const effectiveRole = effectiveRoleWithViewAs(roleRow?.role ?? null, request.headers.get("cookie"));
+  const matrix = await loadPermissionMatrix(db);
+  if (!roleCan(matrix, effectiveRole, "epgp.liveBids.clear")) {
+    return Response.json({ error: "Officer access required." }, { status: 403 });
+  }
+
+  let itemName: unknown;
+  try {
+    ({ itemName } = (await request.json()) as { itemName?: unknown });
+  } catch {
+    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (typeof itemName !== "string" || !itemName.trim()) {
+    return Response.json({ error: "`itemName` is required." }, { status: 400 });
+  }
+  console.log(`[live-bids] force-clear "${itemName.trim()}" by user ${session.user.id}`);
+  return forwardToDO(env, "clear", { itemName: itemName.trim() });
+}
+
 // GET/POST /api/live-bids/config — browser-session control for leaders.
 // This stays in the custom Worker because it calls the auction DO. The role
 // is read fresh from D1 and narrowed by the same admin view-as cookie used by
@@ -609,6 +649,7 @@ export default {
     if (url.pathname === "/api/live-bids/ws") return handleLiveBidsWebSocket(request, env);
     if (url.pathname === "/api/live-bids/state" && request.method === "GET") return handleLiveBidsState(request, env);
     if (url.pathname === "/api/live-bids/dismiss" && request.method === "POST") return handleLiveBidsDismiss(request, env);
+    if (url.pathname === "/api/live-bids/force-clear" && request.method === "POST") return handleLiveBidsForceClear(request, env);
     if (url.pathname === "/api/live-bids/config" && (request.method === "GET" || request.method === "POST")) {
       return handleLiveBidsConfig(request, env);
     }

@@ -118,6 +118,73 @@ test.describe("live bid board", () => {
   });
 });
 
+// 2026-10-10: "Remove for everyone" (epgp.liveBids.clear). The POST itself
+// is served by custom-worker.ts, which `next dev` doesn't run — intercepted
+// here; the Worker-side capability check is exercised separately.
+const stuckRound = {
+  itemName: "Ring of Nobility",
+  officerName: "Kess",
+  bids: [bid("Sipen", "High Bid", 2.7)],
+  bidCount: 1,
+  winners: [],
+  status: "idle",
+  lastSeenAt: Date.now(),
+  startedAt: 1,
+};
+
+async function serveStuckRound(page: Page) {
+  await disableLiveSocket(page);
+  await page.route("**/api/live-bids/state", (route) =>
+    route.fulfill({ json: { type: "state", collectingDetail: "full", rounds: [stuckRound] } }),
+  );
+}
+
+test.describe("live bid force-clear — member", () => {
+  test.use({ storageState: "e2e/.auth/member.json" });
+
+  test("members don't get Remove for everyone", async ({ page }) => {
+    await serveStuckRound(page);
+    await page.goto("/live-bids");
+    await expect(page.getByRole("heading", { name: "Ring of Nobility" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remove for everyone" })).toHaveCount(0);
+  });
+});
+
+test.describe("live bid force-clear — officer", () => {
+  test.use({ storageState: "e2e/.auth/officer.json" });
+
+  test("officers confirm, then the round is force-cleared by name", async ({ page }) => {
+    await serveStuckRound(page);
+    const posted: unknown[] = [];
+    await page.route("**/api/live-bids/force-clear", async (route) => {
+      posted.push(route.request().postDataJSON());
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.goto("/live-bids");
+
+    await page.getByRole("button", { name: "Remove for everyone" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("no GP is charged");
+    await dialog.getByRole("button", { name: "Remove for everyone" }).click();
+
+    await expect.poll(() => posted).toEqual([{ itemName: "Ring of Nobility" }]);
+  });
+
+  test("cancelling the confirm sends nothing", async ({ page }) => {
+    await serveStuckRound(page);
+    let calls = 0;
+    await page.route("**/api/live-bids/force-clear", async (route) => {
+      calls += 1;
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.goto("/live-bids");
+    await page.getByRole("button", { name: "Remove for everyone" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    expect(calls).toBe(0);
+  });
+});
+
 test.describe("live bid admin control", () => {
   test.use({ storageState: "e2e/.auth/leader.json" });
 

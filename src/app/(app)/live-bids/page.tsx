@@ -2,13 +2,17 @@ import { redirect } from "next/navigation";
 
 import { LiveBidsView } from "@/components/live-bids/LiveBidsView";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
 // Visible to every role, read-only — same guild-wide-transparency call as
 // /roster, /bank, /keys, /progression (PLAN.md §15 / Phase 12 task 12.4).
+// Officers (epgp.liveBids.clear) additionally get a per-card "Remove for
+// everyone"; the custom Worker re-checks that capability on the POST.
 export default async function LiveBidsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+  const perms = await getPermissions(session.user.id);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -16,7 +20,7 @@ export default async function LiveBidsPage() {
         title="Live Bids"
         subtitle="Every officer's round at once, filling in as tells arrive. A finalized round stays on the board with its winner — expand it to see every bid. Dismissing a card only hides it for you; everyone else watching keeps seeing it until they dismiss it too (or it ages off 12 hours after it was finalized). Clear all hides every finalized card at once."
       />
-      <LiveBidsView />
+      <LiveBidsView canForceClear={perms.can("epgp.liveBids.clear")} />
     </div>
   );
 }

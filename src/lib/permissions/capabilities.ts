@@ -212,6 +212,14 @@ export const CAPABILITIES = {
     // this control to members or officers or remove it from leaders.
     lockedRoles: ["member", "officer", "leader"],
   },
+  "epgp.liveBids.clear": {
+    group: "EPGP",
+    label: "Remove a live bid card for everyone",
+    description:
+      "Take a stuck or abandoned round off the Live Bids board for every viewer — e.g. an officer's app crashed mid-round. Records nothing and charges no GP.",
+    defaults: ["officer", "leader"],
+    lockedRoles: ["member"],
+  },
 
   // --- Admin Area -----------------------------------------------------
   "admin.view": {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ItemLink } from "@/components/items/ItemLink";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // Mirrors BidsPanel.tsx's own tier ordering (seekers-epgp-parser) — the
 // live view should rank bids the same way the officer's "Determine
@@ -104,7 +105,13 @@ function StatusPill({ status }: { status: LiveStatus }) {
   );
 }
 
-export function LiveBidsView() {
+// canForceClear: the viewer holds epgp.liveBids.clear (officer/leader by
+// default), resolved server-side by the page. Shows a per-card "Remove for
+// everyone" — for a round no officer app is left to clear (2026-10-10, an
+// instance crash left Ring of Nobility stuck on the board overnight).
+export function LiveBidsView({ canForceClear = false }: { canForceClear?: boolean }) {
+  const confirm = useConfirm();
+  const [forceClearError, setForceClearError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
   const [rounds, setRounds] = useState<RoundView[]>([]);
   const [collectingDetail, setCollectingDetail] = useState<CollectingDetail>("full");
@@ -261,6 +268,33 @@ export function LiveBidsView() {
     });
   }
 
+  // "Remove for everyone" — deletes the round on the server for every
+  // viewer (the DO's /clear). The broadcast that follows drops the card, so
+  // nothing optimistic here; a failure is shown instead.
+  async function onForceClear(itemName: string) {
+    const ok = await confirm({
+      title: "Remove for everyone?",
+      message: `Takes "${itemName}" off the Live Bids board for every viewer. Nothing is recorded and no GP is charged. If an officer's app is still collecting this item, it may put the card back — have them Discard the round first.`,
+      confirmLabel: "Remove for everyone",
+      danger: true,
+    });
+    if (!ok) return;
+    setForceClearError(null);
+    try {
+      const resp = await fetch("/api/live-bids/force-clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemName }),
+      });
+      if (!resp.ok) {
+        const body = (await resp.json().catch(() => null)) as { error?: string } | null;
+        setForceClearError(body?.error ?? `Couldn't remove "${itemName}" (HTTP ${resp.status}).`);
+      }
+    } catch {
+      setForceClearError(`Couldn't remove "${itemName}" — network error.`);
+    }
+  }
+
   // Keep the two local hide-sets honest against the latest server frame:
   //  - pendingDismiss: drop an entry once its round is no longer on the
   //    board as "resolved" — either the server has filtered it out for this
@@ -345,6 +379,12 @@ export function LiveBidsView() {
         </div>
       </div>
 
+      {forceClearError && (
+        <p role="alert" className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          {forceClearError}
+        </p>
+      )}
+
       {visibleRounds.length === 0 ? (
         <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
           "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
@@ -392,6 +432,16 @@ export function LiveBidsView() {
                     >
                       Hide
                     </button>
+                    )}
+                    {canForceClear && (
+                      <button
+                        type="button"
+                        onClick={() => onForceClear(round.itemName)}
+                        title="Officers: take this card off the board for every viewer — for a round nobody is left to finish (app crashed, instance went down). Records nothing."
+                        className="self-center rounded border border-red-500/30 px-2 py-0.5 text-[11px] text-red-300 transition-colors hover:bg-red-500/10"
+                      >
+                        Remove for everyone
+                      </button>
                     )}
                   </div>
                   {showBidCount && <p className="mt-2 text-sm text-neutral-300">{round.bidCount} bid{round.bidCount === 1 ? "" : "s"} received</p>}
