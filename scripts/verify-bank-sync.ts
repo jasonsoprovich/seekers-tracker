@@ -583,6 +583,46 @@ async function main() {
     check(failures, !afterReconcileSync2.some((r) => r.itemName === "Ghost Item" && r.container === "Sheet"), "Ghost Item's unverified row is gone once a later sync finally matches it");
     check(failures, afterReconcileSync2.some((r) => r.itemName === "Ghost Item" && r.container === "Bank5"), "the real synced Ghost Item landed at Bank5 slot 0");
 
+    // ---------------------------------------------------------------
+    // Scenario 10: sheet spell names vs. export names — 2026-10-10.
+    // The sheet lists "Breath of Tunare"; Zeal exports "Spell: Breath of
+    // Tunare". Pure reconcileUnverified, no DB writes.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 10: Spell:/Song: prefix matching");
+    const sheetRow = (id: number, itemName: string, legacyLocation: string | null) => ({
+      id,
+      category: "spell" as const,
+      itemName,
+      itemId: null,
+      quantity: 1,
+      status: "guild_bank" as const,
+      note: null,
+      container: "Sheet",
+      slotIndex: id,
+      legacyLocation,
+      notFoundSince: null,
+    });
+    const exportRow = (container: string, slotIndex: number, itemName: string) => ({ container, slotIndex, category: "spell" as const, itemName, itemId: 7000 + slotIndex, quantity: 1 });
+    const prefixOutcomes = reconcileUnverified(
+      [
+        sheetRow(1, "Breath of Tunare", "Bank7-Slot5"),
+        sheetRow(2, "Brell's Mountainous Barrier", "Bank1-Slot3"),
+        sheetRow(3, "Occlusion of Sound", null),
+        sheetRow(4, "Unrelated Spell", "Bank9-Slot1"),
+      ],
+      [
+        exportRow("Bank7", 5, "Spell: Breath of Tunare"),
+        exportRow("Bank10", 4, "Spell: Brell's Mountainous Barrier"),
+        exportRow("Bank5", 2, "Song: Occlusion of Sound"),
+      ],
+    );
+    const outcomeFor = (id: number) => prefixOutcomes.find((o) => (o.kind === "matched" ? o.match.unverifiedId : o.unverifiedId) === id);
+    const tunare = outcomeFor(1);
+    check(failures, tunare?.kind === "matched" && tunare.match.matchedRow.container === "Bank7", "a sheet 'Breath of Tunare' is confirmed by 'Spell: Breath of Tunare' in the same slot");
+    check(failures, outcomeFor(2)?.kind === "matched", "a sheet spell is confirmed by its 'Spell:'-prefixed export row in a different slot");
+    check(failures, outcomeFor(3)?.kind === "matched", "a sheet song is confirmed by its 'Song:'-prefixed export row");
+    check(failures, outcomeFor(4)?.kind === "not_found", "an unrelated sheet spell is still reported not found");
+
     if (failures.n > 0) {
       console.error(`\n${failures.n} check(s) failed.`);
       process.exitCode = 1;

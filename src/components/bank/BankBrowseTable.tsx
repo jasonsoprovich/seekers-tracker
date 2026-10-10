@@ -10,6 +10,7 @@ import { useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import { BANK_MANUAL_ADD_ENABLED } from "@/lib/bank/constants";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
+import { normalizeBankItemName } from "@/lib/bank/item-name";
 
 type SortKey = "holderName" | "mainName" | "category" | "itemName" | "quantity" | "status";
 type SortDir = "asc" | "desc";
@@ -267,13 +268,13 @@ export function BankBrowseTable({
     const verifiedNamesByHolder = new Map<string, Set<number>>();
     for (const h of holdings) {
       if (h.unverifiedState !== null) continue;
-      const key = h.itemName.trim().toLowerCase();
+      const key = normalizeBankItemName(h.itemName);
       const set = verifiedNamesByHolder.get(key) ?? new Set<number>();
       set.add(h.holderCharacterId);
       verifiedNamesByHolder.set(key, set);
     }
     const needsReview = notFound.map((h) => {
-      const elsewhere = [...(verifiedNamesByHolder.get(h.itemName.trim().toLowerCase()) ?? [])].filter((id) => id !== h.holderCharacterId);
+      const elsewhere = [...(verifiedNamesByHolder.get(normalizeBankItemName(h.itemName)) ?? [])].filter((id) => id !== h.holderCharacterId);
       return { row: h, alsoOn: elsewhere.map((id) => nameByCharacterId.get(id) ?? `#${id}`) };
     });
 

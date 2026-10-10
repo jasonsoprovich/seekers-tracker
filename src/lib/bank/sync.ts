@@ -4,6 +4,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { bankEqAccountCharacters, bankEqAccounts, bankHoldings, bankImports, bankSlotDesignations, characters, users } from "@/db";
 import { bankAuditStatements, type BankAuditInsert } from "@/lib/bank/audit";
+import { normalizeBankItemName } from "@/lib/bank/item-name";
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -515,9 +516,7 @@ export type UnverifiedHoldingRow = {
   notFoundSince: Date | null;
 };
 
-function normalizeItemName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
-}
+const normalizeItemName = normalizeBankItemName;
 
 function formatIncomingLocation(row: SyncRowInput): string {
   return row.slotIndex === 0 ? row.container : `${row.container}-Slot${row.slotIndex}`;
