@@ -1,6 +1,6 @@
 "use client";
 
-import { roleMeta, stepKindMeta, type FlagStatus } from "@/lib/pop-flags";
+import { isManualOnly, MANUAL_META, roleMeta, stepKindMeta, type FlagStatus } from "@/lib/pop-flags";
 
 // One PoP flag as a checkable row. Shared by the Checklist and the Flow view
 // (same split as pq-companion's PopFlagRow) so both behave identically — same
@@ -56,6 +56,7 @@ export function PopFlagRow({
 
   const km = stepKindMeta(flag.step_kind);
   const rm = roleMeta(flag.role);
+  const manual = isManualOnly(flag) && !flag.superseded;
   const dimmed = flag.done || flag.superseded;
 
   return (
@@ -94,6 +95,11 @@ export function PopFlagRow({
           {rm && (
             <span className={`rounded border px-1.5 py-0.5 text-[9px] tracking-wider uppercase ${rm.className}`} title={rm.tip}>
               {rm.label}
+            </span>
+          )}
+          {manual && (
+            <span className={`rounded border px-1.5 py-0.5 text-[9px] tracking-wider uppercase ${MANUAL_META.className}`} title={MANUAL_META.tip}>
+              {compact ? "✋" : `✋ ${MANUAL_META.label}`}
             </span>
           )}
           {flag.superseded && (

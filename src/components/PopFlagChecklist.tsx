@@ -8,7 +8,7 @@ import PopFlagFlow from "@/components/PopFlagFlow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { PopFlagRow } from "@/components/PopFlagRow";
-import type { FlagStatus, Progress } from "@/lib/pop-flags";
+import { MANUAL_META, type FlagStatus, type Progress } from "@/lib/pop-flags";
 
 function TierSection({
   progress,
@@ -150,7 +150,12 @@ export function PopFlagChecklist({
             { value: "flow", label: "Flow chart" },
           ]}
         />
-        {view === "flow" && <span className="text-[11px] text-neutral-500">Same steps as the checklist, laid out by zone.</span>}
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+          {view === "flow" && <span className="text-[11px] text-neutral-500">Same steps as the checklist, laid out by zone.</span>}
+          <span className="text-[11px] text-slate-200" title={MANUAL_META.tip}>
+            ✋ {MANUAL_META.label} check-off
+          </span>
+        </div>
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       {view === "flow" ? (

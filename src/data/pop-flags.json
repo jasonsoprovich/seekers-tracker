@@ -224,7 +224,8 @@
     "prereqs": ["pod_grummus"],
     "step_kind": "zone",
     "optional": true,
-    "role": "keyring"
+    "role": "keyring",
+    "events": [{ "kind": "zone", "match": "The Crypt of Decay" }]
   },
   {
     "id": "pod_postflag",
@@ -362,7 +363,8 @@
     "prereqs": ["pov_aerindar"],
     "step_kind": "zone",
     "optional": true,
-    "role": "keyring"
+    "role": "keyring",
+    "events": [{ "kind": "zone", "match": "Halls of Honor" }]
   },
   {
     "id": "cod_carpryn",
@@ -397,7 +399,7 @@
     "zone": "Crypt of Decay",
     "zone_short": "CoD",
     "label": "Hail Elder Fuirstel (Bertox flag)",
-    "detail": "Hail Adler Fuirstel near Disease and Elder Fuirstel in the sick bay after defeating Bertox.",
+    "detail": "Return to the sick bay in Tranquility and hail Elder Fuirstel after defeating Bertox. Receives the Bertox flag. (Adler Fuirstel near the Disease portal only gives flavor text at this point — no hail needed.)",
     "prereqs": ["cod_bertox"],
     "step_kind": "hail",
     "qglobal": "fuirstel",
@@ -462,10 +464,11 @@
     "tier": 2,
     "zone": "Plane of Torment",
     "zone_short": "PoTor",
-    "label": "Hail Fahlia (Saryrn flag)",
-    "detail": "Return to the sick bay and hail Tylis and Fahlia after defeating the Keeper of Sorrows and Saryrn.",
+    "label": "Hail Tylis and Fahlia (optional)",
+    "detail": "Optional: hail Tylis and Fahlia in the sick bay after Saryrn. They only acknowledge your progress — the Saryrn flag itself comes from hailing the Planar Projection after the kill.",
     "prereqs": ["potor_saryrn", "potor_keeper"],
-    "step_kind": "hail"
+    "step_kind": "hail",
+    "optional": true
   },
   {
     "id": "hoh_trial_rydda",
@@ -595,7 +598,7 @@
     "zone_short": "PoK",
     "label": "Grand Librarian: combine the Cipher halves",
     "detail": "Hail Grand Librarian Maelin with both cipher halves (Mithaniel Marr's mark and the Saryrn/Keeper of Sorrows flag) in hand to receive the Cipher of the Divine Language.",
-    "prereqs": ["potor_postflag", "hoh_mithaniel"],
+    "prereqs": ["potor_saryrn", "hoh_mithaniel"],
     "step_kind": "hail",
     "qglobal": "cipher",
     "qglobal_value": "1",
@@ -648,7 +651,10 @@
     "label": "Miak: 'portal's destination' (Tower access)",
     "detail": "Say 'portal's destination' to Miak the Searedsoul in the Plane of Tranquility (near the Plane of Fire) to flag for and reach the Tower of Solusek Ro.",
     "prereqs": ["pok_maelin_information"],
-    "step_kind": "hail"
+    "step_kind": "hail",
+    "qglobal": "pofire",
+    "qglobal_value": "1",
+    "counter": true
   },
   {
     "id": "solro_xuzl",
@@ -721,11 +727,11 @@
     "zone": "Tower of Solusek Ro",
     "zone_short": "SolRo",
     "label": "Defeat Solusek Ro (Plane of Fire flag)",
-    "detail": "Enter the room of Solusek Ro and defeat him. Flags for the Plane of Fire.",
+    "detail": "Enter the room of Solusek Ro, defeat him, and hail the Planar Projection. Flags for the Plane of Fire.",
     "prereqs": ["potac_rallos", "solro_arlyxir", "solro_dresolik", "solro_jiva", "solro_rizlona", "solro_xuzl"],
-    "step_kind": "kill",
+    "step_kind": "timed_hail",
     "qglobal": "pofire",
-    "qglobal_value": "1",
+    "qglobal_value": "2",
     "counter": true,
     "events": [{ "kind": "kill", "match": "Solusek Ro" }]
   },
@@ -739,7 +745,8 @@
     "prereqs": ["solro_solusek"],
     "step_kind": "zone",
     "optional": true,
-    "role": "keyring"
+    "role": "keyring",
+    "events": [{ "kind": "zone", "match": "Plane of Fire" }]
   },
   {
     "id": "poair_wind_key",

@@ -9,7 +9,8 @@ import flagsData from "@/data/pop-flags.json";
 // A live-log signal (pq-companion Phase 3 — not wired up here) that would
 // optimistically mark a flag complete from a kill/zone/say/loot event.
 // Carried through so the dataset stays byte-for-byte compatible with
-// pq-companion's flags.json; unused until this site has a live-log import.
+// pq-companion's flags.json. Not evaluated here, but a row with a rule can
+// arrive done via a pq-companion export, so it decides isManualOnly().
 export interface EventRule {
   kind: string;
   match: string;
