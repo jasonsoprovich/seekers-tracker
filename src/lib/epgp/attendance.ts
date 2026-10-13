@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, epLedger, players } from "@/db";
@@ -20,6 +20,40 @@ export function attendanceDedupeWindow(occurredAt: Date): { start: Date; end: Da
     start: new Date(occurredAt.getTime() - ATTENDANCE_DEDUPE_WINDOW_MS),
     end: new Date(occurredAt.getTime() + ATTENDANCE_DEDUPE_WINDOW_MS),
   };
+}
+
+// 2026-10-13 (PoP launch, officer request): the New Target bonus goes to
+// everyone present at a boss's first kill, submitted from the same `/who`
+// capture flow as attendance. It is NOT attendance, so the ±60 min
+// (player, activity) dedupe above can't apply as-is — a raid can land two
+// first kills 20 minutes apart, and historically players get 2-6 New Target
+// rows in one night (one per boss, the boss name in `note`). So a New Target
+// submit must name its target, and dedupes on (player, target) instead,
+// over a wider window: a second officer submitting the same kill from a
+// later `/who` hours afterward is still a duplicate, while a first kill
+// can't genuinely repeat. Manual rows count too — Manual Entry was how this
+// bonus was given before, and the same boss twice is a duplicate either way.
+export const NEW_TARGET_ACTIVITY = "New Target";
+const NEW_TARGET_DEDUPE_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+// The ledger rows that would make a new (activity, occurredAt[, target])
+// award a duplicate — shared by the pre-submit probe and the POST dedupe so
+// they can't disagree. `target` is only used for New Target.
+export function attendanceDedupeConditions(activity: string, occurredAt: Date, target: string | null): SQL[] {
+  if (activity === NEW_TARGET_ACTIVITY) {
+    const windowMs = NEW_TARGET_DEDUPE_WINDOW_MS;
+    return [
+      eq(epLedger.activity, activity),
+      gte(epLedger.occurredAt, new Date(occurredAt.getTime() - windowMs)),
+      lte(epLedger.occurredAt, new Date(occurredAt.getTime() + windowMs)),
+      inArray(epLedger.source, ["parse", "manual"]),
+      // Matches "Aerin`Dar" and a cap-clamped "Aerin`Dar — <cap note>"
+      // (withCapNote's separator), case-insensitively; not "Aerin`Dar 2".
+      sql`instr(lower(trim(coalesce(${epLedger.note}, ''))) || ' — ', lower(${(target ?? "").trim()}) || ' — ') = 1`,
+    ];
+  }
+  const { start, end } = attendanceDedupeWindow(occurredAt);
+  return [eq(epLedger.activity, activity), gte(epLedger.occurredAt, start), lte(epLedger.occurredAt, end), eq(epLedger.source, "parse")];
 }
 
 // PLAN.md §4h: the minimum-attendance rule applies to the attendance-capture

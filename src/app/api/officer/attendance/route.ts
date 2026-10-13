@@ -1,12 +1,13 @@
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, inArray, sql } from "drizzle-orm";
 
 import { requireOfficerApiKey } from "@/lib/api-key-auth";
 import { characters, epLedger } from "@/db";
 import {
-  attendanceDedupeWindow,
+  attendanceDedupeConditions,
   checkMinAttendance,
   findExistingEventLead,
   insertPreparedEventLeadAward,
+  NEW_TARGET_ACTIVITY,
   prepareEventLeadAward,
 } from "@/lib/epgp/attendance";
 import { getDb } from "@/lib/db";
@@ -71,15 +72,12 @@ export async function GET(request: Request) {
     return Response.json({ error: dateCheck.error }, { status: 400 });
   }
   const occurredAt = dateCheck.value;
-  const { start, end } = attendanceDedupeWindow(occurredAt);
+  // New Target dedupes per boss (see attendanceDedupeConditions) — the app
+  // sends the boss name it will submit as `note`.
+  const target = (url.searchParams.get("note") ?? "").trim().slice(0, LIMITS.note);
 
   const db = await getDb();
-  const windowClause = and(
-    eq(epLedger.activity, activityCheck.value),
-    gte(epLedger.occurredAt, start),
-    lte(epLedger.occurredAt, end),
-    eq(epLedger.source, "parse"),
-  );
+  const windowClause = and(...attendanceDedupeConditions(activityCheck.value, occurredAt, target));
   const [countRow] = await db.select({ count: sql<number>`count(*)` }).from(epLedger).where(windowClause);
   const count = countRow?.count ?? 0;
   // Two queries rather than one — SQLite's "bare column beside an aggregate,
@@ -152,7 +150,13 @@ export async function POST(request: Request) {
   if (longName !== undefined) {
     return Response.json({ error: `"${(longName as string).slice(0, 20)}…" isn't a valid character name.` }, { status: 400 });
   }
-  const note = typeof body.note === "string" ? body.note.slice(0, LIMITS.note) : "";
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, LIMITS.note) : "";
+  // A New Target bonus is per boss: the note names it, and it's the dedupe
+  // key (attendanceDedupeConditions), so it can't be blank.
+  const isNewTarget = activityCheck.value === NEW_TARGET_ACTIVITY;
+  if (isNewTarget && !note) {
+    return Response.json({ error: "A New Target bonus needs the boss name in `note`." }, { status: 400 });
+  }
   // The zone the `/who` was run in, straight off the capture's own "There
   // are N players in <Zone>" line — says what this Raid-Start/Mid/End award
   // was actually for. Optional: an older client, or a manual resubmit,
@@ -282,11 +286,13 @@ export async function POST(request: Request) {
   // attendanceDedupeWindow's comment for why that missed a second officer's
   // own capture of the same raid), for any player / character in this
   // capture — one query. Scoped to source='parse' so a manual correction
-  // entered for the same activity/night doesn't block a real capture.
+  // entered for the same activity/night doesn't block a real capture. New
+  // Target instead matches the same boss over a wider window, manual rows
+  // included — see attendanceDedupeConditions.
   const existingPlayerIds = new Set<number>();
   const existingCharacterIds = new Set<number>();
   if (resolved.length > 0) {
-    const { start: windowStart, end: windowEnd } = attendanceDedupeWindow(occurredAt);
+    const dedupe = attendanceDedupeConditions(activity, occurredAt, isNewTarget ? note : null);
     const pids = [...new Set(resolved.map((r) => r.playerId).filter((v): v is number => v != null))];
     const cids = [...new Set(resolved.filter((r) => r.playerId == null).map((r) => r.characterId))];
     const lookups: Promise<{ playerId: number | null; characterId: number | null }[]>[] = [];
@@ -295,15 +301,7 @@ export async function POST(request: Request) {
         db
           .select({ playerId: epLedger.playerId, characterId: epLedger.characterId })
           .from(epLedger)
-          .where(
-            and(
-              eq(epLedger.activity, activity),
-              gte(epLedger.occurredAt, windowStart),
-              lte(epLedger.occurredAt, windowEnd),
-              eq(epLedger.source, "parse"),
-              inArray(epLedger.playerId, pids.slice(i, i + 90)),
-            ),
-          ),
+          .where(and(...dedupe, inArray(epLedger.playerId, pids.slice(i, i + 90)))),
       );
     }
     for (let i = 0; i < cids.length; i += 90) {
@@ -311,15 +309,7 @@ export async function POST(request: Request) {
         db
           .select({ playerId: epLedger.playerId, characterId: epLedger.characterId })
           .from(epLedger)
-          .where(
-            and(
-              eq(epLedger.activity, activity),
-              gte(epLedger.occurredAt, windowStart),
-              lte(epLedger.occurredAt, windowEnd),
-              eq(epLedger.source, "parse"),
-              inArray(epLedger.characterId, cids.slice(i, i + 90)),
-            ),
-          ),
+          .where(and(...dedupe, inArray(epLedger.characterId, cids.slice(i, i + 90)))),
       );
     }
     for (const existing of await Promise.all(lookups)) {
@@ -341,7 +331,7 @@ export async function POST(request: Request) {
     const alreadyRecorded = r.playerId != null ? existingPlayerIds.has(r.playerId) : existingCharacterIds.has(r.characterId);
     if (alreadyRecorded) {
       duplicates.push(r.name);
-      console.warn(`attendance: skipped "${r.name}" — player ${r.playerKey} already has an "${activity}" row within 60 min of ${occurredAtIso} (duplicate capture?)`);
+      console.warn(`attendance: skipped "${r.name}" — player ${r.playerKey} already has an "${activity}"${isNewTarget ? ` (${note})` : ""} row near ${occurredAtIso} (duplicate capture?)`);
       continue;
     }
     seenPlayerKeys.add(r.playerKey);
