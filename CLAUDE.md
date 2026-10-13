@@ -334,6 +334,17 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**New Target Bonus from the officer app's Attendance tab, 2026-10-13 (no
+migration).** PoP first kills award `New Target` EP to everyone present; officers
+were doing 50-60 Manual Entries per kill. The parser's capture dropdown gained
+"New Target Bonus" + an optional Boss/NPC note, and a Duplicate button (one `/who`
+can back a Raid - Mid and one or more bonuses). `POST /api/officer/attendance`
+dedupes New Target differently (`attendanceDedupeConditions`, attendance.ts):
+named → player + boss (case-insensitive, cap-note tolerant) within ±12h, parse +
+manual rows; unnamed → only the exact same `/who` timestamp. Every other activity
+keeps player + activity ±60 min, parse only — the two never block each other. Not
+min-attendance gated; never carries Event Lead.
+
 **Bank spell-prefix fix + live-bid "Remove for everyone", 2026-10-10 (branch
 `fix/bank-spell-prefix-and-live-bid-clear`; no migration; not yet deployed).**
 - **Bank**: the sheet's Spell Bank lists bare names ("Breath of Tunare"); Zeal exports

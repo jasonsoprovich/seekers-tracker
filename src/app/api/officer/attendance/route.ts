@@ -151,12 +151,9 @@ export async function POST(request: Request) {
     return Response.json({ error: `"${(longName as string).slice(0, 20)}…" isn't a valid character name.` }, { status: 400 });
   }
   const note = typeof body.note === "string" ? body.note.trim().slice(0, LIMITS.note) : "";
-  // A New Target bonus is per boss: the note names it, and it's the dedupe
-  // key (attendanceDedupeConditions), so it can't be blank.
+  // A New Target bonus's optional note is the boss name, and part of its
+  // dedupe key (attendanceDedupeConditions).
   const isNewTarget = activityCheck.value === NEW_TARGET_ACTIVITY;
-  if (isNewTarget && !note) {
-    return Response.json({ error: "A New Target bonus needs the boss name in `note`." }, { status: 400 });
-  }
   // The zone the `/who` was run in, straight off the capture's own "There
   // are N players in <Zone>" line — says what this Raid-Start/Mid/End award
   // was actually for. Optional: an older client, or a manual resubmit,

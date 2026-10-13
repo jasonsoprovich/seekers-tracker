@@ -27,12 +27,14 @@ export function attendanceDedupeWindow(occurredAt: Date): { start: Date; end: Da
 // capture flow as attendance. It is NOT attendance, so the ±60 min
 // (player, activity) dedupe above can't apply as-is — a raid can land two
 // first kills 20 minutes apart, and historically players get 2-6 New Target
-// rows in one night (one per boss, the boss name in `note`). So a New Target
-// submit must name its target, and dedupes on (player, target) instead,
-// over a wider window: a second officer submitting the same kill from a
-// later `/who` hours afterward is still a duplicate, while a first kill
-// can't genuinely repeat. Manual rows count too — Manual Entry was how this
-// bonus was given before, and the same boss twice is a duplicate either way.
+// rows in one night (one per boss, the boss name in `note`). The boss name
+// is optional (officer's call — it's informational). When given, New Target
+// dedupes on (player, target) over a wider window: a second officer
+// submitting the same kill from a later `/who` hours afterward is still a
+// duplicate, while a first kill can't genuinely repeat. Manual rows count
+// too — Manual Entry was how this bonus was given before. When blank, only
+// a resubmit of the exact same `/who` (same occurredAt) is a duplicate, so
+// unnamed bonuses from different snapshots never block each other.
 export const NEW_TARGET_ACTIVITY = "New Target";
 const NEW_TARGET_DEDUPE_WINDOW_MS = 12 * 60 * 60 * 1000;
 
@@ -40,6 +42,9 @@ const NEW_TARGET_DEDUPE_WINDOW_MS = 12 * 60 * 60 * 1000;
 // award a duplicate — shared by the pre-submit probe and the POST dedupe so
 // they can't disagree. `target` is only used for New Target.
 export function attendanceDedupeConditions(activity: string, occurredAt: Date, target: string | null): SQL[] {
+  if (activity === NEW_TARGET_ACTIVITY && !target?.trim()) {
+    return [eq(epLedger.activity, activity), eq(epLedger.occurredAt, occurredAt), inArray(epLedger.source, ["parse", "manual"])];
+  }
   if (activity === NEW_TARGET_ACTIVITY) {
     const windowMs = NEW_TARGET_DEDUPE_WINDOW_MS;
     return [
