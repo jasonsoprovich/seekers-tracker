@@ -356,9 +356,19 @@ already existed (`points_nominal`/`points_awarded`/`cap_applied`/
   date move keeps the nominal; the cap note is stripped/re-added, never
   stacked (`stripCapNote`); decay rows are never clamped. The edit returns
   `capped` and the table shows an amber notice.
-- **Not done (parser)**: `POST /api/officer/attendance` already returns a
-  `capped` list, but the officer app ignores it — officers aren't told who
-  was capped at submit time.
+- **Officer app (same day, parser branch `feature/ep-cap-feedback`)**: new
+  read-only `POST /api/officer/ep-cap/preview` (`{items:[{activity,
+  occurredAt, names? | characterId+points}]}` → per-item clamped awards via
+  the real `resolveEpCaps`, items accumulate in order, writes nothing; does
+  NOT replay attendance duplicate-skipping). The app previews it in the
+  Attendance confirm dialog and live on Manual Entry, and shows the
+  attendance `capped` list / manual-entry `capped` after submit, through one
+  shared `EpCapNotice`. Also fixed: `insertLedgerEntry` crashed (500) on a GP
+  manual entry from the officer app with no item — Go `omitempty` drops a
+  blank `itemName`; now `input.itemName?.trim()`.
+- Verified end-to-end: real officerapi client against local `next dev` with a
+  throwaway key + near/at-cap test players — preview and actual submit agree
+  (30 of 50, 0 of 50), manual 850 of 1000, GP entry 201.
 - Verified: `npm run verify:cycle-ep-cap` (new, 23/23), `verify:pre-golive-fixes`
   unchanged, tsc, webpack build, e2e 67/67 across characters/ledger/overflow
   specs (new meter test), screenshots at 1280/390.
