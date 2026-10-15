@@ -1,4 +1,4 @@
-import { and, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { cycles, epLedger } from "@/db";
@@ -23,7 +23,14 @@ type Cycle = typeof cycles.$inferSelect;
 // Decay/departure rows (decay_event_id set) are administrative, not earned.
 // A negative correction row lowers cycle EP, so an officer who backs an
 // award out frees that room up again.
-export type EpCapInput = { playerId: number | null; nominal: number; occurredAt: Date };
+export type EpCapInput = {
+  playerId: number | null;
+  nominal: number;
+  occurredAt: Date;
+  // Editing an existing row: leave that row's own points out of "used", so
+  // re-saving a row never counts it against itself.
+  excludeRowId?: number;
+};
 export type EpCapOutcome = {
   awarded: number;
   capApplied: boolean;
@@ -78,7 +85,7 @@ function windowFor(all: Cycle[], t: Date): CycleWindow | null {
 // bucket rows against the cycle's own UTC dates (so a manual/sheet entry on
 // the first or last day counts, without pulling in the previous evening's
 // real raid).
-async function cycleEpUsed(db: Db, playerIds: number[], w: CycleWindow): Promise<Map<number, number>> {
+async function cycleEpUsed(db: Db, playerIds: number[], w: CycleWindow, excludeRowId?: number): Promise<Map<number, number>> {
   const used = new Map<number, number>();
   for (let i = 0; i < playerIds.length; i += IN_CHUNK) {
     const rows = await db
@@ -88,6 +95,7 @@ async function cycleEpUsed(db: Db, playerIds: number[], w: CycleWindow): Promise
         and(
           inArray(epLedger.playerId, playerIds.slice(i, i + IN_CHUNK)),
           isNull(epLedger.decayEventId),
+          excludeRowId !== undefined ? ne(epLedger.id, excludeRowId) : undefined,
           or(
             and(gte(epLedger.occurredAt, w.etStart), lt(epLedger.occurredAt, w.etEnd)),
             and(gte(epLedger.occurredAt, w.utcStart), lte(epLedger.occurredAt, w.utcEnd), sql`${epLedger.occurredAt} % 86400 = 0`),
@@ -151,9 +159,12 @@ export async function resolveEpCaps(db: Db, inputs: EpCapInput[]): Promise<EpCap
     entry.ids.add(i.playerId);
     playersByCycle.set(w.cycle.id, entry);
   }
+  // excludeRowId only comes from the single-row edit path, so one id per
+  // batch is enough.
+  const excludeRowId = inputs.find((i) => i.excludeRowId !== undefined)?.excludeRowId;
   const usedByCycle = new Map<number, Map<number, number>>();
   for (const [cycleId, { window, ids }] of playersByCycle) {
-    usedByCycle.set(cycleId, await cycleEpUsed(db, [...ids], window));
+    usedByCycle.set(cycleId, await cycleEpUsed(db, [...ids], window, excludeRowId));
   }
 
   return inputs.map((i) => {
@@ -168,6 +179,78 @@ export async function resolveEpCaps(db: Db, inputs: EpCapInput[]): Promise<EpCap
     used.set(i.playerId, before + awarded);
     return { awarded, capApplied, cap, cycleId, note: capApplied ? capNote(cap, i.nominal, awarded) : null };
   });
+}
+
+export type CycleEpProgress = {
+  cycle: Cycle;
+  cap: number | null;
+  // Net non-decay EP per player in the cycle: the same number the write
+  // path clamps against, so the display can never disagree with enforcement.
+  usedByPlayer: Map<number, number>;
+};
+
+// The current cycle's EP-vs-cap for a set of players, for display. Reuses
+// the exact window and sum resolveEpCaps uses. Returns null when no cycle
+// has started (no cap is applied then either).
+export async function getCurrentCycleEp(db: Db, playerIds: number[], asOf: Date = new Date()): Promise<CycleEpProgress | null> {
+  const allCycles = await db.select().from(cycles);
+  allCycles.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+  const w = windowFor(allCycles, asOf);
+  if (!w) return null;
+  const raw = await getSettingAt(db, "ep_cap_per_cycle", asOf);
+  const cap = raw !== null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
+  const usedByPlayer = playerIds.length > 0 ? await cycleEpUsed(db, playerIds, w) : new Map<number, number>();
+  return { cycle: w.cycle, cap, usedByPlayer };
+}
+
+const CAP_NOTE_RE = /(?:\s+—\s+)?EP capped(?::| at) [^—]*$/;
+
+// Removes a previously appended cap note, so an edit that re-applies the
+// cap doesn't stack "— EP capped …" twice.
+export function stripCapNote(note: string | null | undefined): string {
+  return (note ?? "").replace(CAP_NOTE_RE, "").trim();
+}
+
+type EpRow = typeof epLedger.$inferSelect;
+export type EpEditPoints = {
+  fields: Partial<typeof epLedger.$inferInsert>;
+  note: string | null;
+  capped?: { awarded: number; nominal: number };
+};
+
+// The point/cap columns for an officer's edit of an existing EP row. The cap
+// applies to edits too, but only when the points or date actually change: a
+// note/zone-only edit keeps the recorded award as-is (including a bypassCap
+// entry). The edit form shows the awarded figure, so a date move with the
+// points field untouched keeps the original nominal amount. Decay rows are
+// administrative and never clamped.
+export async function resolveEpEditPoints(
+  db: Db,
+  before: EpRow,
+  input: { points: number; occurredAt: Date; dateChanged: boolean; note: string },
+): Promise<EpEditPoints> {
+  const pointsChanged = input.points !== before.points;
+  const typedNote = input.note.trim() || null;
+  if (before.decayEventId != null || (!pointsChanged && !input.dateChanged)) {
+    return {
+      fields: pointsChanged ? { points: input.points, pointsNominal: input.points, pointsAwarded: input.points } : {},
+      note: typedNote,
+    };
+  }
+  const nominal = pointsChanged ? input.points : (before.pointsNominal ?? before.points);
+  const [cap] = await resolveEpCaps(db, [{ playerId: before.playerId, nominal, occurredAt: input.occurredAt, excludeRowId: before.id }]);
+  return {
+    fields: {
+      points: cap.awarded,
+      pointsNominal: nominal,
+      pointsAwarded: cap.awarded,
+      capApplied: cap.capApplied,
+      capAtEntry: cap.cap,
+      cycleId: cap.cycleId,
+    },
+    note: withCapNote(stripCapNote(input.note), cap.note),
+    capped: cap.capApplied ? { awarded: cap.awarded, nominal } : undefined,
+  };
 }
 
 // "existing note — cap note", tolerating either being empty.
