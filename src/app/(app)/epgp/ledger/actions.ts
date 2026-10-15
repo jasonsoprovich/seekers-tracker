@@ -8,6 +8,7 @@ import { characters, epLedger, gpLedger, ledgerAuditLog } from "@/db";
 import { getDb } from "@/lib/db";
 import { planUnwinBidForGpRow } from "@/lib/epgp/bid-unwin";
 import { recomputeCharacterLastActivity } from "@/lib/epgp/character-activity";
+import { resolveEpEditPoints } from "@/lib/epgp/ep-cap";
 import { recordLedgerChange } from "@/lib/epgp/ledger-audit";
 import { eventExists } from "@/lib/epgp/raids";
 import { ledgerDateInput } from "@/lib/format-date";
@@ -82,6 +83,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   const affectedPlayerIds = new Set<number>();
   const eventPair = raidDate ? { raidDate, raidName } : null;
   const affectedCharacterIds = new Set<number>();
+  let capped: LedgerActionResult["capped"];
   if (input.kind === "ep") {
     const [before] = await db.select().from(epLedger).where(eq(epLedger.id, input.id));
     if (!before) return { error: "Ledger row not found." };
@@ -92,15 +94,17 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
     if (before.playerId != null) affectedPlayerIds.add(before.playerId);
     if (before.characterId != null) affectedCharacterIds.add(before.characterId);
     if (before.playerId != null) await markStandingsDirty(db, { playerIds: [before.playerId] });
+    const newOccurredAt = keepOccurredAt ? before.occurredAt : occurredAt;
+    const edit = await resolveEpEditPoints(db, before, { points: input.points, occurredAt: newOccurredAt, dateChanged: !keepOccurredAt, note: input.note });
+    const { fields: pointFields, note } = edit;
+    capped = edit.capped;
     const [after] = await db
       .update(epLedger)
       .set({
         activity: activityOrTier,
-        points: input.points,
-        pointsNominal: input.points,
-        pointsAwarded: input.points,
-        occurredAt: keepOccurredAt ? before.occurredAt : occurredAt,
-        note: input.note.trim() || null,
+        ...pointFields,
+        occurredAt: newOccurredAt,
+        note,
         zone: input.zone.trim() || null,
         raidDate,
         raidName,
@@ -112,7 +116,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
       action: "epgp.entry.update",
       targetType: "character",
       targetId: before.characterId,
-      summary: `EP ledger row #${input.id} edited (${before.points} → ${input.points} ${activityOrTier})`,
+      summary: `EP ledger row #${input.id} edited (${before.points} → ${after.points} ${activityOrTier})`,
       before,
       after,
     });
@@ -178,7 +182,7 @@ export async function updateLedgerEntry(input: UpdateLedgerEntryInput): Promise<
   // date change), which "bump if newer" can't walk back — recompute it.
   for (const characterId of affectedCharacterIds) await recomputeCharacterLastActivity(db, characterId);
 
-  return { standing };
+  return { standing, capped };
 }
 
 export async function deleteLedgerEntry(kind: "ep" | "gp", id: number): Promise<LedgerActionResult> {

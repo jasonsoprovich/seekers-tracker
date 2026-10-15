@@ -334,6 +334,45 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Cycle EP cap — visibility + edit enforcement, 2026-10-14 (branch
+`feature/cycle-ep-cap-display`; no migration; not yet deployed).** A member
+asked to see EP earned this cycle vs the cap. The cap itself was already
+enforced on every new write (`ep-cap.ts`, 2026-09-29) and the columns
+already existed (`points_nominal`/`points_awarded`/`cap_applied`/
+`cap_at_entry`); this adds what was missing:
+- **Your Characters**: a per-account "This cycle  N / 900 EP" meter
+  (`CycleEpMeter`) on each Activity summary card. Data comes from
+  `getCurrentCycleEp` (ep-cap.ts), which reuses the exact window + net
+  non-decay sum the write path clamps against, so the meter can't disagree
+  with enforcement (the gross "EP gained" windows would). The cap is per
+  player account (main + alts share it). A bypassCap award can push it over.
+- **EP log**: a capped row shows "30 [of 50 · capped]" (desktop + mobile
+  card) from `pointsNominal`/`capApplied` now selected in `listLedgerRows`.
+- **Edit gap closed**: `updateLedgerEntry` used to write the typed points
+  straight through, skipping the cap (and wiping `points_nominal`). Now
+  `resolveEpEditPoints` re-applies the cap when points or date change,
+  excluding the row itself from "used" (`excludeRowId`); a note/zone-only edit
+  leaves points alone (so a bypassCap row isn't clamped by a note fix); a
+  date move keeps the nominal; the cap note is stripped/re-added, never
+  stacked (`stripCapNote`); decay rows are never clamped. The edit returns
+  `capped` and the table shows an amber notice.
+- **Officer app (same day, parser branch `feature/ep-cap-feedback`)**: new
+  read-only `POST /api/officer/ep-cap/preview` (`{items:[{activity,
+  occurredAt, names? | characterId+points}]}` → per-item clamped awards via
+  the real `resolveEpCaps`, items accumulate in order, writes nothing; does
+  NOT replay attendance duplicate-skipping). The app previews it in the
+  Attendance confirm dialog and live on Manual Entry, and shows the
+  attendance `capped` list / manual-entry `capped` after submit, through one
+  shared `EpCapNotice`. Also fixed: `insertLedgerEntry` crashed (500) on a GP
+  manual entry from the officer app with no item — Go `omitempty` drops a
+  blank `itemName`; now `input.itemName?.trim()`.
+- Verified end-to-end: real officerapi client against local `next dev` with a
+  throwaway key + near/at-cap test players — preview and actual submit agree
+  (30 of 50, 0 of 50), manual 850 of 1000, GP entry 201.
+- Verified: `npm run verify:cycle-ep-cap` (new, 23/23), `verify:pre-golive-fixes`
+  unchanged, tsc, webpack build, e2e 67/67 across characters/ledger/overflow
+  specs (new meter test), screenshots at 1280/390.
+
 **New Target Bonus from the officer app's Attendance tab, 2026-10-13 (no
 migration).** PoP first kills award `New Target` EP to everyone present; officers
 were doing 50-60 Manual Entries per kill. The parser's capture dropdown gained

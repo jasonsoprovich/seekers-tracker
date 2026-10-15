@@ -24,6 +24,21 @@ function eventHref(date: string, name: string | null): string {
   return `/epgp/raids/${date}${name ? `?name=${encodeURIComponent(name)}` : ""}`;
 }
 
+// A row the per-cycle EP cap clamped shows the nominal value it would have
+// been worth, so "30" next to everyone else's "50" explains itself.
+function CappedTag({ row }: { row: EpRow | GpRow }) {
+  if (!("capApplied" in row) || !row.capApplied) return null;
+  const nominal = row.pointsNominal ?? row.points;
+  return (
+    <span
+      className="ml-1.5 whitespace-nowrap rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-normal text-amber-300 ring-1 ring-amber-500/30"
+      title={`Reduced by the per-cycle EP cap: ${row.points} of ${nominal} EP awarded`}
+    >
+      of {nominal} · capped
+    </span>
+  );
+}
+
 type Draft = { characterId: string; activityOrTier: string; itemName: string; points: string; occurredAt: string; note: string; zone: string; event: string };
 
 export function LedgerTable(props: Props) {
@@ -32,6 +47,7 @@ export function LedgerTable(props: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ characterId: "", activityOrTier: "", itemName: "", points: "", occurredAt: "", note: "", zone: "", event: "" });
 
   // Click-to-sort columns (LT-19). Default order (as fetched: occurredAt
@@ -96,6 +112,7 @@ export function LedgerTable(props: Props) {
     const { raidDate, raidName } = decodeEvent(draft.event);
     setPending(true);
     setError(null);
+    setNotice(null);
     const result =
       props.type === "ep"
         ? await updateLedgerEntry({ kind: "ep", id, activity: draft.activityOrTier, points, occurredAt: draft.occurredAt, note: draft.note, zone: draft.zone, raidDate, raidName })
@@ -115,6 +132,13 @@ export function LedgerTable(props: Props) {
     if (result.error) {
       setError(result.error);
       return;
+    }
+    if (result.capped) {
+      setNotice(
+        result.capped.awarded > 0
+          ? `EP capped: saved ${result.capped.awarded} of ${result.capped.nominal} EP (cycle cap reached).`
+          : `EP capped: they're already at the cycle cap, so 0 of ${result.capped.nominal} EP was saved.`,
+      );
     }
     setEditingId(null);
     router.refresh();
@@ -255,7 +279,10 @@ export function LedgerTable(props: Props) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium">{r.characterName}</span>
-          <span className={`font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>{r.points}</span>
+          <span className={`font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>
+            {r.points}
+            <CappedTag row={r} />
+          </span>
         </div>
         <div className="mt-0.5 text-xs text-neutral-500">
           {ledgerDate(r.occurredAt, r.source)} · {props.type === "ep" ? (r as EpRow).activity : ((r as GpRow).itemName ?? "—")}
@@ -318,6 +345,7 @@ export function LedgerTable(props: Props) {
   return (
     <>
       {error && <p className="mb-2 text-sm text-red-400">{error}</p>}
+      {notice && <p className="mb-2 text-sm text-amber-300">{notice}</p>}
 
       <div className="flex flex-col gap-2 sm:hidden">
         {sorted.map(renderMobileCard)}
@@ -475,7 +503,10 @@ export function LedgerTable(props: Props) {
                           <td className="px-3 py-2 text-neutral-400">{(r as GpRow).tier}</td>
                         </>
                       )}
-                      <td className={`px-3 py-2 font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>{r.points}</td>
+                      <td className={`whitespace-nowrap px-3 py-2 font-medium ${r.points < 0 ? "text-red-400" : "text-emerald-400"}`}>
+                        {r.points}
+                        <CappedTag row={r} />
+                      </td>
                       <td className="px-3 py-2 text-neutral-500">{r.source}</td>
                       <td className="px-3 py-2 text-neutral-500">{r.enteredByName ?? "—"}</td>
                       <td className="max-w-[16rem] truncate px-3 py-2 text-neutral-500" title={r.note ?? undefined}>

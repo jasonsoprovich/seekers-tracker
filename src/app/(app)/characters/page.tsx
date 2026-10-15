@@ -14,6 +14,9 @@ import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 import { ACTIVITY_WINDOWS, getOwnedAccountActivitySummaries } from "@/lib/epgp/account-activity";
+import { CycleEpMeter } from "@/components/epgp/CycleEpMeter";
+import { getCurrentCycleEp } from "@/lib/epgp/ep-cap";
+import { ledgerDate } from "@/lib/format-date";
 
 const CHAR_TYPE_LABEL = { main: "Main", alt: "Alt", mule: "Mule" } as const;
 
@@ -38,6 +41,10 @@ export default async function CharactersPage() {
       .orderBy(characterClaims.createdAt),
     getOwnedAccountActivitySummaries(db, session.user.id),
   ]);
+
+  const now = new Date();
+  const cycleEp = activitySummaries.length > 0 ? await getCurrentCycleEp(db, activitySummaries.map((s) => s.playerId), now) : null;
+  const cycleEndsLabel = cycleEp && cycleEp.cycle.endDate.getTime() >= now.getTime() - 86_400_000 ? ledgerDate(cycleEp.cycle.endDate) : null;
 
   const flagRows =
     rows.length === 0
@@ -126,7 +133,9 @@ export default async function CharactersPage() {
       {activitySummaries.length > 0 && (
         <section className="mb-6" aria-labelledby="activity-summary-heading">
           <h2 id="activity-summary-heading" className="mb-2 text-lg font-semibold">Activity summary</h2>
-          <p className="mb-3 text-sm text-neutral-500">Gross positive EP gained and GP spent, grouped by your player account.</p>
+          <p className="mb-3 text-sm text-neutral-500">
+            EP earned this cycle against the cycle cap, plus gross positive EP gained and GP spent, grouped by your player account.
+          </p>
           <div className="space-y-3">
             {activitySummaries.map((summary) => {
               const mainName = summary.mainCharacterId ? rows.find((character) => character.id === summary.mainCharacterId)?.name : null;
@@ -135,6 +144,16 @@ export default async function CharactersPage() {
                   <div className="border-b border-border px-4 py-2.5">
                     <h3 className="font-medium">{mainName ?? summary.displayName}</h3>
                   </div>
+                  {cycleEp && (
+                    <div className="border-b border-border px-4 py-3">
+                      <CycleEpMeter
+                        used={cycleEp.usedByPlayer.get(summary.playerId) ?? 0}
+                        cap={cycleEp.cap}
+                        cycleNumber={cycleEp.cycle.cycleNumber}
+                        endsLabel={cycleEndsLabel}
+                      />
+                    </div>
+                  )}
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-5 gap-y-2 px-4 py-3 text-sm">
                     <span className="text-[11px] uppercase tracking-wide text-neutral-500">Window</span>
                     <span className="text-right text-[11px] uppercase tracking-wide text-neutral-500">EP gained</span>

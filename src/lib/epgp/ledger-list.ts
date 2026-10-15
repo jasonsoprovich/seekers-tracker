@@ -11,6 +11,10 @@ export type EpLedgerRow = {
   occurredAt: Date;
   activity: string;
   points: number;
+  // What the activity was worth before the per-cycle cap; differs from
+  // `points` only on a capped row (null on pre-Phase-3 rows).
+  pointsNominal: number | null;
+  capApplied: boolean;
   note: string | null;
   zone: string | null;
   raidDate: string | null;
@@ -96,6 +100,8 @@ export async function listLedgerRows(
         occurredAt: epLedger.occurredAt,
         activity: epLedger.activity,
         points: epLedger.points,
+        pointsNominal: epLedger.pointsNominal,
+        capApplied: epLedger.capApplied,
         note: epLedger.note,
         zone: epLedger.zone,
         raidDate: epLedger.raidDate,

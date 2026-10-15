@@ -11,3 +11,12 @@ test("Your Characters shows server-derived account activity windows", async ({ p
   await expect(page.getByText("EP gained", { exact: true })).toBeVisible();
   await expect(page.getByText("GP spent", { exact: true })).toBeVisible();
 });
+
+test("Your Characters shows EP earned this cycle against the cap", async ({ page }) => {
+  await page.goto("/characters");
+  const meter = page.getByRole("meter", { name: "EP earned this cycle" }).first();
+  await expect(meter).toBeVisible();
+  await expect(page.getByText(/^This cycle/).first()).toBeVisible();
+  await expect(page.getByText(/\d+ \/ \d+ EP/).first()).toBeVisible();
+  await expect(page.getByText(/EP left before the cap|At the cycle cap/).first()).toBeVisible();
+});
