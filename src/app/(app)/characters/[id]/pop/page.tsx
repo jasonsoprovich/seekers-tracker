@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { CharacterHeader } from "@/components/character/CharacterHeader";
@@ -30,7 +31,8 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
   const canManage = await canManageCharacter(character, session.user.id);
 
   const rows = await db.select().from(characterPopFlags).where(eq(characterPopFlags.characterId, characterId));
-  const resolved = resolveFlags(rows.map((r) => ({ flagId: r.flagId, done: r.done, source: r.source })));
+  const states = rows.map((r) => ({ flagId: r.flagId, done: r.done, source: r.source }));
+  const resolved = resolveFlags(states);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -54,13 +56,20 @@ export default async function CharacterFlagsPage({ params }: { params: Promise<{
       )}
 
       <Card className="mt-4 px-4 py-3">
-        <p className="mb-1 text-xs tracking-wider text-neutral-500 uppercase">PoP progress</p>
+        <div className="mb-1 flex items-center justify-between gap-4">
+          <p className="text-xs tracking-wider text-neutral-500 uppercase">PoP progress</p>
+          {canManage && (
+            <Link href={`/characters/${character.id}/import?tab=pqc`} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
+              Import from pq-companion
+            </Link>
+          )}
+        </div>
         <ProgressBar done={resolved.done} total={resolved.total} height="md" />
       </Card>
       </div>
 
       <div className="mt-6">
-        <PopFlagChecklist characterId={character.id} flags={resolved.flags} tiers={resolved.tiers} readOnly={!canManage} />
+        <PopFlagChecklist characterId={character.id} states={states} readOnly={!canManage} />
       </div>
     </div>
   );

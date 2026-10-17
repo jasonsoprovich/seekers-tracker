@@ -89,6 +89,9 @@ export type SyncedOccupant = { container: string; slotIndex: number; itemId: num
 // true once a real sync of this holder has already failed to match it
 // (needs review), false while it's simply pending its holder's first sync.
 export type UnverifiedContentEntry = {
+  // The bank_holdings row id — lets the officer app remove a reviewed row
+  // (POST /api/officer/bank/unverified), 2026-10-17.
+  id: number;
   itemName: string;
   itemId: number | null;
   quantity: number;
@@ -161,6 +164,7 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
       .where(and(eq(bankHoldings.source, "import"), isNotNull(bankHoldings.importId))),
     db
       .select({
+        id: bankHoldings.id,
         holderCharacterId: bankHoldings.holderCharacterId,
         itemName: bankHoldings.itemName,
         itemId: bankHoldings.itemId,
@@ -242,6 +246,7 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
   for (const row of unverifiedRows) {
     const list = unverifiedContents.get(row.holderCharacterId) ?? [];
     list.push({
+      id: row.id,
       itemName: row.itemName,
       itemId: row.itemId,
       quantity: row.quantity,
@@ -607,6 +612,28 @@ export function reconcileUnverified(unverified: UnverifiedHoldingRow[], incoming
   return outcomes;
 }
 
+// Was the position an unverified row was listed at actually part of this
+// sync? Found 2026-10-17: Darkclaw had synced only Bank1-6 + Bank8, and
+// Darkseller nothing at all, yet every sheet row anywhere on them was
+// flagged "needs review" — 211 of 227 sat in bags the sync never looked
+// at. A row is only "not found" when its listed bag (or slot) was synced
+// and the item wasn't there; otherwise it just stays unverified until that
+// bag is flagged and synced. null = no usable location (a manual row, or
+// an unparseable sheet value) — treated as in scope, the old behavior.
+export function legacyPositionSynced(legacyLocation: string | null, holder: SyncHolderInput, config: BankSyncConfig): boolean | null {
+  const m = legacyLocation?.trim().match(/^([A-Za-z]+\d+)(?:-Slot(\d+))?$/);
+  if (!m) return null;
+  const container = m[1];
+  const slotIndex = m[2] ? Number(m[2]) : 0;
+  if (isValidSharedContainer(container)) {
+    if (!holder.reportsSharedBank) return false;
+    const account = config.accountByCharacterId.get(holder.characterId);
+    return designationMatches(account ? (config.sharedDesignations.get(account.id) ?? []) : [], container, slotIndex);
+  }
+  if (!isValidPersonalContainer(container)) return null;
+  return designationMatches(config.personalDesignations.get(holder.characterId) ?? [], container, slotIndex);
+}
+
 // Every unverified (sheet/manual) row for a holder — the pool
 // reconcileUnverified matches an incoming sync against. Excludes currency
 // (purged everywhere, migration 0050) same as every other bank query.
@@ -823,6 +850,14 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
     for (const outcome of reconciled) {
       if (outcome.kind === "not_found") {
         const row = unverifiedById.get(outcome.unverifiedId)!;
+        // Its bag wasn't part of this sync: not evidence the item is gone.
+        // Clears a flag an earlier (pre-2026-10-17) sync set regardless.
+        if (legacyPositionSynced(row.legacyLocation, holder, config) === false) {
+          if (row.notFoundSince !== null) {
+            statements.push(db.update(bankHoldings).set({ notFoundSince: null, updatedAt: new Date() }).where(eq(bankHoldings.id, row.id)));
+          }
+          continue;
+        }
         // Reported in the diff every time (so "Not found: M" always
         // reflects the full current state), regardless of whether this is
         // the first sync to notice or the tenth.
@@ -895,7 +930,7 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
 // query and the same reconciliation pass (so the officer app's Preview
 // dialog can show "Verified from sheet: N / Not found: M" before the
 // officer commits to anything), but writes nothing.
-export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<ApplySyncResult> {
+export async function previewSync(db: Db, holders: SyncHolderInput[], config: BankSyncConfig): Promise<ApplySyncResult> {
   const diffs: HolderDiff[] = [];
   for (const holder of holders) {
     const existing = await fetchVerifiedHoldings(db, holder.characterId);
@@ -909,6 +944,7 @@ export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<A
     for (const outcome of reconciled) {
       if (outcome.kind === "not_found") {
         const row = unverifiedById.get(outcome.unverifiedId)!;
+        if (legacyPositionSynced(row.legacyLocation, holder, config) === false) continue;
         diff.notFound!.push({ container: row.container, slotIndex: row.slotIndex, itemName: row.itemName, quantity: row.quantity });
       } else {
         const { matchedRow, consumedQuantity } = outcome.match;
@@ -942,7 +978,16 @@ export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<A
 // button is deliberately gone — too easy to wipe the whole sheet by
 // accident; per-holder (or per-item) removal, each with its own note, is
 // the only path now.
-export type RemoveUnverifiedTarget = { kind: "row"; id: number } | { kind: "holder"; holderCharacterId: number };
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+export type RemoveUnverifiedTarget =
+  | { kind: "row"; id: number }
+  | { kind: "rows"; ids: number[] }
+  | { kind: "holder"; holderCharacterId: number };
 
 export async function removeUnverifiedHoldings(
   db: Db,
@@ -954,12 +999,16 @@ export async function removeUnverifiedHoldings(
   if (!trimmedNote) return { removed: 0, error: "A note is required — say who received the item, or why it's being removed." };
 
   const unverifiedClause = or(eq(bankHoldings.source, "manual"), and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId)));
-  const whereClause =
+  // "rows" (the officer app's review list) is chunked: D1 caps a statement
+  // at 100 bound parameters.
+  const whereClauses =
     target.kind === "row"
-      ? and(eq(bankHoldings.id, target.id), ne(bankHoldings.category, "currency"), unverifiedClause)
-      : and(eq(bankHoldings.holderCharacterId, target.holderCharacterId), ne(bankHoldings.category, "currency"), unverifiedClause);
+      ? [and(eq(bankHoldings.id, target.id), ne(bankHoldings.category, "currency"), unverifiedClause)]
+      : target.kind === "rows"
+        ? chunk([...new Set(target.ids)], 90).map((ids) => and(inArray(bankHoldings.id, ids), ne(bankHoldings.category, "currency"), unverifiedClause))
+        : [and(eq(bankHoldings.holderCharacterId, target.holderCharacterId), ne(bankHoldings.category, "currency"), unverifiedClause)];
 
-  const rows = await db.select().from(bankHoldings).where(whereClause);
+  const rows = (await Promise.all(whereClauses.map((w) => db.select().from(bankHoldings).where(w)))).flat();
   if (rows.length === 0) return { removed: 0 };
 
   const batchId = rows.length > 1 ? `retire:${crypto.randomUUID()}` : null;
@@ -976,7 +1025,7 @@ export async function removeUnverifiedHoldings(
     batchId,
   }));
 
-  await db.batch([db.delete(bankHoldings).where(whereClause), ...bankAuditStatements(db, auditRows)] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  await db.batch([...whereClauses.map((w) => db.delete(bankHoldings).where(w)), ...bankAuditStatements(db, auditRows)] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
   return { removed: rows.length };
 }

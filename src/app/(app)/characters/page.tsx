@@ -46,6 +46,12 @@ export default async function CharactersPage() {
   const cycleEp = activitySummaries.length > 0 ? await getCurrentCycleEp(db, activitySummaries.map((s) => s.playerId), now) : null;
   const cycleEndsLabel = cycleEp && cycleEp.cycle.endDate.getTime() >= now.getTime() - 86_400_000 ? ledgerDate(cycleEp.cycle.endDate) : null;
 
+  // Same order as the account page (characters/[id]/account): the main
+  // first, then alts, then mules, each alphabetical.
+  const mainIds = new Set(activitySummaries.map((s) => s.mainCharacterId).filter((id) => id !== null));
+  const typeRank = (c: (typeof rows)[number]) => (mainIds.has(c.id) || c.charType === "main" ? 0 : c.charType === "mule" ? 2 : 1);
+  rows.sort((a, b) => typeRank(a) - typeRank(b) || a.name.localeCompare(b.name));
+
   const flagRows =
     rows.length === 0
       ? []

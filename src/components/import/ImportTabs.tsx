@@ -19,8 +19,8 @@ type TabKey = (typeof TABS)[number]["key"];
 // rendering — each import form keeps its result summary in useActionState,
 // and unmounting on tab-switch would discard a just-completed import's
 // result the moment the member looked at another tab.
-export function ImportTabs({ pqc, popflags, seer }: { pqc: ReactNode; popflags: ReactNode; seer: ReactNode }) {
-  const [active, setActive] = useState<TabKey>("popflags");
+export function ImportTabs({ pqc, popflags, seer, initialTab }: { pqc: ReactNode; popflags: ReactNode; seer: ReactNode; initialTab?: string }) {
+  const [active, setActive] = useState<TabKey>(TABS.find((t) => t.key === initialTab)?.key ?? "popflags");
   const panels: Record<TabKey, ReactNode> = { pqc, popflags, seer };
 
   return (

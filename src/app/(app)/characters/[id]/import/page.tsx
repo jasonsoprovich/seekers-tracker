@@ -13,8 +13,15 @@ import { ImportTabs } from "@/components/import/ImportTabs";
 
 import { importPopFlagsText, importPqCompanionExport, importSeerText } from "./actions";
 
-export default async function ImportSeerPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ImportSeerPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const { id } = await params;
+  const { tab } = await searchParams;
   const characterId = Number(id);
   if (!Number.isInteger(characterId)) notFound();
 
@@ -42,6 +49,7 @@ export default async function ImportSeerPage({ params }: { params: Promise<{ id:
       />
 
       <ImportTabs
+        initialTab={tab}
         pqc={
           <div className="flex flex-col gap-4">
             <p className="max-w-xl text-sm text-neutral-400">

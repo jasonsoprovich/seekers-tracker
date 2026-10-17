@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { setManualFlag } from "@/app/(app)/characters/[id]/actions";
@@ -8,7 +8,7 @@ import PopFlagFlow from "@/components/PopFlagFlow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { PopFlagRow } from "@/components/PopFlagRow";
-import { MANUAL_META, type FlagStatus, type Progress } from "@/lib/pop-flags";
+import { MANUAL_META, resolveFlags, type FlagState, type FlagStatus, type Progress } from "@/lib/pop-flags";
 
 function TierSection({
   progress,
@@ -79,20 +79,35 @@ function TierSection({
   );
 }
 
+// Takes the character's raw stored rows and resolves them here (the same
+// pure resolveFlags the server uses) so a check-off shows instantly: the
+// click updates local state, the save runs behind it, and a failed save
+// rolls the row back. Waiting on the save + a full page refresh before
+// showing the check took several seconds per click.
 export function PopFlagChecklist({
   characterId,
-  flags,
-  tiers,
+  states,
   readOnly = false,
 }: {
   characterId: number;
-  flags: FlagStatus[];
-  tiers: Progress[];
+  states: FlagState[];
   readOnly?: boolean;
 }) {
   const router = useRouter();
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [, startRefresh] = useTransition();
+  const [localStates, setLocalStates] = useState(states);
   const [error, setError] = useState<string | null>(null);
+  // A server refresh replaces the local copy — but not while a save is
+  // still in flight, or a refresh from an earlier click would briefly undo
+  // a later one.
+  const pendingSaves = useRef(0);
+  useEffect(() => {
+    if (pendingSaves.current === 0) setLocalStates(states);
+  }, [states]);
+  const { flags, tiers } = useMemo(() => resolveFlags(localStates), [localStates]);
+  // Never disables a row while saving — the next click can go straight
+  // in (server actions run one at a time, in order).
+  const busyId: string | null = null;
   const [view, setView] = useState<"checklist" | "flow">("checklist");
 
   // Remembered per browser; read after mount so SSR markup stays stable.
@@ -126,17 +141,26 @@ export function PopFlagChecklist({
     return tiers.map((t) => ({ progress: t, flags: m.get(t.tier ?? 0) ?? [] }));
   }, [flags, tiers]);
 
+  function setLocal(flagId: string, done: boolean, source: string) {
+    setLocalStates((prev) => [...prev.filter((s) => s.flagId !== flagId), { flagId, done, source }]);
+  }
+
   async function onToggle(flag: FlagStatus) {
     if (readOnly) return;
-    setBusyId(flag.id);
+    const prior = localStates.find((s) => s.flagId === flag.id);
+    const done = !flag.done;
     setError(null);
-    const result = await setManualFlag(characterId, flag.id, !flag.done);
-    setBusyId(null);
+    setLocal(flag.id, done, "manual");
+    pendingSaves.current += 1;
+    const result = await setManualFlag(characterId, flag.id, done).catch(() => ({ error: "Couldn't save — check your connection and try again." }));
+    pendingSaves.current -= 1;
     if (result.error) {
+      setLocalStates((prev) => [...prev.filter((s) => s.flagId !== flag.id), ...(prior ? [prior] : [])]);
       setError(result.error);
       return;
     }
-    router.refresh();
+    // Updates the page's progress card; the checklist already shows it.
+    startRefresh(() => router.refresh());
   }
 
   return (
