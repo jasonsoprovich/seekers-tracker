@@ -143,7 +143,9 @@ export async function removeUnverifiedHoldingAction(target: RemoveUnverifiedTarg
       summary:
         target.kind === "row"
           ? `Removed unverified bank item #${target.id} (${note})`
-          : `Removed all remaining unverified bank rows for character #${target.holderCharacterId} (${result.removed} row(s), ${note})`,
+          : target.kind === "rows"
+            ? `Removed ${result.removed} unverified bank row(s) (${note})`
+            : `Removed all remaining unverified bank rows for character #${target.holderCharacterId} (${result.removed} row(s), ${note})`,
     });
   }
   return result;

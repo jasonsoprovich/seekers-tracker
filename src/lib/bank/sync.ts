@@ -89,6 +89,9 @@ export type SyncedOccupant = { container: string; slotIndex: number; itemId: num
 // true once a real sync of this holder has already failed to match it
 // (needs review), false while it's simply pending its holder's first sync.
 export type UnverifiedContentEntry = {
+  // The bank_holdings row id — lets the officer app remove a reviewed row
+  // (POST /api/officer/bank/unverified), 2026-10-17.
+  id: number;
   itemName: string;
   itemId: number | null;
   quantity: number;
@@ -161,6 +164,7 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
       .where(and(eq(bankHoldings.source, "import"), isNotNull(bankHoldings.importId))),
     db
       .select({
+        id: bankHoldings.id,
         holderCharacterId: bankHoldings.holderCharacterId,
         itemName: bankHoldings.itemName,
         itemId: bankHoldings.itemId,
@@ -242,6 +246,7 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
   for (const row of unverifiedRows) {
     const list = unverifiedContents.get(row.holderCharacterId) ?? [];
     list.push({
+      id: row.id,
       itemName: row.itemName,
       itemId: row.itemId,
       quantity: row.quantity,
@@ -973,7 +978,16 @@ export async function previewSync(db: Db, holders: SyncHolderInput[], config: Ba
 // button is deliberately gone — too easy to wipe the whole sheet by
 // accident; per-holder (or per-item) removal, each with its own note, is
 // the only path now.
-export type RemoveUnverifiedTarget = { kind: "row"; id: number } | { kind: "holder"; holderCharacterId: number };
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+export type RemoveUnverifiedTarget =
+  | { kind: "row"; id: number }
+  | { kind: "rows"; ids: number[] }
+  | { kind: "holder"; holderCharacterId: number };
 
 export async function removeUnverifiedHoldings(
   db: Db,
@@ -985,12 +999,16 @@ export async function removeUnverifiedHoldings(
   if (!trimmedNote) return { removed: 0, error: "A note is required — say who received the item, or why it's being removed." };
 
   const unverifiedClause = or(eq(bankHoldings.source, "manual"), and(eq(bankHoldings.source, "import"), isNull(bankHoldings.importId)));
-  const whereClause =
+  // "rows" (the officer app's review list) is chunked: D1 caps a statement
+  // at 100 bound parameters.
+  const whereClauses =
     target.kind === "row"
-      ? and(eq(bankHoldings.id, target.id), ne(bankHoldings.category, "currency"), unverifiedClause)
-      : and(eq(bankHoldings.holderCharacterId, target.holderCharacterId), ne(bankHoldings.category, "currency"), unverifiedClause);
+      ? [and(eq(bankHoldings.id, target.id), ne(bankHoldings.category, "currency"), unverifiedClause)]
+      : target.kind === "rows"
+        ? chunk([...new Set(target.ids)], 90).map((ids) => and(inArray(bankHoldings.id, ids), ne(bankHoldings.category, "currency"), unverifiedClause))
+        : [and(eq(bankHoldings.holderCharacterId, target.holderCharacterId), ne(bankHoldings.category, "currency"), unverifiedClause)];
 
-  const rows = await db.select().from(bankHoldings).where(whereClause);
+  const rows = (await Promise.all(whereClauses.map((w) => db.select().from(bankHoldings).where(w)))).flat();
   if (rows.length === 0) return { removed: 0 };
 
   const batchId = rows.length > 1 ? `retire:${crypto.randomUUID()}` : null;
@@ -1007,7 +1025,7 @@ export async function removeUnverifiedHoldings(
     batchId,
   }));
 
-  await db.batch([db.delete(bankHoldings).where(whereClause), ...bankAuditStatements(db, auditRows)] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  await db.batch([...whereClauses.map((w) => db.delete(bankHoldings).where(w)), ...bankAuditStatements(db, auditRows)] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
   return { removed: rows.length };
 }
