@@ -607,6 +607,28 @@ export function reconcileUnverified(unverified: UnverifiedHoldingRow[], incoming
   return outcomes;
 }
 
+// Was the position an unverified row was listed at actually part of this
+// sync? Found 2026-10-17: Darkclaw had synced only Bank1-6 + Bank8, and
+// Darkseller nothing at all, yet every sheet row anywhere on them was
+// flagged "needs review" — 211 of 227 sat in bags the sync never looked
+// at. A row is only "not found" when its listed bag (or slot) was synced
+// and the item wasn't there; otherwise it just stays unverified until that
+// bag is flagged and synced. null = no usable location (a manual row, or
+// an unparseable sheet value) — treated as in scope, the old behavior.
+export function legacyPositionSynced(legacyLocation: string | null, holder: SyncHolderInput, config: BankSyncConfig): boolean | null {
+  const m = legacyLocation?.trim().match(/^([A-Za-z]+\d+)(?:-Slot(\d+))?$/);
+  if (!m) return null;
+  const container = m[1];
+  const slotIndex = m[2] ? Number(m[2]) : 0;
+  if (isValidSharedContainer(container)) {
+    if (!holder.reportsSharedBank) return false;
+    const account = config.accountByCharacterId.get(holder.characterId);
+    return designationMatches(account ? (config.sharedDesignations.get(account.id) ?? []) : [], container, slotIndex);
+  }
+  if (!isValidPersonalContainer(container)) return null;
+  return designationMatches(config.personalDesignations.get(holder.characterId) ?? [], container, slotIndex);
+}
+
 // Every unverified (sheet/manual) row for a holder — the pool
 // reconcileUnverified matches an incoming sync against. Excludes currency
 // (purged everywhere, migration 0050) same as every other bank query.
@@ -823,6 +845,14 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
     for (const outcome of reconciled) {
       if (outcome.kind === "not_found") {
         const row = unverifiedById.get(outcome.unverifiedId)!;
+        // Its bag wasn't part of this sync: not evidence the item is gone.
+        // Clears a flag an earlier (pre-2026-10-17) sync set regardless.
+        if (legacyPositionSynced(row.legacyLocation, holder, config) === false) {
+          if (row.notFoundSince !== null) {
+            statements.push(db.update(bankHoldings).set({ notFoundSince: null, updatedAt: new Date() }).where(eq(bankHoldings.id, row.id)));
+          }
+          continue;
+        }
         // Reported in the diff every time (so "Not found: M" always
         // reflects the full current state), regardless of whether this is
         // the first sync to notice or the tenth.
@@ -895,7 +925,7 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
 // query and the same reconciliation pass (so the officer app's Preview
 // dialog can show "Verified from sheet: N / Not found: M" before the
 // officer commits to anything), but writes nothing.
-export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<ApplySyncResult> {
+export async function previewSync(db: Db, holders: SyncHolderInput[], config: BankSyncConfig): Promise<ApplySyncResult> {
   const diffs: HolderDiff[] = [];
   for (const holder of holders) {
     const existing = await fetchVerifiedHoldings(db, holder.characterId);
@@ -909,6 +939,7 @@ export async function previewSync(db: Db, holders: SyncHolderInput[]): Promise<A
     for (const outcome of reconciled) {
       if (outcome.kind === "not_found") {
         const row = unverifiedById.get(outcome.unverifiedId)!;
+        if (legacyPositionSynced(row.legacyLocation, holder, config) === false) continue;
         diff.notFound!.push({ container: row.container, slotIndex: row.slotIndex, itemName: row.itemName, quantity: row.quantity });
       } else {
         const { matchedRow, consumedQuantity } = outcome.match;

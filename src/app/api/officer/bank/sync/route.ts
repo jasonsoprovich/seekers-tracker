@@ -139,7 +139,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "One or more rows are not designated as guild bank.", details: validationErrors }, { status: 422 });
   }
 
-  const result = body.dryRun ? await previewSync(db, holders) : await applySync(db, auth.userId, holders, config);
+  const result = body.dryRun ? await previewSync(db, holders, config) : await applySync(db, auth.userId, holders, config);
 
   if (!body.dryRun) {
     const actor = await officerApiActor(db, auth.userId);

@@ -334,6 +334,22 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Member UI feedback + bank review noise, 2026-10-17 (branch
+`feature/member-ui-feedback-10-17`; no migration; not yet deployed).**
+- Your Characters ordered main → alts → mules; PoP Progression "Update your
+  flags" links; "Import from pq-companion" on the PoP tab (`?tab=pqc`).
+- PoP check-off is optimistic: `PopFlagChecklist` takes raw `states` and runs
+  `resolveFlags` client-side; failed save rolls back.
+- `(app)/loading.tsx` — instant skeleton on in-app navigation (there was no
+  loading state at all; Workers Logs showed server start times of 5-30 ms, cold
+  isolates 0.3-0.9 s CPU).
+- **Bank "needs review" only for synced bags** (`legacyPositionSynced`,
+  sync.ts): prod had 227 not-found rows after Darkclaw's 10/15 re-sync, but 211
+  were listed in bags that were never flagged/synced (Darkclaw synced only
+  Bank1-6 + Bank8; Darkseller nothing). Such rows now stay "unverified" and any
+  old flag is cleared on the holder's next sync; rows with no parseable
+  location keep the old behavior. `previewSync` now takes `config`.
+
 **Cycle EP cap — visibility + edit enforcement, 2026-10-14 (branch
 `feature/cycle-ep-cap-display`; no migration; not yet deployed).** A member
 asked to see EP earned this cycle vs the cap. The cap itself was already
