@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { PopProgressionView, type ProgressionRow } from "@/components/progression/PopProgressionView";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { characterPopFlags, characters, users } from "@/db";
+import { characterPopFlags, characters, players, users } from "@/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getZoneCatalog, resolveFlags, tierLabel, zoneStatuses } from "@/lib/pop-flags";
 import { getDb } from "@/lib/db";
@@ -30,6 +31,7 @@ export default async function ProgressionPage() {
       // "Recently active" default so 790 rows aren't rendered at once.
       lastActivityAt: characters.lastActivityAt,
       ownerUsername: users.username,
+      ownerId: characters.ownerId,
     })
     .from(characters)
     .leftJoin(users, eq(characters.ownerId, users.id))
@@ -65,12 +67,39 @@ export default async function ProgressionPage() {
     };
   });
 
+  // Shortcut to the viewer's own checklists — this page is read-only, the
+  // editing happens on each character's PoP tab. Main first, then alts,
+  // then mules (same order as /characters).
+  const [myPlayer] = await db
+    .select({ mainCharacterId: players.mainCharacterId })
+    .from(players)
+    .where(eq(players.userId, session.user.id));
+  const typeRank = (c: (typeof allCharacters)[number]) =>
+    c.id === myPlayer?.mainCharacterId || c.charType === "main" ? 0 : c.charType === "mule" ? 2 : 1;
+  const mine = allCharacters
+    .filter((c) => c.ownerId === session.user.id && c.status !== "removed")
+    .sort((a, b) => typeRank(a) - typeRank(b) || a.name.localeCompare(b.name));
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="PoP Progression"
         subtitle="Every character's Planes of Power flagging, at a glance — search, filter, and see which zones are unlocked."
       />
+      {mine.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-neutral-400">Update your flags:</span>
+          {mine.map((c) => (
+            <Link
+              key={c.id}
+              href={`/characters/${c.id}/pop`}
+              className="rounded-md border border-border px-2.5 py-1 font-medium text-emerald-400 hover:border-emerald-700 hover:text-emerald-300"
+            >
+              {c.name}
+            </Link>
+          ))}
+        </div>
+      )}
       <PopProgressionView rows={rows} zoneCatalog={getZoneCatalog()} nowMs={Date.now()} />
     </div>
   );
