@@ -538,7 +538,7 @@ export type ReconcileOutcome = { kind: "matched"; match: ReconcileMatch } | { ki
 // own call: "we need to be careful of how this is handled... but we need
 // to be able to distinguish items that are not from an app bank sync."
 //
-// Two passes per unverified row, first match wins, quantity consumed from
+// Two kinds of pass (each run across all rows, see below), quantity consumed from
 // a shared per-incoming-row remaining pool so one small incoming stack
 // can't be double-counted as confirming several different oversized sheet
 // entries of the same name:
@@ -563,53 +563,49 @@ export type ReconcileOutcome = { kind: "matched"; match: ReconcileMatch } | { ki
 // actually found. Harmless — it only ever converges toward fully verified,
 // never toward false removal — and every step is its own audited 'verify'
 // row, so the trail stays honest even if the pacing looks odd.
-export function reconcileUnverified(unverified: UnverifiedHoldingRow[], incoming: SyncRowInput[]): ReconcileOutcome[] {
+export function reconcileUnverified(
+  unverified: UnverifiedHoldingRow[],
+  incoming: SyncRowInput[],
+  inScope: (row: UnverifiedHoldingRow) => boolean = () => true,
+): ReconcileOutcome[] {
   const incomingRemaining = incoming.map((r) => r.quantity);
-  const outcomes: ReconcileOutcome[] = [];
 
   // Stable order (by id) so results are deterministic and testable.
   const sorted = [...unverified].sort((a, b) => a.id - b.id);
+  const state = sorted.map((u) => ({ u, remaining: u.quantity, consumed: 0, matchedRow: null as SyncRowInput | null }));
 
-  for (const u of sorted) {
-    let remaining = u.quantity;
-    let matchedRow: SyncRowInput | null = null;
-    let consumed = 0;
-
-    if (u.legacyLocation) {
-      for (let i = 0; i < incoming.length && remaining > 0; i++) {
-        if (incomingRemaining[i] <= 0) continue;
-        const row = incoming[i];
-        if (normalizeItemName(row.itemName) !== normalizeItemName(u.itemName)) continue;
-        if (formatIncomingLocation(row) !== u.legacyLocation) continue;
-        const take = Math.min(remaining, incomingRemaining[i]);
-        incomingRemaining[i] -= take;
-        remaining -= take;
-        consumed += take;
-        matchedRow = matchedRow ?? row;
-      }
+  const claim = (s: (typeof state)[number], mode: "exact" | "name") => {
+    const want = normalizeItemName(s.u.itemName);
+    for (let i = 0; i < incoming.length && s.remaining > 0; i++) {
+      if (incomingRemaining[i] <= 0) continue;
+      const row = incoming[i];
+      if (normalizeItemName(row.itemName) !== want) continue;
+      if (mode === "exact" && formatIncomingLocation(row) !== s.u.legacyLocation) continue;
+      const take = Math.min(s.remaining, incomingRemaining[i]);
+      incomingRemaining[i] -= take;
+      s.remaining -= take;
+      s.consumed += take;
+      s.matchedRow = s.matchedRow ?? row;
     }
+  };
 
-    if (remaining > 0) {
-      for (let i = 0; i < incoming.length && remaining > 0; i++) {
-        if (incomingRemaining[i] <= 0) continue;
-        const row = incoming[i];
-        if (normalizeItemName(row.itemName) !== normalizeItemName(u.itemName)) continue;
-        const take = Math.min(remaining, incomingRemaining[i]);
-        incomingRemaining[i] -= take;
-        remaining -= take;
-        consumed += take;
-        matchedRow = matchedRow ?? row;
-      }
-    }
+  // Each pass runs over EVERY row before the next pass starts. Found
+  // 2026-10-21 replaying Darkclaw's real export against the sheet: running
+  // both passes row-by-row let an earlier row's name-only pass take the
+  // item sitting in a later row's exact listed slot, so that later row —
+  // whose item was right where the sheet said — got flagged "not found".
+  // Rows whose listed bag was synced go before rows whose bag wasn't in
+  // the name-only pass: an out-of-scope row that misses just stays plain
+  // unverified, an in-scope one would be flagged.
+  for (const s of state) if (s.u.legacyLocation) claim(s, "exact");
+  for (const s of state) if (inScope(s.u)) claim(s, "name");
+  for (const s of state) if (!inScope(s.u)) claim(s, "name");
 
-    if (matchedRow && consumed > 0) {
-      outcomes.push({ kind: "matched", match: { unverifiedId: u.id, matchedRow, consumedQuantity: consumed, remainingQuantity: remaining } });
-    } else {
-      outcomes.push({ kind: "not_found", unverifiedId: u.id });
-    }
-  }
-
-  return outcomes;
+  return state.map((s) =>
+    s.matchedRow && s.consumed > 0
+      ? { kind: "matched", match: { unverifiedId: s.u.id, matchedRow: s.matchedRow, consumedQuantity: s.consumed, remainingQuantity: s.remaining } }
+      : { kind: "not_found", unverifiedId: s.u.id },
+  );
 }
 
 // Was the position an unverified row was listed at actually part of this
@@ -754,7 +750,7 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
   for (const holder of holders) {
     const existing = await fetchVerifiedHoldings(db, holder.characterId);
     const unverified = await fetchUnverifiedHoldings(db, holder.characterId);
-    const reconciled = reconcileUnverified(unverified, holder.rows);
+    const reconciled = reconcileUnverified(unverified, holder.rows, (u) => legacyPositionSynced(u.legacyLocation, holder, config) !== false);
     const unverifiedById = new Map(unverified.map((u) => [u.id, u]));
 
     // (container, slotIndex) keys of an incoming row that reconciliation
@@ -935,7 +931,7 @@ export async function previewSync(db: Db, holders: SyncHolderInput[], config: Ba
   for (const holder of holders) {
     const existing = await fetchVerifiedHoldings(db, holder.characterId);
     const unverified = await fetchUnverifiedHoldings(db, holder.characterId);
-    const reconciled = reconcileUnverified(unverified, holder.rows);
+    const reconciled = reconcileUnverified(unverified, holder.rows, (u) => legacyPositionSynced(u.legacyLocation, holder, config) !== false);
     const unverifiedById = new Map(unverified.map((u) => [u.id, u]));
 
     const diff = diffHolder(holder.characterId, existing, holder.rows);

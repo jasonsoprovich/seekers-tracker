@@ -655,6 +655,25 @@ async function main() {
     check(failures, outcomeFor(3)?.kind === "matched", "a sheet song is confirmed by its 'Song:'-prefixed export row");
     check(failures, outcomeFor(4)?.kind === "not_found", "an unrelated sheet spell is still reported not found");
 
+    // ---------------------------------------------------------------
+    // Scenario 11: exact-slot matches run before name-only ones — 2026-10-21.
+    // Replaying Darkclaw's real export against the sheet: sheet row 1 lists
+    // Khura's Focusing in an unsynced bag (Bank14), row 2 in Bank3-Slot1
+    // where it really is. Row 1's name-only pass used to take Bank3-Slot1
+    // first and leave row 2 "not found" with its item right there.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 11: exact-slot matches win over earlier name-only matches");
+    const orderOutcomes = reconcileUnverified(
+      [sheetRow(1, "Khura's Focusing", "Bank14-Slot8"), sheetRow(2, "Khura's Focusing", "Bank3-Slot1"), sheetRow(3, "Khura's Focusing", "Bank3-Slot2")],
+      [exportRow("Bank3", 1, "Spell: Khura's Focusing"), exportRow("Bank3", 7, "Spell: Khura's Focusing")],
+      (u) => !u.legacyLocation?.startsWith("Bank14"),
+    );
+    const orderFor = (id: number) => orderOutcomes.find((o) => (o.kind === "matched" ? o.match.unverifiedId : o.unverifiedId) === id);
+    const exact = orderFor(2);
+    check(failures, exact?.kind === "matched" && exact.match.matchedRow.slotIndex === 1, "the row listed at Bank3-Slot1 is matched by the item really sitting there");
+    check(failures, orderFor(3)?.kind === "matched", "an in-scope row gets the spare copy (Bank3-Slot7) by name before the out-of-scope row does");
+    check(failures, orderFor(1)?.kind === "not_found", "the out-of-scope Bank14 row is left unmatched (applySync keeps it plain unverified)");
+
     if (failures.n > 0) {
       console.error(`\n${failures.n} check(s) failed.`);
       process.exitCode = 1;

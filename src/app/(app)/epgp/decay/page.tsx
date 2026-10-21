@@ -81,7 +81,7 @@ export default async function EpgpDecayPage() {
         <p className="mt-1 text-sm text-neutral-400">
           10% against every character&apos;s current total, EP and GP, compounding cycle over cycle (§1c). Applied by button, not cron, because
           cycles shift a day or two — run this once per cycle end. Available regardless of the current <code>decay_model</code> setting; switch
-          that to <code>global</code> on the Settings page when you&apos;re ready to cut over so standings stop deriving the old legacy 20% haircut.
+          that to <code>global</code>{" "}on the Settings page when you&apos;re ready to cut over so standings stop deriving the old legacy 20% haircut.
         </p>
         <div className="mt-3">
           <GlobalCycleDecayForm />

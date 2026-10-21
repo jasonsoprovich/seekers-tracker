@@ -54,7 +54,7 @@ export default async function ImportSeerPage({
           <div className="flex flex-col gap-4">
             <p className="max-w-xl text-sm text-neutral-400">
               In pq-companion, open PoP Flagging and use Export, then upload the .json here. The file can contain
-              all your characters — only the one matching <strong>{character.name}</strong> is used, so repeat
+              all your characters — only the one matching <strong>{character.name}</strong>{" "}is used, so repeat
               from each character&apos;s own Import page. You&apos;ll see a preview first. It mirrors
               pq-companion&apos;s state, so flags it says aren&apos;t done will be un-checked — you must confirm
               that — and flags you set by hand on the site are kept unless you choose to overwrite them.

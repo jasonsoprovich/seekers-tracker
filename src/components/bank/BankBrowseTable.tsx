@@ -249,17 +249,28 @@ export function BankBrowseTable({
     const unverified = holdings.filter((h) => h.unverifiedState !== null);
     const notFound = holdings.filter((h) => h.unverifiedState === "not_found");
 
-    const byHolder = new Map<number, { characterId: number; name: string; total: number; unverified: number; notFound: number }>();
-    for (const h of holdings) {
-      const entry = byHolder.get(h.holderCharacterId) ?? { characterId: h.holderCharacterId, name: h.holderName, total: 0, unverified: 0, notFound: 0 };
-      entry.total += 1;
-      if (h.unverifiedState !== null) entry.unverified += 1;
+    const syncedIds = new Set(lastImports.map((i) => i.characterId));
+    const byHolder = new Map<number, { characterId: number; name: string; unverified: number; notFound: number; synced: boolean }>();
+    for (const h of unverified) {
+      const entry = byHolder.get(h.holderCharacterId) ?? {
+        characterId: h.holderCharacterId,
+        name: h.holderName,
+        unverified: 0,
+        notFound: 0,
+        synced: syncedIds.has(h.holderCharacterId),
+      };
+      entry.unverified += 1;
       if (h.unverifiedState === "not_found") entry.notFound += 1;
       byHolder.set(h.holderCharacterId, entry);
     }
-    const holders = [...byHolder.values()]
-      .filter((h) => h.unverified > 0)
-      .sort((a, b) => b.notFound - a.notFound || b.unverified - a.unverified || a.name.localeCompare(b.name));
+    const holders = [...byHolder.values()].sort((a, b) => b.notFound - a.notFound || b.unverified - a.unverified || a.name.localeCompare(b.name));
+    // 2026-10-21: split by what an officer should actually do. Only a synced
+    // holder's not-found rows need a decision; a synced holder's other rows
+    // sit in bags not flagged yet (flag + re-sync), and a never-synced
+    // holder's rows just wait for its first sync — no remove-all button
+    // there, it would wipe real inventory nobody has checked.
+    const waitingOnBags = holders.filter((h) => h.synced && h.unverified > h.notFound);
+    const neverSynced = holders.filter((h) => !h.synced);
 
     // For each not-found item, whether the same item name already exists
     // as a VERIFIED row on a different holder — a hint that it may just be
@@ -273,13 +284,43 @@ export function BankBrowseTable({
       set.add(h.holderCharacterId);
       verifiedNamesByHolder.set(key, set);
     }
-    const needsReview = notFound.map((h) => {
-      const elsewhere = [...(verifiedNamesByHolder.get(normalizeBankItemName(h.itemName)) ?? [])].filter((id) => id !== h.holderCharacterId);
-      return { row: h, alsoOn: elsewhere.map((id) => nameByCharacterId.get(id) ?? `#${id}`) };
-    });
+    // Not-found rows grouped per holder, then per item name — one line for
+    // "Brell's Mountainous Barrier ×3" instead of three near-identical rows.
+    type ReviewGroup = { key: string; itemName: string; itemId: number | null; quantity: number; ids: number[]; locations: string[]; alsoOn: string[] };
+    const reviewByHolder = new Map<number, { characterId: number; name: string; ids: number[]; groups: Map<string, ReviewGroup> }>();
+    for (const h of notFound) {
+      const holder = reviewByHolder.get(h.holderCharacterId) ?? { characterId: h.holderCharacterId, name: h.holderName, ids: [] as number[], groups: new Map<string, ReviewGroup>() };
+      const key = normalizeBankItemName(h.itemName);
+      const group = holder.groups.get(key) ?? {
+        key,
+        itemName: h.itemName,
+        itemId: h.itemId,
+        quantity: 0,
+        ids: [],
+        locations: [],
+        alsoOn: [...(verifiedNamesByHolder.get(key) ?? [])].filter((id) => id !== h.holderCharacterId).map((id) => nameByCharacterId.get(id) ?? `#${id}`),
+      };
+      group.quantity += h.quantity;
+      group.ids.push(h.id);
+      group.locations.push(formatLocation(h.container, h.slotIndex, h.legacyLocation));
+      holder.groups.set(key, group);
+      holder.ids.push(h.id);
+      reviewByHolder.set(h.holderCharacterId, holder);
+    }
+    const needsReview = [...reviewByHolder.values()]
+      .map((h) => ({ ...h, groups: [...h.groups.values()].sort((a, b) => a.itemName.localeCompare(b.itemName)) }))
+      .sort((a, b) => b.ids.length - a.ids.length || a.name.localeCompare(b.name));
 
-    return { total, verifiedCount: total - unverified.length, unverifiedCount: unverified.length, notFoundCount: notFound.length, holders, needsReview };
-  }, [holdings, nameByCharacterId]);
+    return {
+      total,
+      verifiedCount: total - unverified.length,
+      unverifiedCount: unverified.length,
+      notFoundCount: notFound.length,
+      needsReview,
+      waitingOnBags,
+      neverSynced,
+    };
+  }, [holdings, nameByCharacterId, lastImports]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -381,21 +422,23 @@ export function BankBrowseTable({
   // requires a note (server-enforced; removeUnverifiedHoldingAction
   // refuses a blank one) so the audit trail keeps saying WHY.
   async function onRemoveUnverified(
-    target: { kind: "row"; id: number } | { kind: "holder"; holderCharacterId: number },
+    target: { kind: "row"; id: number } | { kind: "rows"; ids: number[] } | { kind: "holder"; holderCharacterId: number },
     label: string,
+    key: number | string = target.kind === "row" ? target.id : target.kind === "holder" ? `holder:${target.holderCharacterId}` : `rows:${label}`,
   ): Promise<boolean> {
     const result = await confirmWith({
-      title: "Remove unverified item(s)?",
+      title: "Remove from the guild bank?",
       message:
         target.kind === "row"
           ? `Remove "${label}"? This can't be undone. Only do this for an item that's genuinely gone — not just unsynced yet.`
-          : `Remove all of ${label}'s remaining unverified bank rows? This can't be undone — do this once ${label} has synced from the app, or if ${label} will never be synced.`,
+          : target.kind === "rows"
+            ? `Remove ${label}? These are old sheet entries the last sync looked for and didn't find. This can't be undone, and the note is saved to the bank's Audit tab.`
+            : `Remove all of ${label}'s old sheet rows? Only do this if ${label} will never be synced from the officer app — otherwise sync it first and most rows confirm themselves.`,
       confirmLabel: "Remove",
       danger: true,
       textInput: { label: "Note — who received it, or why it's gone", placeholder: "Given to…" },
     });
     if (!result.ok) return false;
-    const key = target.kind === "row" ? target.id : `holder:${target.holderCharacterId}`;
     setRemovingId(key);
     const outcome = await removeUnverifiedHoldingAction(target, result.note ?? "");
     setRemovingId(null);
@@ -567,56 +610,130 @@ export function BankBrowseTable({
       {canManage && verification.unverifiedCount > 0 && (
         <details className="mb-4 rounded-lg border border-border px-4 py-2 text-sm" open={verification.notFoundCount > 0}>
           <summary className="cursor-pointer select-none text-neutral-400">
-            Verification progress — {verification.verifiedCount.toLocaleString()} of {verification.total.toLocaleString()} bank items verified
+            Old sheet cleanup — {verification.verifiedCount.toLocaleString()} of {verification.total.toLocaleString()} bank items confirmed
             {verification.notFoundCount > 0 && (
               <span className="ml-2 text-amber-400">
-                · {verification.notFoundCount} need{verification.notFoundCount === 1 ? "s" : ""} review
+                · {verification.notFoundCount} need{verification.notFoundCount === 1 ? "s" : ""} a decision
               </span>
             )}
           </summary>
 
-          <div className="mt-3 space-y-1.5">
-            {verification.holders.map((h) => (
-              <div key={h.characterId} className="flex items-center gap-2 text-neutral-500">
-                <span className="text-neutral-300">{h.name}</span>
-                <span>
-                  {h.unverified} unverified row{h.unverified === 1 ? "" : "s"}
-                  {h.notFound > 0 && <span className="text-amber-400"> ({h.notFound} not found)</span>}
-                </span>
-                <button
-                  type="button"
-                  disabled={removingId !== null}
-                  onClick={() => onRemoveUnverified({ kind: "holder", holderCharacterId: h.characterId }, h.name)}
-                  className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
-                >
-                  {removingId === `holder:${h.characterId}` ? "Removing…" : "Remove all remaining"}
-                </button>
-              </div>
-            ))}
-          </div>
+          <p className="mt-3 max-w-3xl text-neutral-400">
+            Everything from the old Google Sheet starts out unconfirmed. When a character syncs from the officer app, every sheet entry
+            that&apos;s really on that character confirms itself. You only need to act on the first list below. Everything else clears up as
+            characters get synced.
+          </p>
 
           {verification.needsReview.length > 0 && (
-            <div className="mt-4 border-t border-border pt-3">
-              <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Needs review — not found in a real sync</div>
-              <ul className="space-y-1.5">
-                {verification.needsReview.map(({ row, alsoOn }) => (
-                  <li key={row.id} className="flex items-center gap-2 text-neutral-400">
-                    <span className="text-neutral-200"><ItemLink name={row.itemName} itemId={row.itemId} /></span>
-                    <span className="text-neutral-500">
-                      ×{row.quantity} — {row.holderName} ({formatLocation(row.container, row.slotIndex, row.legacyLocation)})
-                    </span>
-                    {alsoOn.length > 0 && <span className="text-sky-400/80">also on {alsoOn.join(", ")}</span>}
-                    <button
-                      type="button"
-                      disabled={removingId !== null}
-                      onClick={() => onRemoveUnverified({ kind: "row", id: row.id }, row.itemName)}
-                      className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
-                    >
-                      {removingId === row.id ? "Removing…" : "Remove (with note)"}
-                    </button>
+            <div className="mt-4">
+              <div className="mb-1 text-xs uppercase tracking-wide text-amber-400/90">1 · Needs a decision</div>
+              <p className="mb-3 max-w-3xl text-neutral-500">
+                The character synced and these weren&apos;t in the bag the sheet listed, or anywhere else in its synced bags. Usually they were
+                handed out, used or vendored and the sheet never caught up. If one is actually in a bag that isn&apos;t flagged as guild yet,
+                flag that bag in the officer app and sync again instead. Otherwise remove it with a short note.
+              </p>
+              <div className="space-y-4">
+                {verification.needsReview.map((h) => (
+                  <div key={h.characterId}>
+                    <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="font-medium text-neutral-200">{h.name}</span>
+                      <span className="text-neutral-500">
+                        {h.ids.length} not found
+                      </span>
+                      <button
+                        type="button"
+                        disabled={removingId !== null}
+                        onClick={() =>
+                          onRemoveUnverified({ kind: "rows", ids: h.ids }, `all ${h.ids.length} of ${h.name}'s not-found item${h.ids.length === 1 ? "" : "s"}`, `review:${h.characterId}`)
+                        }
+                        className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
+                      >
+                        {removingId === `review:${h.characterId}` ? "Removing…" : `Remove all ${h.ids.length}…`}
+                      </button>
+                    </div>
+                    <ul className="space-y-1 border-l border-border pl-3">
+                      {h.groups.map((g) => (
+                        <li key={g.key} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-neutral-400">
+                          <span className="text-neutral-200">
+                            <ItemLink name={g.itemName} itemId={g.itemId} />
+                          </span>
+                          <span className="text-neutral-500">
+                            ×{g.quantity} · sheet: {g.locations.join(", ")}
+                          </span>
+                          {g.alsoOn.length > 0 && <span className="text-sky-400/80">also on {g.alsoOn.join(", ")}</span>}
+                          <button
+                            type="button"
+                            disabled={removingId !== null}
+                            onClick={() =>
+                              g.ids.length === 1
+                                ? onRemoveUnverified({ kind: "row", id: g.ids[0] }, g.itemName)
+                                : onRemoveUnverified({ kind: "rows", ids: g.ids }, `${g.itemName} ×${g.quantity} from ${h.name}`, `group:${h.characterId}:${g.key}`)
+                            }
+                            className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
+                          >
+                            {removingId === g.ids[0] || removingId === `group:${h.characterId}:${g.key}` ? "Removing…" : "Remove…"}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {verification.waitingOnBags.length > 0 && (
+            <div className="mt-5 border-t border-border pt-3">
+              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">2 · Synced, but some bags aren&apos;t flagged yet</div>
+              <p className="mb-2 max-w-3xl text-neutral-500">
+                These sheet entries are listed in bags that weren&apos;t part of the sync. Nothing to remove. In the officer app, flag the bags it
+                suggests (&ldquo;Flag all suggested bags&rdquo;) and sync again.
+              </p>
+              <ul className="space-y-1 text-neutral-400">
+                {verification.waitingOnBags.map((h) => (
+                  <li key={h.characterId}>
+                    <span className="text-neutral-200">{h.name}</span> — {h.unverified - h.notFound} entr{h.unverified - h.notFound === 1 ? "y" : "ies"}
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {verification.neverSynced.length > 0 && (
+            <div className="mt-5 border-t border-border pt-3">
+              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">3 · Not synced yet</div>
+              <p className="mb-2 max-w-3xl text-neutral-500">
+                Nothing to do here on the website. Log in to each one, run <code className="text-neutral-300">/outputfile inventory</code>, and sync
+                it from the officer app.
+              </p>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-neutral-400">
+                {verification.neverSynced.map((h) => (
+                  <li key={h.characterId}>
+                    <span className="text-neutral-200">{h.name}</span> {h.unverified}
+                  </li>
+                ))}
+              </ul>
+              <details className="mt-3 text-xs">
+                <summary className="cursor-pointer select-none text-neutral-500">A character that will never be synced?</summary>
+                <p className="mt-2 text-neutral-500">
+                  Only if the character is gone for good or emptied (deleted, items moved elsewhere). This removes every one of its old sheet
+                  entries.
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {verification.neverSynced.map((h) => (
+                    <li key={h.characterId}>
+                      <button
+                        type="button"
+                        disabled={removingId !== null}
+                        onClick={() => onRemoveUnverified({ kind: "holder", holderCharacterId: h.characterId }, h.name)}
+                        className="text-red-500/70 hover:text-red-400 disabled:opacity-50"
+                      >
+                        {removingId === `holder:${h.characterId}` ? "Removing…" : `Remove all ${h.unverified} of ${h.name}'s sheet entries…`}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             </div>
           )}
         </details>
