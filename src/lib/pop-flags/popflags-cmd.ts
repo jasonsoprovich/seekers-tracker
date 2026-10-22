@@ -1,7 +1,10 @@
 // Ported from pq-companion's backend/internal/popflag/popflags_cmd.go (+ the
 // block-extraction half of scan.go). Parses the player-facing '#popflags
 // [overview|1|2|3|4|5|time]' command (EQMacEmu PR #382, zone/gm_commands/
-// popflags.cpp). Every literal string below is copied verbatim from the
+// popflags.cpp), reworded by PR #487 (2026-10-22): per-boss "Pending memory: X"
+// lines became "X flag: Complete|Pending memory|Missing" (BOSS_LINES), and the
+// Fuirstel stages were reworded. Pre-#487 strings are still accepted (marked
+// legacy) so older pasted logs keep parsing. Every literal string below is copied verbatim from the
 // server source, so an upstream wording change fails loudly (the line simply
 // stops matching) instead of silently mis-parsing.
 //
@@ -38,6 +41,8 @@ function setAtLeast(r: PopFlagsReport, qglobal: string, floor: number) {
   if (!(qglobal in r.atLeast) || floor > r.atLeast[qglobal]) r.atLeast[qglobal] = floor;
 }
 
+// Since PR #487 only "Thelin's hedge maze" and "Karana" are still printed as
+// "Pending memory: X"; the rest are legacy (now BOSS_LINES).
 const PENDING_DESC: Record<string, string> = {
   Grummus: "cl_grummus",
   "Thelin's hedge maze": "cl_maze",
@@ -62,6 +67,14 @@ const MAVUIN = [
   "Mavuin's case is complete",
 ];
 const FUIRSTEL = [
+  "Obtain the Ward for Milyk",
+  "Grummus defeated; return to Elder Fuirstel",
+  "Elder Fuirstel aided; defeat Bertoxxulous",
+  "Bertoxxulous defeated; return to Elder Fuirstel",
+  "Fuirstel progression complete",
+];
+// Pre-PR #487 wording for the same fuirstel values.
+const FUIRSTEL_LEGACY = [
   "Obtain the Ward for Milyk",
   "The Ward was recovered",
   "Grummus was defeated",
@@ -99,9 +112,9 @@ const KARANA_T3 = [
   "Karana's information obtained",
 ];
 
-const STAGE_LABELS: { label: string; qglobal: string; stages: string[] }[] = [
+const STAGE_LABELS: { label: string; qglobal: string; stages: string[]; legacy?: string[] }[] = [
   { label: "Mavuin's case", qglobal: "mavuin", stages: MAVUIN },
-  { label: "Fuirstel progression", qglobal: "fuirstel", stages: FUIRSTEL },
+  { label: "Fuirstel progression", qglobal: "fuirstel", stages: FUIRSTEL, legacy: FUIRSTEL_LEGACY },
   { label: "Thelin progression", qglobal: "thelin", stages: THELIN },
   { label: "Aerin`Dar progression", qglobal: "aerindar", stages: AERINDAR },
   { label: "Tylis progression", qglobal: "tylis", stages: TYLIS },
@@ -130,19 +143,24 @@ const LITERAL_LINES: Record<string, Effect> = {
   "Factory door access: Unlocked": exact("poi_door", "1"),
   "Factory door access: Locked": exact("poi_door", ""),
 
+  // Legacy (removed by PR #487).
   "Giwin and Manaetic Behemoth progression: Progress recorded": atLeast("zeks", 1),
   "Giwin and Manaetic Behemoth progression: Not started": exact("zeks", ""),
 
   "Lower Crypt access: Unlocked": exact("bertox_key", "1"),
   "Lower Crypt access: Locked": exact("bertox_key", ""),
 
+  // Legacy cipher-half states (removed by PR #487). The shared "...: Complete"
+  // state is handled by BOSS_LINES for both formats.
   "Saryrn cipher half: Combined into Cipher": atLeast("cipher", 1),
-  "Saryrn cipher half: Complete": exact("saryrn", "1"),
   "Saryrn cipher half: Incomplete": exact("saryrn", ""),
-
   "Mithaniel Marr cipher half: Combined into Cipher": atLeast("cipher", 1),
-  "Mithaniel Marr cipher half: Complete": exact("mmarr", "1"),
   "Mithaniel Marr cipher half: Incomplete": exact("mmarr", ""),
+
+  // Miak's Tower preflag (pofire>=1||time). "Plane of Fire progression" in the
+  // same section already reports pofire, so these add nothing.
+  "Miak the Searedsoul preflag: Complete": noEffect,
+  "Miak the Searedsoul preflag: Missing": noEffect,
 
   "Cipher information: Received": atLeast("cipher", 1),
   "Cipher information: Missing": noEffect,
@@ -224,6 +242,54 @@ const LITERAL_LINES: Record<string, Effect> = {
   "Tier 5 - Plane of Time: Not started": exact("time", ""),
 };
 
+// PopFlagsPrintBoss call sites (PR #487): "<label>: Complete|Pending
+// memory|Missing". Complete = the flag (or what it was combined into, or Time
+// access) is held, and the server hides any stale memory; Missing = neither
+// the flag nor its memory. Both clear the cl_* flag. When the boss's own stage
+// line isn't printed in the same section, Complete also records `floor` on
+// qglobal (Behemoth and Bertoxxulous — #487 dropped Tier 1's Giwin line, so
+// the Behemoth flag is now Tier 1's only zeks signal). `absent` marks lines
+// that are the sole report of their qglobal, so Missing confirms it absent
+// (cipher halves and the book; Complete is a floor there since the half may
+// since have been combined into cipher/zebuxoruk).
+const BOSS_LINES: { label: string; pending: string; qglobal?: string; floor?: number; absent?: boolean }[] = [
+  { label: "Grummus flag", pending: "cl_grummus" },
+  { label: "Terris Thule flag", pending: "cl_terris" },
+  { label: "Manaetic Behemoth flag", pending: "cl_behemoth", qglobal: "zeks", floor: 2 },
+  { label: "Aerin`Dar flag", pending: "cl_aerindar" },
+  { label: "Bertoxxulous flag", pending: "cl_bertox", qglobal: "fuirstel", floor: 4 },
+  { label: "Keeper of Sorrows flag", pending: "cl_keeper" },
+  { label: "Saryrn cipher half", pending: "cl_saryrn", qglobal: "saryrn", floor: 1, absent: true },
+  { label: "Mithaniel Marr cipher half", pending: "cl_mmarr", qglobal: "mmarr", floor: 1, absent: true },
+  { label: "Mithaniel Marr book", pending: "cl_mmarr_book", qglobal: "mmarr_book", floor: 1, absent: true },
+  { label: "Agnarr / Karana flag", pending: "cl_karana" },
+  { label: "Vallon Zek flag", pending: "cl_vallon" },
+  { label: "Tallon Zek flag", pending: "cl_tallon" },
+  { label: "Rallos Zek flag", pending: "cl_rallos" },
+  { label: "Solusek Ro flag", pending: "cl_solusek" },
+];
+
+function matchBossLine(r: PopFlagsReport, line: string): boolean {
+  for (const b of BOSS_LINES) {
+    const prefix = `${b.label}: `;
+    if (!line.startsWith(prefix)) continue;
+    const rest = line.slice(prefix.length);
+    if (rest === "Complete") {
+      r.exact[b.pending] = "";
+      if (b.qglobal && b.floor) setAtLeast(r, b.qglobal, b.floor);
+    } else if (rest === "Pending memory") {
+      r.pending[b.pending] = true;
+    } else if (rest === "Missing") {
+      r.exact[b.pending] = "";
+      if (b.qglobal && b.absent) r.exact[b.qglobal] = "";
+    } else {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 const BIT_LINES: { label: string; qglobal: "hohtrials" | "sol_room"; pos: number }[] = [
   { label: "Rydda`Dar trial", qglobal: "hohtrials", pos: 1 },
   { label: "Village trial", qglobal: "hohtrials", pos: 2 },
@@ -264,6 +330,8 @@ const NOTICE_LINES = new Set([
   "Pending checklist memories exist, but their prerequisite steps are incomplete.",
   "Complete the unfinished progression shown above, then return to Seer Mal Nae`Shi.",
   "If one of these is missing, hail Maelin and ask about new lore and new information.",
+  // Printed under the Miak preflag line while it's Missing (PR #487).
+  "Speak to Miak the Searedsoul in Tranquility about 'portal's destination'; hailing alone does not grant the preflag.",
   "Complete the elemental progression, combine the four elemental essences, and return to Grand Librarian Maelin.",
 ]);
 
@@ -293,20 +361,25 @@ function matchBitLine(line: string, hoh: BitState, sol: BitState): boolean {
   return false;
 }
 
-function applyStageRest(r: PopFlagsReport, qglobal: string, stages: string[], rest: string) {
+function applyStageRest(r: PopFlagsReport, qglobal: string, stages: string[], rest: string): boolean {
   if (rest === "Not started") {
     r.exact[qglobal] = "";
-    return;
+    return true;
   }
   const i = stages.indexOf(rest);
-  if (i >= 0) r.exact[qglobal] = String(i + 1);
+  if (i < 0) return false;
+  r.exact[qglobal] = String(i + 1);
+  return true;
 }
 
 function matchStageLine(r: PopFlagsReport, line: string): boolean {
   for (const sl of STAGE_LABELS) {
     const prefix = `${sl.label}: `;
     if (line.startsWith(prefix)) {
-      applyStageRest(r, sl.qglobal, sl.stages, line.slice(prefix.length));
+      const rest = line.slice(prefix.length);
+      if (!applyStageRest(r, sl.qglobal, sl.stages, rest) && sl.legacy) {
+        applyStageRest(r, sl.qglobal, sl.legacy, rest);
+      }
       return true;
     }
   }
@@ -334,6 +407,7 @@ export function matchPopFlagsLine(raw: string): boolean {
   if (NOTICE_LINES.has(line)) return true;
   if (line in LITERAL_LINES) return true;
   if (matchPending(line)) return true;
+  if (matchBossLine(newReport(), line)) return true;
   if (matchBitLine(line, new BitState(), new BitState())) return true;
   return matchStageLine(newReport(), line);
 }
@@ -362,6 +436,7 @@ export function parsePopFlagsReport(lines: string[]): PopFlagsReport {
       r.pending[pend] = true;
       continue;
     }
+    if (matchBossLine(r, line)) continue;
     if (matchBitLine(line, hoh, sol)) continue;
     matchStageLine(r, line);
     // Zone sub-headers, "Tier complete: ..." lore, notices: no state.

@@ -125,5 +125,48 @@ const giwinNo = mergeReportsToQglobals([
 ]);
 check("giwin not started -> no poi_preflag", !deriveCompletion(giwinNo).includes("poi_preflag"));
 
+// PR #487 (2026-10-22) wording: boss status lines + reworded Fuirstel stages.
+const tier1New = [
+  "=== Tier 1 Progression ===",
+  "--- Plane of Disease ---",
+  "Fuirstel progression: Elder Fuirstel aided; defeat Bertoxxulous",
+  "Crypt of Decay access: Unlocked",
+  "Grummus flag: Complete",
+  "--- Plane of Nightmare ---",
+  "Thelin progression: Help Thelin escape the hedge maze",
+  "Pending memory: Thelin's hedge maze",
+  "Terris Thule flag: Missing",
+  "--- Plane of Innovation ---",
+  "Factory door access: Locked",
+  "Manaetic Behemoth flag: Complete",
+];
+check("#487 tier1 every line recognized", tier1New.every(matchPopFlagsLine));
+const n1 = parsePopFlagsReport(tier1New);
+check("#487 fuirstel=3", n1.exact.fuirstel === "3", n1.exact.fuirstel);
+check("#487 grummus memory cleared", n1.exact.cl_grummus === "" && !n1.pending.cl_grummus);
+check("#487 behemoth -> zeks>=2", n1.atLeast.zeks === 2);
+check("#487 behemoth -> poi_mb", deriveCompletion(mergeReportsToQglobals([n1])).includes("poi_mb"));
+check("#487 legacy fuirstel still parses", r1.exact.fuirstel === "4");
+
+const t3New = parsePopFlagsReport([
+  "=== Tier 3 Progression ===",
+  "Mithaniel Marr cipher half: Complete",
+  "Mithaniel Marr book: Missing",
+  "Agnarr / Karana flag: Pending memory",
+  "Miak the Searedsoul preflag: Missing",
+  "Speak to Miak the Searedsoul in Tranquility about 'portal's destination'; hailing alone does not grant the preflag.",
+]);
+check("#487 mmarr floor", t3New.atLeast.mmarr === 1);
+check("#487 book absent", t3New.exact.mmarr_book === "");
+check("#487 karana pending", !!t3New.pending.cl_karana);
+check(
+  "#487 miak hint recognized",
+  matchPopFlagsLine(
+    "Speak to Miak the Searedsoul in Tranquility about 'portal's destination'; hailing alone does not grant the preflag.",
+  ),
+);
+const t2New = parsePopFlagsReport(["=== Tier 2 Progression ===", "Saryrn cipher half: Complete"]);
+check("#487 saryrn complete -> potor_saryrn", deriveCompletion(mergeReportsToQglobals([t2New])).includes("potor_saryrn"));
+
 console.log(failed === 0 ? "\nAll checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);
