@@ -63,6 +63,11 @@ function curvePath(from: Point, to: Point, vertical: boolean): string {
   return `M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`;
 }
 
+const MIN_CARD_PX = 180;
+const CARD_GAP_PX = 16;
+const TIER_LABEL_PX = 20;
+const TIER_GAP_PX = 12;
+
 interface EdgePath {
   key: string;
   from: string;
@@ -112,6 +117,13 @@ export default function PopFlagFlow({
     }
     return [...byTier.entries()].sort((a, b) => a[0] - b[0]);
   }, [zones]);
+
+  // Every tier shares one column grid sized to the widest tier, so cards
+  // line up across tiers and shrink to fit the page instead of a fixed 240px
+  // (Tier 3's five zones overflowed a 6xl page). Below the minimum card width
+  // the chart scrolls horizontally as before (phones).
+  const columns = Math.max(1, ...tiers.map(([, t]) => t.length));
+  const minContentWidth = TIER_LABEL_PX + TIER_GAP_PX + columns * MIN_CARD_PX + (columns - 1) * CARD_GAP_PX;
 
   // Cross-zone prereq edges, deduped to (sourceZone -> targetZone); a target
   // fed by 2+ distinct zones gets an "ALL" badge.
@@ -217,7 +229,7 @@ export default function PopFlagFlow({
         )}
       </div>
       <div className="overflow-x-auto rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-        <div ref={contentRef} className="relative flex min-w-max flex-col gap-8 pt-3">
+        <div ref={contentRef} className="relative flex flex-col gap-8 pt-3" style={{ minWidth: minContentWidth }}>
           <svg
             width={svgSize.w}
             height={svgSize.h}
@@ -269,7 +281,10 @@ export default function PopFlagFlow({
               >
                 {tierLabel(tier)}
               </div>
-              <div className="flex flex-1 flex-nowrap items-start gap-x-5">
+              <div
+                className="grid flex-1 items-start gap-x-4"
+                style={{ gridTemplateColumns: `repeat(${columns}, minmax(${MIN_CARD_PX}px, 1fr))` }}
+              >
                 {tierZones.map((z) => {
                   const status = zoneStatus(z.flags);
                   const dimmed = inFocus ? !inFocus.has(z.zone) : false;
@@ -278,7 +293,7 @@ export default function PopFlagFlow({
                     <div
                       key={z.zone}
                       ref={setCardRef(z.zone)}
-                      className="flex w-[240px] shrink-0 flex-col overflow-hidden rounded-lg bg-neutral-900"
+                      className="flex min-w-0 flex-col overflow-hidden rounded-lg bg-neutral-900"
                       style={{
                         border: `1px solid ${STATUS_BORDER[status]}`,
                         opacity: dimmed ? 0.25 : 1,

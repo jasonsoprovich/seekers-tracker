@@ -19,6 +19,9 @@ export interface ProgressionRow {
   level: number;
   charType: "main" | "alt" | "mule";
   status: CharacterStatus;
+  // The account was removed from the guild (players.status 'departed') —
+  // treated as removed, same as the Roster.
+  departed: boolean;
   done: number;
   total: number;
   // ms epoch of this character's last EP/GP ledger row within the last
@@ -37,7 +40,7 @@ const ACTIVITY_WINDOWS = {
 } as const;
 type ActivityKey = keyof typeof ACTIVITY_WINDOWS;
 
-type SortKey = "name" | "ownerUsername" | "className" | "level" | "charType" | "pct";
+type SortKey = "name" | "className" | "pct";
 type SortDir = "asc" | "desc";
 
 function pct(row: ProgressionRow): number {
@@ -113,90 +116,6 @@ function ZoneCell({ zone, bandStart }: { zone: ZoneStatus; bandStart: boolean })
   );
 }
 
-function MilestoneGraph({ rows, zoneCatalog }: { rows: ProgressionRow[]; zoneCatalog: ZoneCatalogEntry[] }) {
-  const tierBands = useMemo(() => {
-    const bands: { tier: number; zones: ZoneCatalogEntry[] }[] = [];
-    for (const z of zoneCatalog) {
-      const band = bands.find((b) => b.tier === z.tier);
-      if (band) band.zones.push(z);
-      else bands.push({ tier: z.tier, zones: [z] });
-    }
-    return bands;
-  }, [zoneCatalog]);
-
-  if (rows.length === 0) {
-    return <p className="mt-4 text-sm text-neutral-500">No characters match these filters.</p>;
-  }
-
-  return (
-    <div className="mt-4">
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-border bg-neutral-900/60 text-[10px] tracking-wide text-neutral-500 uppercase">
-              <th className="sticky left-0 z-10 bg-neutral-900 px-3 py-1.5 font-medium">&nbsp;</th>
-              {tierBands.map((band) => (
-                <th
-                  key={band.tier}
-                  colSpan={band.zones.length}
-                  className="border-l border-border px-1 py-1.5 text-center font-medium"
-                >
-                  Tier {band.tier}
-                </th>
-              ))}
-            </tr>
-            <tr className="border-b border-border bg-neutral-900/60 text-[9px] tracking-wide text-neutral-500 uppercase">
-              <th className="sticky left-0 z-10 bg-neutral-900 px-3 py-1 text-left font-medium">Character</th>
-              {zoneCatalog.map((z, i) => {
-                const isBandStart = i === 0 || zoneCatalog[i - 1]!.tier !== z.tier;
-                return (
-                  <th
-                    key={z.zone}
-                    title={z.zone}
-                    className={`px-0.5 py-1 text-center font-medium whitespace-nowrap ${isBandStart ? "border-l border-border" : ""}`}
-                  >
-                    {zoneAbbr(z.zone)}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((r) => (
-              <tr key={r.id} className="hover:bg-neutral-900/40">
-                <td className="sticky left-0 z-10 min-w-[10rem] bg-neutral-950 px-3 py-1.5">
-                  {/* Remediation plan Phase 0.2 — see RosterTable.tsx's own
-                      comment on this same pattern; Progression lists every
-                      character too. */}
-                  <Link href={`/characters/${r.id}/account`} prefetch={false} className="font-medium hover:text-emerald-400">
-                    {r.name}
-                  </Link>
-                  <span className="ml-1.5 text-xs text-neutral-500">{r.charType === "main" ? "Main" : "Alt"}</span>
-                </td>
-                {r.zones.map((z, i) => {
-                  const isBandStart = i === 0 || r.zones[i - 1]!.tier !== z.tier;
-                  return (
-                    <ZoneCell key={z.zone} zone={z} bandStart={isBandStart} />
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-neutral-500">
-        {(Object.keys(STATE_META) as ZoneState[]).map((state) => (
-          <span key={state} className="flex items-center gap-1.5">
-            <span className={`h-3 w-3 rounded-sm ${STATE_META[state].swatch}`} />
-            {STATE_META[state].label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function PopProgressionView({
   rows,
   zoneCatalog,
@@ -223,7 +142,8 @@ export function PopProgressionView({
       if (q && !r.name.toLowerCase().includes(q) && !r.ownerUsername.toLowerCase().includes(q)) return false;
       if (classFilter !== "all" && String(r.classId) !== classFilter) return false;
       if (typeFilter !== "all" && r.charType !== typeFilter) return false;
-      if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      const status = r.departed ? "removed" : r.status;
+      if (statusFilter !== "all" && status !== statusFilter) return false;
       if (cutoff !== null && (r.lastActivityAt === null || r.lastActivityAt < cutoff)) return false;
       return true;
     });
@@ -235,8 +155,8 @@ export function PopProgressionView({
     return copy;
   }, [filtered, sortKey, sortDir]);
 
-  // Render a page at a time — 790 rows across this table AND the milestone
-  // grid below was the slow part on navigation (leader).
+  // Render a page at a time — 790 rows of the zone grid was the slow part on
+  // navigation (leader).
   useEffect(() => {
     setLimit(PAGE_SIZE);
   }, [search, classFilter, typeFilter, statusFilter, activityFilter, sortKey, sortDir]);
@@ -252,14 +172,26 @@ export function PopProgressionView({
     }
   }
 
-  const COLUMNS: { key: SortKey; label: string }[] = [
-    { key: "name", label: "Name" },
-    { key: "ownerUsername", label: "Owner" },
-    { key: "charType", label: "Type" },
-    { key: "className", label: "Class" },
-    { key: "level", label: "Level" },
-    { key: "pct", label: "Progress" },
-  ];
+  const tierBands = useMemo(() => {
+    const bands: { tier: number; zones: ZoneCatalogEntry[] }[] = [];
+    for (const z of zoneCatalog) {
+      const band = bands.find((b) => b.tier === z.tier);
+      if (band) band.zones.push(z);
+      else bands.push({ tier: z.tier, zones: [z] });
+    }
+    return bands;
+  }, [zoneCatalog]);
+
+  function sortHeader(col: SortKey, label: string, className: string) {
+    return (
+      <th rowSpan={2} className={`w-[1%] align-bottom font-medium whitespace-nowrap ${className}`}>
+        <button type="button" onClick={() => toggleSort(col)} className="flex items-center gap-1 hover:text-neutral-200">
+          {label}
+          {sortKey === col && <span className="text-neutral-400">{sortDir === "asc" ? "▲" : "▼"}</span>}
+        </button>
+      </th>
+    );
+  }
 
   return (
     <div>
@@ -328,52 +260,81 @@ export function PopProgressionView({
       </div>
 
       <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full border-collapse text-left text-sm">
           <thead>
-            <tr className="border-b border-border bg-neutral-900/60 text-xs uppercase tracking-wide text-neutral-500">
-              {COLUMNS.map((col) => (
-                <th key={col.key} className="px-3 py-2 font-medium">
-                  <button type="button" onClick={() => toggleSort(col.key)} className="flex items-center gap-1 hover:text-neutral-200">
-                    {col.label}
-                    {sortKey === col.key && <span className="text-neutral-400">{sortDir === "asc" ? "▲" : "▼"}</span>}
-                  </button>
+            <tr className="border-b border-border bg-neutral-900/60 text-[10px] tracking-wide text-neutral-500 uppercase">
+              {sortHeader("name", "Character", "sticky left-0 z-10 bg-neutral-900 px-3 py-1.5")}
+              {sortHeader("className", "Class", "px-3 py-1.5")}
+              {sortHeader("pct", "Progress", "px-3 py-1.5")}
+              {tierBands.map((band) => (
+                <th
+                  key={band.tier}
+                  colSpan={band.zones.length}
+                  className="border-l border-border px-1 py-1.5 text-center font-medium"
+                >
+                  Tier {band.tier}
                 </th>
               ))}
+            </tr>
+            <tr className="border-b border-border bg-neutral-900/60 text-[9px] tracking-wide text-neutral-500 uppercase">
+              {zoneCatalog.map((z, i) => {
+                const isBandStart = i === 0 || zoneCatalog[i - 1]!.tier !== z.tier;
+                return (
+                  <th
+                    key={z.zone}
+                    title={z.zone}
+                    className={`px-0.5 py-1 text-center font-medium whitespace-nowrap ${isBandStart ? "border-l border-border" : ""}`}
+                  >
+                    {zoneAbbr(z.zone)}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {visible.map((r) => (
               <tr key={r.id} className="hover:bg-neutral-900/40">
-                <td className="px-3 py-2 font-medium">
+                <td className="sticky left-0 z-10 bg-neutral-950 px-3 py-1.5 whitespace-nowrap">
                   {/* Remediation plan Phase 0.2 — see RosterTable.tsx's comment. */}
-                  <Link href={`/characters/${r.id}/account`} prefetch={false} className="hover:text-emerald-400">
+                  <Link href={`/characters/${r.id}/account`} prefetch={false} className="font-medium hover:text-emerald-400">
                     {r.name}
-                  </Link>{" "}
-                  <CharacterStatusBadge status={r.status} />
-                </td>
-                <td className="px-3 py-2 text-neutral-400">{r.ownerUsername}</td>
-                <td className="px-3 py-2 text-neutral-400">{r.charType === "main" ? "Main" : "Alt"}</td>
-                <td className="px-3 py-2 text-neutral-400">{r.className}</td>
-                <td className="px-3 py-2 text-neutral-400">{r.level}</td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-28 shrink-0">
-                      <ProgressBar done={r.done} total={r.total} />
-                    </div>
-                    <span className="text-xs text-neutral-500">{currentTierLabel(r.tiers)}</span>
+                  </Link>
+                  <div className="text-[10px] leading-tight text-neutral-500">
+                    {r.charType === "main" ? "Main" : "Alt"} <CharacterStatusBadge status={r.departed ? "removed" : r.status} />
                   </div>
                 </td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-neutral-400">{r.className}</td>
+                <td className="px-3 py-1.5">
+                  <div className="w-32">
+                    <ProgressBar done={r.done} total={r.total} />
+                    <div className="text-[10px] leading-tight text-neutral-500">{currentTierLabel(r.tiers)}</div>
+                  </div>
+                </td>
+                {r.zones.map((z, i) => {
+                  const isBandStart = i === 0 || r.zones[i - 1]!.tier !== z.tier;
+                  return <ZoneCell key={z.zone} zone={z} bandStart={isBandStart} />;
+                })}
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-neutral-500">
+                <td colSpan={3 + zoneCatalog.length} className="px-3 py-6 text-center text-neutral-500">
                   No characters match these filters.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-neutral-500">
+        {(Object.keys(STATE_META) as ZoneState[]).map((state) => (
+          <span key={state} className="flex items-center gap-1.5">
+            <span className={`h-3 w-3 rounded-sm ${STATE_META[state].swatch}`} />
+            {STATE_META[state].label}
+          </span>
+        ))}
+        <span>Hover a cell for detail.</span>
       </div>
 
       {hasMore && (
@@ -385,15 +346,6 @@ export function PopProgressionView({
           Show more ({sorted.length - visible.length} more)
         </button>
       )}
-
-      <section className="mt-10">
-        <h2 className="text-lg font-semibold">Zone Milestones</h2>
-        <p className="mt-1 text-sm text-neutral-400">
-          Which zones are unlocked, in progress, or cleared per character — grouped by tier. Hover a cell for detail.
-          {hasMore && " Showing the same page as the table above."}
-        </p>
-        <MilestoneGraph rows={visible} zoneCatalog={zoneCatalog} />
-      </section>
     </div>
   );
 }

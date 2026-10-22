@@ -8,6 +8,7 @@ import { characterPopFlags, characters, players, users } from "@/db";
 import { charClassLabel } from "@/lib/eq/enums";
 import { getZoneCatalog, resolveFlags, tierLabel, zoneStatuses } from "@/lib/pop-flags";
 import { getDb } from "@/lib/db";
+import { isRosterPlaceholder } from "@/lib/roster-visibility";
 import { getSession } from "@/lib/session";
 
 // Visible to every role, read-only — same "guild-wide transparency" call as
@@ -32,9 +33,11 @@ export default async function ProgressionPage() {
       lastActivityAt: characters.lastActivityAt,
       ownerUsername: users.username,
       ownerId: characters.ownerId,
+      playerStatus: players.status,
     })
     .from(characters)
     .leftJoin(users, eq(characters.ownerId, users.id))
+    .leftJoin(players, eq(players.id, characters.playerId))
     .orderBy(characters.name);
 
   // Guild-wide table, not filtered by character ID list — same D1
@@ -46,7 +49,10 @@ export default async function ProgressionPage() {
     flagsByCharacter.get(r.characterId)!.push(r);
   }
 
-  const rows: ProgressionRow[] = allCharacters.map((c) => {
+  // Same visibility rules as /roster: the rot-loot placeholder never shows,
+  // and an account removed from the guild (players.status 'departed') counts
+  // as removed even though its characters' own status was never changed.
+  const rows: ProgressionRow[] = allCharacters.filter((c) => !isRosterPlaceholder(c.name)).map((c) => {
     const resolved = resolveFlags(
       (flagsByCharacter.get(c.id) ?? []).map((r) => ({ flagId: r.flagId, done: r.done, source: r.source })),
     );
@@ -59,6 +65,7 @@ export default async function ProgressionPage() {
       level: c.level,
       charType: c.charType,
       status: c.status,
+      departed: c.playerStatus === "departed",
       done: resolved.done,
       total: resolved.total,
       lastActivityAt: c.lastActivityAt?.getTime() ?? null,
@@ -81,7 +88,7 @@ export default async function ProgressionPage() {
     .sort((a, b) => typeRank(a) - typeRank(b) || a.name.localeCompare(b.name));
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-7xl">
       <PageHeader
         title="PoP Progression"
         subtitle="Every character's Planes of Power flagging, at a glance — search, filter, and see which zones are unlocked."
