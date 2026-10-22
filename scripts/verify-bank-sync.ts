@@ -674,6 +674,58 @@ async function main() {
     check(failures, orderFor(3)?.kind === "matched", "an in-scope row gets the spare copy (Bank3-Slot7) by name before the out-of-scope row does");
     check(failures, orderFor(1)?.kind === "not_found", "the out-of-scope Bank14 row is left unmatched (applySync keeps it plain unverified)");
 
+    // ---------------------------------------------------------------
+    // Scenario 12: a first sync that verifies 100+ sheet rows — 2026-10-22.
+    // Aransur's spell mules hold 153-275 sheet rows each; the fully-matched
+    // rows were deleted with one unchunked `id IN (...)`, over D1's
+    // 100-bound-parameter cap, so the whole sync 500'd.
+    // ---------------------------------------------------------------
+    console.log("\nScenario 12: verifying 150 sheet rows in one sync");
+    const bulkId = await makeCharacter(db, `VerifyBulk-${randomUUID().slice(0, 8)}`);
+    const bulkBags = Array.from({ length: 15 }, (_, i) => ({ container: `Bank${i + 1}`, slotIndex: 0 }));
+    const bulkDesig = await updateDesignations(db, actor.id, { characterId: bulkId }, { set: bulkBags });
+    check(failures, !bulkDesig.error, `15 bags designated (${bulkDesig.error ?? "ok"})`);
+    const bulkSpells = Array.from({ length: 150 }, (_, i) => ({ container: `Bank${Math.floor(i / 10) + 1}`, slot: (i % 10) + 1, name: `Bulk Spell ${i}` }));
+    for (let i = 0; i < bulkSpells.length; i += 10) {
+      await db.insert(bankHoldings).values(
+        bulkSpells.slice(i, i + 10).map((s, j) => ({
+          holderCharacterId: bulkId,
+          category: "spell" as const,
+          container: "Sheet",
+          slotIndex: i + j + 1,
+          itemName: s.name,
+          quantity: 1,
+          status: "guild_bank" as const,
+          source: "import" as const,
+          importId: null,
+          legacyLocation: `${s.container}-Slot${s.slot}`,
+        })),
+      );
+    }
+    let bulkError: unknown = null;
+    try {
+      await applySync(
+        db,
+        actor.id,
+        [
+          {
+            characterId: bulkId,
+            sourceFile: "Bulk-Inventory.txt",
+            reportsSharedBank: false,
+            rows: bulkSpells.map((s, i) => ({ container: s.container, slotIndex: s.slot, category: "spell" as const, itemName: `Spell: ${s.name}`, itemId: 9000 + i, quantity: 1 })),
+            occupants: [],
+          },
+        ],
+        await loadBankConfig(db),
+      );
+    } catch (err) {
+      bulkError = err;
+    }
+    check(failures, bulkError === null, `applySync succeeds (${bulkError instanceof Error ? bulkError.message : "ok"})`);
+    const afterBulk = await holdingsFor(db, bulkId);
+    check(failures, afterBulk.filter((r) => r.importId === null).length === 0, "every verified sheet row was removed");
+    check(failures, afterBulk.filter((r) => r.importId !== null).length === 150, "all 150 synced rows landed");
+
     if (failures.n > 0) {
       console.error(`\n${failures.n} check(s) failed.`);
       process.exitCode = 1;

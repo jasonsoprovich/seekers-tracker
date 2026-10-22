@@ -901,8 +901,10 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
         });
       }
     }
-    if (fullyMatchedIds.length > 0) {
-      statements.push(db.delete(bankHoldings).where(inArray(bankHoldings.id, fullyMatchedIds)));
+    // Chunked: a first sync of a spell mule can verify 100+ sheet rows at
+    // once, past D1's 100-bound-parameter cap (500'd on 2026-10-22).
+    for (const ids of chunk(fullyMatchedIds, 90)) {
+      statements.push(db.delete(bankHoldings).where(inArray(bankHoldings.id, ids)));
     }
 
     diffs.push(diff);
