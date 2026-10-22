@@ -554,7 +554,11 @@ const CANONICAL_HOST = "seekersofsouls.com";
 const REDIRECT_HOSTS = new Set(["www.seekersofsouls.com", "seekers.fetchinglogic.com", "www.fetchinglogic.com"]);
 
 function canonicalRedirect(request: Request, url: URL): Response | null {
-  if (!REDIRECT_HOSTS.has(url.hostname)) return null;
+  // Plain http on the canonical host is redirected too (2026-10-22): it used
+  // to serve a 200 copy of the page, which Google Search Console flagged as
+  // "Duplicate without user-selected canonical" for http://seekersofsouls.com/.
+  const insecureCanonical = url.hostname === CANONICAL_HOST && url.protocol === "http:";
+  if (!REDIRECT_HOSTS.has(url.hostname) && !insecureCanonical) return null;
   const target = new URL(url.toString());
   target.hostname = CANONICAL_HOST;
   target.protocol = "https:";

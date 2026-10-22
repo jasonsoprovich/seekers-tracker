@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -22,6 +23,13 @@ function DiscordInvite({ compact = false }: { compact?: boolean }) {
     </a>
   );
 }
+
+// Tells search engines which URL is the real home page, so the http:// and
+// www variants aren't treated as duplicates. Home page only — a site-wide
+// canonical in the root layout would point every page at "/".
+export const metadata: Metadata = {
+  alternates: { canonical: "https://seekersofsouls.com/" },
+};
 
 export default function Home() {
   return (
