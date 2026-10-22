@@ -334,6 +334,21 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**PoP Progression cleanup, 2026-10-22 (branch
+`fix/pop-progression-cleanup-10-22`; no migration; not yet deployed).**
+- `/progression` hides the NoLooter placeholder and treats a departed account
+  (`players.status`) as removed, like /roster — guild removal never changes
+  the characters' own `status`, so "Active only" used to let them through.
+- The character table and the Zone Milestones grid merged into one table
+  (character + type/status, class, progress + tier, zone cells); owner/level
+  dropped, search still matches owner. Page is `max-w-7xl`.
+- `PopFlagFlow`: cards share one grid sized to the widest tier
+  (`minmax(180px, 1fr)`) instead of a fixed 240px, so Tier 3's five zones fit
+  a 6xl page; below the minimum it scrolls as before.
+- Verified: tsc, browser check against local D1 (departed hidden/shown under
+  Removed, NoLooter hidden, flow has no horizontal scroll at 1600px),
+  pop-flags-sync + page-overflow e2e 57/57.
+
 **Member UI feedback + bank review noise, 2026-10-17 (branch
 `feature/member-ui-feedback-10-17`; no migration; not yet deployed).**
 - Your Characters ordered main → alts → mules; PoP Progression "Update your
@@ -3331,3 +3346,13 @@ this session; the query layer itself was proven directly instead.
 - Gear tracking, pq-companion JSON import, per-class dashboards (original
   feasibility doc §9 Phase 2/3) — not started, not discussed recently.
 - Remaining open questions live in `../PLAN.md` §16.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
