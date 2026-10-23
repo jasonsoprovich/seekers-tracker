@@ -44,7 +44,8 @@ export default async function CharactersPage() {
 
   const now = new Date();
   const cycleEp = activitySummaries.length > 0 ? await getCurrentCycleEp(db, activitySummaries.map((s) => s.playerId), now) : null;
-  const cycleEndsLabel = cycleEp && cycleEp.cycle.endDate.getTime() >= now.getTime() - 86_400_000 ? ledgerDate(cycleEp.cycle.endDate) : null;
+  // A running cycle has no end date — it ends at the next cycle decay.
+  const cycleEndsLabel = cycleEp && !cycleEp.open ? ledgerDate(cycleEp.cycle.endDate) : null;
 
   // Same order as the account page (characters/[id]/account): the main
   // first, then alts, then mules, each alphabetical.

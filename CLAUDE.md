@@ -334,6 +334,22 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Cycle rollover on cycle decay, 2026-10-23 (branch `feature/decay-cycle-rollover`;
+migration 0059; not yet deployed).** Cycles used to be the sheet's pre-filled calendar,
+which ran out at cycle 72 (11/28) with nothing to extend it. Now committing a
+`global_cycle` decay (site form or `/api/officer/decay/commit`) ends the running cycle at
+the decay cutoff and opens the next (`cycles.ts` `planRollover`/`rolloverStatements`,
+new `cycles.started_by_decay_event_id`). The latest cycle is always open-ended.
+Reversing that decay removes the cycle it started and moves rows stamped with it back to
+the reopened one; only the newest can be undone. 0059 also deletes calendar cycles that
+haven't started yet, so it must run on remote before the deploy. `cycleWindows` is now
+the one source for windows (EP cap, Your Characters meter, Cycle Overview). A date-only
+(UTC-midnight) row counts as noon ET on its date; that's unchanged for calendar cycles
+and also stops a UTC-midnight row from counting in the previous cycle's evening.
+Verified: `npm run verify:cycle-rollover` (new, 30/30), cycle-ep-cap / pre-golive-fixes /
+reversals / global-decay / decay-per-player all pass, `verify` at its 9/13 baseline, tsc,
+webpack build, e2e characters + page-overflow 54/54.
+
 **PoP Progression cleanup, 2026-10-22 (branch
 `fix/pop-progression-cleanup-10-22`; no migration; not yet deployed).**
 - `/progression` hides the NoLooter placeholder and treats a departed account

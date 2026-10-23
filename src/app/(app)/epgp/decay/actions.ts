@@ -20,7 +20,7 @@ import { getSession } from "@/lib/session";
 // check `.error`, matching every other server action's result type in this
 // app (LedgerActionResult, UpdateSettingResult, …).
 export type PreviewDecayResult = { rows?: DecayPreviewRow[]; totalEpDecay?: number; totalGpDecay?: number; asOf?: string; error?: string };
-export type CommitDecayResult = { decayEventId?: number; epRows?: number; gpRows?: number; error?: string };
+export type CommitDecayResult = { decayEventId?: number; epRows?: number; gpRows?: number; cycleStarted?: number; error?: string };
 export type ReverseDecayResult = { error?: string };
 export type PreviewDepartureResult = { rows?: DeparturePreviewRow[]; totalEp?: number; unmatchedNames?: string[]; error?: string };
 export type CommitDepartureResult = { decayEventId?: number; epRows?: number; unmatchedNames?: string[]; error?: string };
@@ -112,9 +112,8 @@ export async function commitDecayAction(rateInput: string, effectiveDateInput: s
 
 // PLAN.md §11 Phase 5 task 5.3/5.4 — same shape as commitDecayAction, but
 // writes a global_cycle decay_events row (§1c: 10% against the total,
-// compounding, leader-triggered by button rather than cron because cycles
-// shift a day or two). GlobalCycleDecayForm reuses previewDecayAction above
-// for its preview step.
+// compounding) and ends the running cycle, opening the next (cycles.ts).
+// GlobalCycleDecayForm reuses previewDecayAction above for its preview step.
 export async function commitGlobalCycleDecayAction(rateInput: string, effectiveDateInput: string, label: string): Promise<CommitDecayResult> {
   const auth = await requireLeader();
   if ("error" in auth) return auth;

@@ -7,10 +7,11 @@ import { ExpansionDecayForm } from "@/components/epgp/ExpansionDecayForm";
 import { GlobalCycleDecayForm } from "@/components/epgp/GlobalCycleDecayForm";
 import { ReverseDecayButton } from "@/components/epgp/ReverseDecayButton";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { decayEvents, epLedger, gpLedger, users } from "@/db";
+import { cycles, decayEvents, epLedger, gpLedger, users } from "@/db";
+import { getCurrentCycleWindow } from "@/lib/epgp/cycles";
 import { getDb } from "@/lib/db";
 import { ledgerDate } from "@/lib/format-date";
-import { guildDateTime } from "@/lib/guild-timezone";
+import { guildDate, guildDateTime } from "@/lib/guild-timezone";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
@@ -25,7 +26,7 @@ export default async function EpgpDecayPage() {
   const appliedByUsers = alias(users, "applied_by_user");
   const reversedByUsers = alias(users, "reversed_by_user");
 
-  const [events, epCounts, gpCounts] = await Promise.all([
+  const [events, epCounts, gpCounts, startedCycles, currentCycle] = await Promise.all([
     db
       .select({
         id: decayEvents.id,
@@ -53,7 +54,13 @@ export default async function EpgpDecayPage() {
       .from(gpLedger)
       .where(sql`${gpLedger.decayEventId} is not null`)
       .groupBy(gpLedger.decayEventId),
+    db
+      .select({ decayEventId: cycles.startedByDecayEventId, cycleNumber: cycles.cycleNumber })
+      .from(cycles)
+      .where(sql`${cycles.startedByDecayEventId} is not null`),
+    getCurrentCycleWindow(db),
   ]);
+  const cycleStartedByEvent = new Map(startedCycles.map((r) => [r.decayEventId, r.cycleNumber]));
 
   const epCountByEvent = new Map(epCounts.map((r) => [r.decayEventId, r.count]));
   const gpCountByEvent = new Map(gpCounts.map((r) => [r.decayEventId, r.count]));
@@ -79,12 +86,14 @@ export default async function EpgpDecayPage() {
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Cycle decay (global model)</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          10% against every character&apos;s current total, EP and GP, compounding cycle over cycle (§1c). Applied by button, not cron, because
-          cycles shift a day or two — run this once per cycle end. Available regardless of the current <code>decay_model</code> setting; switch
-          that to <code>global</code>{" "}on the Settings page when you&apos;re ready to cut over so standings stop deriving the old legacy 20% haircut.
+          10% against every character&apos;s current total, EP and GP, compounding cycle over cycle (§1c). Committing it also ends the running
+          cycle and starts the next one — there is no fixed cycle calendar, so run this once at each cycle end. EP recorded after the commit counts
+          toward the new cycle&apos;s cap.
         </p>
         <div className="mt-3">
-          <GlobalCycleDecayForm />
+          <GlobalCycleDecayForm
+            currentCycle={currentCycle ? { number: currentCycle.cycle.cycleNumber, startedLabel: guildDate(currentCycle.start) } : null}
+          />
         </div>
       </section>
 
@@ -115,6 +124,7 @@ export default async function EpgpDecayPage() {
                   effective {ledgerDate(event.effectiveDate)} — {epCountByEvent.get(event.id) ?? 0} EP row(s),{" "}
                   {gpCountByEvent.get(event.id) ?? 0} GP row(s)
                   {event.label && <span> — &ldquo;{event.label}&rdquo;</span>}
+                  {cycleStartedByEvent.has(event.id) && <span> — started cycle #{cycleStartedByEvent.get(event.id)}</span>}
                 </p>
                 <p className="text-xs text-neutral-600">
                   applied {event.appliedByName ?? "sheet import"} on {guildDateTime(event.appliedAt)}
@@ -127,7 +137,11 @@ export default async function EpgpDecayPage() {
                 </p>
               </div>
               {!event.reversedAt && (
-                <ReverseDecayButton decayEventId={event.id} label={`${event.kind} decay effective ${ledgerDate(event.effectiveDate)}`} />
+                <ReverseDecayButton
+                  decayEventId={event.id}
+                  label={`${event.kind} decay effective ${ledgerDate(event.effectiveDate)}`}
+                  reopensCycle={cycleStartedByEvent.get(event.id) ?? null}
+                />
               )}
             </li>
           ))}

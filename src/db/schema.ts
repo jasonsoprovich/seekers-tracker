@@ -348,6 +348,12 @@ export const cycles = sqliteTable("cycles", {
   cycleNumber: integer("cycle_number").notNull().unique(),
   startDate: integer("start_date", { mode: "timestamp" }).notNull(),
   endDate: integer("end_date", { mode: "timestamp" }).notNull(),
+  // Set when committing a global cycle decay started this cycle
+  // (src/lib/epgp/cycles.ts rolloverCycle). Such a cycle starts at the exact
+  // decay instant, not a calendar day, and reversing that decay removes it.
+  // NULL for the sheet-imported calendar cycles (whole Eastern days).
+  // Forward ref: decay_events is declared later in this file.
+  startedByDecayEventId: integer("started_by_decay_event_id").references((): AnySQLiteColumn => decayEvents.id),
 });
 
 // Explicit decay applications (PLAN.md §1b/1c/1e) — every decay mechanism
