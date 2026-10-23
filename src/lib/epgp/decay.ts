@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { characters, decayEvents, epLedger, gpLedger, players } from "@/db";
+import { planRollover, planUndoRollover, rolloverStatements, undoRolloverStatements } from "@/lib/epgp/cycles";
 import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
@@ -222,7 +223,9 @@ export async function findActiveRateDecayEvent(db: ReturnType<typeof drizzle>, k
   return row ?? null;
 }
 
-export type CommitDecayResult = { decayEventId: number; epRows: number; gpRows: number };
+// cycleStarted: the cycle number a global cycle decay opened (it ends the
+// running cycle — see cycles.ts). Absent for expansion decays.
+export type CommitDecayResult = { decayEventId: number; epRows: number; gpRows: number; cycleStarted?: number };
 export type CommitDecayOutcome = CommitDecayResult | { error: string };
 
 // Ledger activity/tier label per rate-decay kind. "Decay" for expansion
@@ -256,6 +259,11 @@ export async function commitRateDecay(
   if (existing) {
     return { error: `A ${kind} decay event already exists for ${ledgerDate(effectiveDate)} — reverse it first to redo.` };
   }
+
+  // A cycle decay is what ends the cycle, so check that up front — before
+  // any decay row exists.
+  const rollover = kind === "global_cycle" ? await planRollover(db, cutoff) : null;
+  if (rollover && "error" in rollover) return { error: rollover.error };
 
   const preview = await previewRateDecay(db, rate, cutoff);
   if (preview.length === 0) {
@@ -311,17 +319,27 @@ export async function commitRateDecay(
     }
   }
 
+  // Ends the running cycle at the decay cutoff and opens the next. Everything
+  // the decay counted is in the old cycle; anything recorded after it
+  // counts toward the new cycle's EP cap.
+  if (rollover) {
+    const d1 = db.$client;
+    await d1.batch(rolloverStatements(d1, rollover, event.id));
+  }
+
   await settleStandings(db, { all: true });
 
   await recordSystemEvent(db, await webActor(db, appliedBy), {
     action: "epgp.decay.commit",
     targetType: "decay_event",
     targetId: event.id,
-    summary: `${kind} decay committed at rate ${rate} for ${ledgerDate(effectiveDate)} (${epRows} EP rows, ${gpRows} GP rows)${label ? ` — ${label}` : ""}`,
-    after: { kind, rate, effectiveDate, epRows, gpRows, label },
+    summary:
+      `${kind} decay committed at rate ${rate} for ${ledgerDate(effectiveDate)} (${epRows} EP rows, ${gpRows} GP rows)${label ? ` — ${label}` : ""}` +
+      (rollover ? `; cycle #${rollover.closing.cycle.cycleNumber} ended, #${rollover.nextNumber} started` : ""),
+    after: { kind, rate, effectiveDate, epRows, gpRows, label, cycleStarted: rollover?.nextNumber ?? null },
   });
 
-  return { decayEventId: event.id, epRows, gpRows };
+  return { decayEventId: event.id, epRows, gpRows, ...(rollover ? { cycleStarted: rollover.nextNumber } : {}) };
 }
 
 export type DeparturePreviewRow = {
@@ -475,6 +493,11 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
   if (!event) return { error: "Decay event not found." };
   if (event.reversedAt) return { error: "This decay event was already reversed." };
 
+  // A cycle decay that started a cycle also removes it, reopening the one it
+  // ended (cycles.ts planUndoRollover).
+  const undo = await planUndoRollover(db, decayEventId);
+  if (undo && "error" in undo) return { error: undo.error };
+
   const d1 = db.$client;
   const activeEvent = "decay_event_id = ? AND EXISTS (SELECT 1 FROM decay_events WHERE id = ? AND reversed_at IS NULL)";
   const results = await d1.batch([
@@ -490,10 +513,11 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
     prepareDeleteAudit(d1, "gp", activeEvent, [decayEventId, decayEventId], reversedBy),
     d1.prepare(`DELETE FROM ep_ledger WHERE ${activeEvent}`).bind(decayEventId, decayEventId),
     d1.prepare(`DELETE FROM gp_ledger WHERE ${activeEvent}`).bind(decayEventId, decayEventId),
+    ...(undo ? undoRolloverStatements(d1, undo, { sql: "EXISTS (SELECT 1 FROM decay_events WHERE id = ? AND reversed_at IS NULL)", params: [decayEventId] }) : []),
     d1.prepare("UPDATE decay_events SET reversed_at = unixepoch(), reversed_by = ? WHERE id = ? AND reversed_at IS NULL RETURNING id").bind(reversedBy, decayEventId),
   ]);
 
-  const reversed = results[7]?.results.length === 1;
+  const reversed = results.at(-1)?.results.length === 1;
   if (!reversed) return { error: "This decay event was already reversed." };
   await settleStandings(db, { all: true });
 
@@ -505,7 +529,9 @@ export async function reverseDecayEvent(db: ReturnType<typeof drizzle>, decayEve
     action: "epgp.decay.reverse",
     targetType: "decay_event",
     targetId: decayEventId,
-    summary: `${event.kind} decay event #${decayEventId} reversed (${epRows} EP rows, ${gpRows} GP rows restored)`,
+    summary:
+      `${event.kind} decay event #${decayEventId} reversed (${epRows} EP rows, ${gpRows} GP rows restored)` +
+      (undo ? `; cycle #${undo.opened.cycleNumber} removed, #${undo.previous.cycleNumber} reopened` : ""),
     before: { kind: event.kind, effectiveDate: event.effectiveDate },
   });
 

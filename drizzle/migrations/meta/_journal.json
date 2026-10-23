@@ -414,6 +414,13 @@
       "when": 1790959275441,
       "tag": "0058_pop_flags_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1792789607358,
+      "tag": "0059_purple_wendigo",
+      "breakpoints": true
     }
   ]
 }

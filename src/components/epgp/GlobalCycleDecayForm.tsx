@@ -11,7 +11,7 @@ import { toGuildDateString } from "@/lib/guild-timezone";
 import type { DecayPreviewRow } from "@/lib/epgp/decay";
 
 type Preview = { rows: DecayPreviewRow[]; totalEpDecay: number; totalGpDecay: number; asOf: string };
-type Result = { decayEventId: number; epRows: number; gpRows: number };
+type Result = { decayEventId: number; epRows: number; gpRows: number; cycleStarted?: number };
 
 function todayIso(): string {
   return toGuildDateString(new Date());
@@ -24,7 +24,8 @@ function todayIso(): string {
 // global_cycle decay_events row via commitGlobalCycleDecayAction. Default
 // rate is 10% per §1c's confirmed guild vote, but stays adjustable — the
 // input is free text, not a fixed control, same as expansion decay's.
-export function GlobalCycleDecayForm() {
+// Committing also ends the running cycle and starts the next (cycles.ts).
+export function GlobalCycleDecayForm({ currentCycle }: { currentCycle: { number: number; startedLabel: string } | null }) {
   const router = useRouter();
   const confirm = useConfirm();
   const [rate, setRate] = useState("0.10");
@@ -54,7 +55,8 @@ export function GlobalCycleDecayForm() {
     if (!preview) return;
     const ok = await confirm({
       title: "Apply cycle decay?",
-      message: `Apply ${(Number(rate) * 100).toFixed(0)}% cycle decay to ${preview.rows.length} character(s) as of ${effectiveDate}? This compounds on top of every prior cycle decay and writes ledger rows immediately.`,
+      message: `Apply ${(Number(rate) * 100).toFixed(0)}% cycle decay to ${preview.rows.length} character(s) as of ${effectiveDate}? This compounds on top of every prior cycle decay and writes ledger rows immediately.` +
+        (currentCycle ? ` It also ends cycle #${currentCycle.number} and starts cycle #${currentCycle.number + 1}.` : ""),
       confirmLabel: "Apply decay",
       danger: true,
     });
@@ -67,13 +69,19 @@ export function GlobalCycleDecayForm() {
       setError(outcome.error ?? "Commit failed.");
       return;
     }
-    setResult({ decayEventId: outcome.decayEventId, epRows: outcome.epRows ?? 0, gpRows: outcome.gpRows ?? 0 });
+    setResult({ decayEventId: outcome.decayEventId, epRows: outcome.epRows ?? 0, gpRows: outcome.gpRows ?? 0, cycleStarted: outcome.cycleStarted });
     setPreview(null);
     router.refresh();
   }
 
   return (
     <div className="rounded-lg border border-border p-4">
+      {currentCycle && (
+        <p className="mb-3 text-sm text-neutral-400">
+          Running now: <span className="font-medium text-neutral-200">cycle #{currentCycle.number}</span>, started {currentCycle.startedLabel}.
+          Committing ends it and starts cycle #{currentCycle.number + 1}.
+        </p>
+      )}
       <form onSubmit={onPreview} className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-neutral-400">Rate (0–1)</span>
@@ -120,6 +128,7 @@ export function GlobalCycleDecayForm() {
       {result && (
         <p className="mt-4 rounded-md border border-emerald-800 bg-emerald-950/40 p-3 text-sm text-emerald-300">
           Applied — decay event #{result.decayEventId}: {result.epRows} EP row(s), {result.gpRows} GP row(s) written.
+          {result.cycleStarted !== undefined && ` Cycle #${result.cycleStarted} has started.`}
         </p>
       )}
 

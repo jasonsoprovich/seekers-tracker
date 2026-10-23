@@ -1,12 +1,11 @@
 import { and, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { cycles, epLedger } from "@/db";
+import { epLedger } from "@/db";
 import { getSettingAt } from "@/lib/epgp/settings";
-import { guildDayBounds, toGuildDateString } from "@/lib/guild-timezone";
+import { bucketRange, type Cycle, type CycleWindow, loadCycleWindows, windowAt } from "@/lib/epgp/cycles";
 
 type Db = ReturnType<typeof drizzle>;
-type Cycle = typeof cycles.$inferSelect;
 
 // Write-time enforcement of the per-cycle EP cap (`ep_cap_per_cycle`, 900
 // today). Every new positive EP award — attendance, Event Lead, manual entry
@@ -41,52 +40,15 @@ export type EpCapOutcome = {
 };
 
 const IN_CHUNK = 90;
-const FAR_FUTURE = new Date(8.64e15);
-
-function utcDay(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-// Ledger dates are of two kinds: sheet/manual-form rows sit at exactly UTC
-// midnight of their date (a bucket), while officer-app rows carry the real
-// timestamp. A real Eastern-evening timestamp is already "tomorrow" in UTC,
-// so bucket rows read their UTC date and everything else reads the guild-
-// local date — the same convention ledgerDate() uses for display.
-function effectiveDay(t: Date): string {
-  return t.getTime() % 86_400_000 === 0 ? utcDay(t) : toGuildDateString(t);
-}
-
-type CycleWindow = { cycle: Cycle; etStart: Date; etEnd: Date; utcStart: Date; utcEnd: Date };
-
-function windowFor(all: Cycle[], t: Date): CycleWindow | null {
-  const day = effectiveDay(t);
-  let cycle = all.find((c) => utcDay(c.startDate) <= day && day <= utcDay(c.endDate));
-  let openEnded = false;
-  if (!cycle) {
-    // A calendar gap (a cycle not added yet): the latest started cycle stays
-    // "current", same fallback getCurrentCycle uses.
-    cycle = all.filter((c) => utcDay(c.startDate) <= day).at(-1);
-    openEnded = true;
-  }
-  if (!cycle) return null;
-  const startBounds = guildDayBounds(utcDay(cycle.startDate));
-  const endBounds = guildDayBounds(utcDay(cycle.endDate));
-  return {
-    cycle,
-    etStart: startBounds?.start ?? cycle.startDate,
-    etEnd: openEnded ? FAR_FUTURE : (endBounds?.end ?? cycle.endDate),
-    utcStart: cycle.startDate,
-    utcEnd: openEnded ? FAR_FUTURE : cycle.endDate,
-  };
-}
 
 // Net non-decay EP each player already has in one cycle window. Real
-// timestamps are matched against the guild-local day range; UTC-midnight
-// bucket rows against the cycle's own UTC dates (so a manual/sheet entry on
-// the first or last day counts, without pulling in the previous evening's
-// real raid).
+// timestamps are matched against the window itself; UTC-midnight bucket rows
+// against the dates whose noon falls inside it (cycles.ts effectiveInstant),
+// so a manual/sheet entry on the first or last day counts without pulling in
+// the previous evening's real raid.
 async function cycleEpUsed(db: Db, playerIds: number[], w: CycleWindow, excludeRowId?: number): Promise<Map<number, number>> {
   const used = new Map<number, number>();
+  const buckets = bucketRange(w);
   for (let i = 0; i < playerIds.length; i += IN_CHUNK) {
     const rows = await db
       .select({ playerId: epLedger.playerId, sum: sql<number>`coalesce(sum(${epLedger.points}), 0)` })
@@ -97,8 +59,8 @@ async function cycleEpUsed(db: Db, playerIds: number[], w: CycleWindow, excludeR
           isNull(epLedger.decayEventId),
           excludeRowId !== undefined ? ne(epLedger.id, excludeRowId) : undefined,
           or(
-            and(gte(epLedger.occurredAt, w.etStart), lt(epLedger.occurredAt, w.etEnd)),
-            and(gte(epLedger.occurredAt, w.utcStart), lte(epLedger.occurredAt, w.utcEnd), sql`${epLedger.occurredAt} % 86400 = 0`),
+            and(gte(epLedger.occurredAt, w.start), lt(epLedger.occurredAt, w.end), sql`${epLedger.occurredAt} % 86400 != 0`),
+            and(gte(epLedger.occurredAt, buckets.from), lte(epLedger.occurredAt, buckets.to), sql`${epLedger.occurredAt} % 86400 = 0`),
           ),
         ),
       )
@@ -136,8 +98,7 @@ export async function resolveEpCaps(db: Db, inputs: EpCapInput[]): Promise<EpCap
   });
   if (inputs.length === 0) return [];
 
-  const allCycles = await db.select().from(cycles);
-  allCycles.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+  const windows = await loadCycleWindows(db);
 
   const capByTime = new Map<number, number | null>();
   const windowByTime = new Map<number, CycleWindow | null>();
@@ -146,7 +107,7 @@ export async function resolveEpCaps(db: Db, inputs: EpCapInput[]): Promise<EpCap
     if (capByTime.has(t)) continue;
     const raw = await getSettingAt(db, "ep_cap_per_cycle", i.occurredAt);
     capByTime.set(t, raw !== null ? Number(raw) : null);
-    windowByTime.set(t, windowFor(allCycles, i.occurredAt));
+    windowByTime.set(t, windowAt(windows, i.occurredAt));
   }
 
   // Only rows that can actually be capped need a lookup.
@@ -183,6 +144,8 @@ export async function resolveEpCaps(db: Db, inputs: EpCapInput[]): Promise<EpCap
 
 export type CycleEpProgress = {
   cycle: Cycle;
+  // True while the cycle is still running (it ends at the next cycle decay).
+  open: boolean;
   cap: number | null;
   // Net non-decay EP per player in the cycle: the same number the write
   // path clamps against, so the display can never disagree with enforcement.
@@ -193,14 +156,12 @@ export type CycleEpProgress = {
 // the exact window and sum resolveEpCaps uses. Returns null when no cycle
 // has started (no cap is applied then either).
 export async function getCurrentCycleEp(db: Db, playerIds: number[], asOf: Date = new Date()): Promise<CycleEpProgress | null> {
-  const allCycles = await db.select().from(cycles);
-  allCycles.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
-  const w = windowFor(allCycles, asOf);
+  const w = windowAt(await loadCycleWindows(db), asOf);
   if (!w) return null;
   const raw = await getSettingAt(db, "ep_cap_per_cycle", asOf);
   const cap = raw !== null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
   const usedByPlayer = playerIds.length > 0 ? await cycleEpUsed(db, playerIds, w) : new Map<number, number>();
-  return { cycle: w.cycle, cap, usedByPlayer };
+  return { cycle: w.cycle, open: w.open, cap, usedByPlayer };
 }
 
 const CAP_NOTE_RE = /(?:\s+—\s+)?EP capped(?::| at) [^—]*$/;

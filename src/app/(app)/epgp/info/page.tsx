@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { InfoSectionEditor } from "@/components/epgp/InfoSectionEditor";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { epgpPointValues } from "@/db";
-import { getCurrentCycle } from "@/lib/epgp/cycles";
-import { ledgerDate } from "@/lib/format-date";
+import { getCurrentCycleWindow } from "@/lib/epgp/cycles";
+import { guildDate } from "@/lib/guild-timezone";
 import { getDb } from "@/lib/db";
 import { listInfoSections } from "@/lib/epgp/info-sections";
 import { getPermissions } from "@/lib/permissions";
@@ -32,7 +32,7 @@ export default async function EpgpInfoPage() {
 
   const [settings, currentCycle, pointValues, sections] = await Promise.all([
     getSettingsAt(db),
-    getCurrentCycle(db),
+    getCurrentCycleWindow(db),
     db
       .select({ kind: epgpPointValues.kind, activity: epgpPointValues.activity, points: epgpPointValues.points })
       .from(epgpPointValues)
@@ -56,15 +56,15 @@ export default async function EpgpInfoPage() {
             <dl className="mt-2 space-y-1 text-sm">
               <div className="flex justify-between">
                 <dt className="text-neutral-400">Cycle</dt>
-                <dd className="font-medium">#{currentCycle.cycleNumber}</dd>
+                <dd className="font-medium">#{currentCycle.cycle.cycleNumber}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-neutral-400">Starts</dt>
-                <dd className="font-medium">{ledgerDate(currentCycle.startDate)}</dd>
+                <dt className="text-neutral-400">Started</dt>
+                <dd className="font-medium">{guildDate(currentCycle.start)}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-neutral-400">Ends</dt>
-                <dd className="font-medium">{ledgerDate(currentCycle.endDate)}</dd>
+                <dd className="font-medium">{currentCycle.open ? "When the guild leader runs cycle decay" : guildDate(new Date(currentCycle.end.getTime() - 1))}</dd>
               </div>
             </dl>
           ) : (

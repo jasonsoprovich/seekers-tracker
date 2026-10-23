@@ -6,7 +6,9 @@ import { useState } from "react";
 import { reverseDecayAction } from "@/app/(app)/epgp/decay/actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
-export function ReverseDecayButton({ decayEventId, label }: { decayEventId: number; label: string }) {
+// reopensCycle: the cycle this decay started, if any — reversing removes it
+// and reopens the cycle before it.
+export function ReverseDecayButton({ decayEventId, label, reopensCycle = null }: { decayEventId: number; label: string; reopensCycle?: number | null }) {
   const router = useRouter();
   const confirm = useConfirm();
   const [pending, setPending] = useState(false);
@@ -15,7 +17,10 @@ export function ReverseDecayButton({ decayEventId, label }: { decayEventId: numb
   async function onClick() {
     const ok = await confirm({
       title: "Reverse decay?",
-      message: `Reverse "${label}"? This deletes every ledger row it wrote. Can't be undone.`,
+      message:
+        `Reverse "${label}"? This deletes every ledger row it wrote.` +
+        (reopensCycle !== null ? ` It also removes cycle #${reopensCycle} and reopens the previous cycle; EP recorded since then moves back into it.` : "") +
+        " Can't be undone.",
       confirmLabel: "Reverse",
       danger: true,
     });
