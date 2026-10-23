@@ -67,6 +67,7 @@ export const SYSTEM_EVENTS = {
   "epgp.departure.commit": { category: "epgp", label: "Departure EP wipe" },
   "epgp.raid.reverse": { category: "epgp", label: "Raid reversed" },
   "epgp.raid.zero_ep": { category: "epgp", label: "Raid EP zeroed" },
+  "epgp.raid.delete_empty": { category: "epgp", label: "Empty event deleted" },
   "epgp.raid.meta": { category: "epgp", label: "Raid renamed" },
   "epgp.info.update": { category: "epgp", label: "Rules info section edited" },
   "guild.info.create": { category: "epgp", label: "Guild info card created" },

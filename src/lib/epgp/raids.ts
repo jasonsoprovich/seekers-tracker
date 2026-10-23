@@ -686,6 +686,57 @@ export async function zeroRaidEp(
   return { ok: true, rowsZeroed: rows.length };
 }
 
+export type DeleteEmptyEventResult = { ok: true } | { error: string };
+
+// Removes an event that exists only as a `raids` metadata row — no
+// attendance, loot, EP or GP behind it (e.g. a name left over from a stale
+// officer-app "Raid name" field, or a night whose captures landed under a
+// different event). Nothing in the ledger changes, so unlike reverseRaid
+// this needs no audit snapshot of ledger rows or a standings refresh.
+//
+// Emptiness is checked against listRaids itself, so the rule is exactly
+// what the Raids and Events History page shows: the row must read 0 for
+// attended/items/EP/GP. On top of that, any ledger row explicitly linked
+// to this event (raid_date + raid_name, even a 0-point one) blocks the
+// delete — removing the metadata would orphan that link.
+export async function deleteEmptyEvent(
+  db: ReturnType<typeof drizzle>,
+  raidDate: string,
+  raidName: string | null,
+  actorId: string,
+): Promise<DeleteEmptyEventResult> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raidDate)) return { error: "Bad raid date." };
+
+  const row = (await listRaids(db)).find((r) => r.raidDate === raidDate && r.eventName === raidName);
+  if (!row) return { error: "That event no longer exists." };
+  if (row.memberCount !== 0 || row.itemCount !== 0 || row.epAwarded !== 0 || row.gpSpent !== 0) {
+    return { error: "This event has attendance, loot, EP or GP recorded — reverse or zero it instead." };
+  }
+
+  const nameMatch = (col: typeof epLedger.raidName | typeof gpLedger.raidName | typeof raids.name) =>
+    raidName === null ? isNull(col) : eq(col, raidName);
+  const [[linkedEp], [linkedGp]] = await Promise.all([
+    db.select({ id: epLedger.id }).from(epLedger).where(and(eq(epLedger.raidDate, raidDate), nameMatch(epLedger.raidName))).limit(1),
+    db.select({ id: gpLedger.id }).from(gpLedger).where(and(eq(gpLedger.raidDate, raidDate), nameMatch(gpLedger.raidName))).limit(1),
+  ]);
+  if (linkedEp || linkedGp) return { error: "Ledger entries are linked to this event, so it can't be deleted." };
+
+  const metaRows = await db.select().from(raids).where(and(eq(raids.raidDate, raidDate), nameMatch(raids.name)));
+  if (metaRows.length === 0) return { error: "That event no longer exists." };
+  await db.delete(raids).where(inArray(raids.id, metaRows.map((m) => m.id)));
+
+  await recordSystemEvent(db, await webActor(db, actorId), {
+    action: "epgp.raid.delete_empty",
+    targetType: "raid",
+    targetId: raidDate,
+    targetLabel: raidName,
+    summary: `Deleted empty event ${raidDate}${raidName ? ` — ${raidName}` : ""}`,
+    before: { raids: metaRows },
+  });
+
+  return { ok: true };
+}
+
 export async function setRaidMeta(
   db: ReturnType<typeof drizzle>,
   raidDate: string,

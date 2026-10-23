@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { DeleteEmptyEventButton } from "@/components/epgp/DeleteEmptyEventButton";
 import { RaidLootTable } from "@/components/epgp/RaidLootTable";
 import { RaidNameEditor } from "@/components/epgp/RaidNameEditor";
 import { ReverseRaidButton } from "@/components/epgp/ReverseRaidButton";
@@ -9,6 +10,7 @@ import { ZeroRaidEpButton } from "@/components/epgp/ZeroRaidEpButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { characters, players, users } from "@/db";
 import { getDb } from "@/lib/db";
+import { raidDisplayName } from "@/lib/epgp/raid-display";
 import { getRaidDetail } from "@/lib/epgp/raids";
 import { charClassLabel } from "@/lib/eq/enums";
 import { GUILD_TIMEZONE } from "@/lib/guild-timezone";
@@ -54,6 +56,10 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
   const canReverse = perms.can("epgp.raids.reverse");
   const viewerTimeZone = me?.timezone || GUILD_TIMEZONE;
   const timeLocal = localTimeFormatterFor(viewerTimeZone);
+  // Nothing recorded under this event — only its name/note row exists.
+  const isEmpty = detail.captures.length === 0 && detail.loot.length === 0 && detail.epAwarded === 0 && detail.gpSpent === 0;
+  const zones = [...new Set(detail.captures.flatMap((c) => (c.zone ? [c.zone] : [])))];
+  const title = raidDisplayName(detail.name, zones);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -62,7 +68,7 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
           { label: "Raids and Events History", href: "/epgp/raids" },
           { label: detail.raidDate },
         ]}
-        title={detail.name ? `${detail.name} — ${detail.raidDate}` : detail.raidDate}
+        title={title ? `${title} — ${detail.raidDate}` : detail.raidDate}
       />
 
       {canManage ? (
@@ -172,7 +178,17 @@ export default async function RaidDetailPage({ params, searchParams }: { params:
         <RaidLootTable loot={detail.loot} timeZone={viewerTimeZone} />
       )}
 
-      {canReverse && (
+      {canManage && isEmpty && (
+        <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+          <p className="text-sm font-medium text-red-300">Empty event</p>
+          <p className="mt-1 mb-2 text-xs text-neutral-400">
+            No attendance, loot, EP or GP is recorded under this event, so it can be removed without changing anyone&apos;s standings.
+          </p>
+          <DeleteEmptyEventButton raidDate={detail.raidDate} raidName={raidName} />
+        </div>
+      )}
+
+      {canReverse && !isEmpty && (
         <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
           <p className="text-sm font-medium text-red-300">Danger zone</p>
           <p className="mt-1 mb-2 text-xs text-neutral-400">

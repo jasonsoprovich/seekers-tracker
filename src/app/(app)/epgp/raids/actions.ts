@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { getDb } from "@/lib/db";
-import { reverseRaid, setRaidLeader, setRaidMeta, zeroRaidEp } from "@/lib/epgp/raids";
+import { deleteEmptyEvent, reverseRaid, setRaidLeader, setRaidMeta, zeroRaidEp } from "@/lib/epgp/raids";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 
@@ -84,4 +84,22 @@ export async function zeroRaidEpAction(raidDate: string, raidName: string | null
   const result = await zeroRaidEp(db, raidDate, raidName, session.user.id);
   if ("error" in result) return { error: result.error };
   return result;
+}
+
+// Officer+ ("epgp.raids.manage", same bar as naming an event): deleting an
+// event with no attendance, loot, EP or GP touches no ledger row, so it
+// doesn't need the leader-only reverse capability. deleteEmptyEvent
+// re-checks emptiness server-side and refuses otherwise.
+export async function deleteEmptyEventAction(raidDate: string, raidName: string | null): Promise<RaidMetaResult> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const perms = await getPermissions(session.user.id);
+  if (!perms.can("epgp.raids.manage")) {
+    return { error: "Only officers, leaders, and admins can delete an event." };
+  }
+
+  const result = await deleteEmptyEvent(await getDb(), raidDate, raidName, session.user.id);
+  if ("error" in result) return { error: result.error };
+  return {};
 }

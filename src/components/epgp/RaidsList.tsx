@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { SortableTh, useTableSort } from "@/components/ui/table-sort";
+import { raidDisplayName } from "@/lib/epgp/raid-display";
 import type { RaidListRow } from "@/lib/epgp/raids";
 
 type Col = "date" | "name" | "leader" | "zones" | "attended" | "items" | "ep" | "gp";
@@ -12,7 +13,7 @@ type Col = "date" | "name" | "leader" | "zones" | "attended" | "items" | "ep" | 
 export function RaidsList({ rows }: { rows: RaidListRow[] }) {
   const { sorted, sort, toggle } = useTableSort<RaidListRow, Col>(rows, {
     date: (r) => r.raidDate,
-    name: (r) => r.name,
+    name: (r) => raidDisplayName(r.name, r.zones),
     leader: (r) => r.leader,
     zones: (r) => r.zones.join(", "),
     attended: (r) => r.memberCount,
@@ -44,7 +45,9 @@ export function RaidsList({ rows }: { rows: RaidListRow[] }) {
                   {r.raidDate}
                 </Link>
               </td>
-              <td className="px-3 py-2">{r.name ?? <span className="text-neutral-600">—</span>}</td>
+              <td className="px-3 py-2">
+                {r.name ?? (r.zones.length ? <span className="text-neutral-400">{raidDisplayName(null, r.zones)}</span> : <span className="text-neutral-600">—</span>)}
+              </td>
               <td className="px-3 py-2">{r.leader ?? <span className="text-neutral-600">—</span>}</td>
               <td className="px-3 py-2 text-neutral-400">{r.zones.length ? r.zones.join(", ") : "—"}</td>
               <td className="px-3 py-2 text-right tabular-nums">{r.memberCount}</td>
