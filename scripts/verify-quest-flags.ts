@@ -21,7 +21,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
-import { characters, characterKeyFlags, skyBankRewards, skyBankStock } from "../src/db/schema";
+import { characters, characterKeyFlags } from "../src/db/schema";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -56,7 +56,6 @@ async function main() {
   await wb.xlsx.readFile(resolve(filePath!));
   const empvtSheet = wb.getWorksheet("EmpVT Key List")!;
   const stSheet = wb.getWorksheet("ST Key List")!;
-  const skyBankSheet = wb.getWorksheet("Sky Bank")!;
 
   const sheetNames = new Map<string, { sheet: string; row: number }[]>();
   function record(name: string, sheet: string, row: number) {
@@ -76,14 +75,6 @@ async function main() {
     if (raw && item) record(baseName(raw), "ST Key List", rn);
   });
 
-  let stockRows = 0;
-  let rewardRows = 0;
-  skyBankSheet.eachRow((row, rn) => {
-    if (rn <= 2) return;
-    if (cellText(row.getCell(1))) stockRows++;
-    if (cellText(row.getCell(4)) && cellText(row.getCell(6))) rewardRows++;
-  });
-
   const proxy = await getPlatformProxy({ configPath: "wrangler.jsonc" });
   try {
     const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
@@ -98,14 +89,10 @@ async function main() {
       }
     }
 
-    console.log(`Sheet: ${sheetNames.size} distinct character names across EmpVT/ST, ${stockRows} Sky Bank stock rows, ${rewardRows} Sky Bank reward rows.`);
+    console.log(`Sheet: ${sheetNames.size} distinct character names across EmpVT/ST.`);
 
-    const [flagCount, rewardCount, stockCount] = await Promise.all([
-      db.$count(characterKeyFlags),
-      db.$count(skyBankRewards),
-      db.$count(skyBankStock),
-    ]);
-    console.log(`DB: ${flagCount} character_key_flags rows, ${rewardCount} sky_bank_rewards rows, ${stockCount} sky_bank_stock rows.`);
+    const flagCount = await db.$count(characterKeyFlags);
+    console.log(`DB: ${flagCount} character_key_flags rows.`);
 
     if (unmatched.length === 0) {
       console.log("\nEvery EmpVT/ST sheet name matched a real `characters` row.");

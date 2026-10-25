@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-import { SkyBankSection } from "@/components/bank/SkyBankSection";
 import { fieldClasses } from "@/components/ui/Field";
-import type { CharacterKeyFlagRow, SkyBankRewardRow, SkyBankStockRow } from "@/lib/quest-flags/list";
+import type { CharacterKeyFlagRow } from "@/lib/quest-flags/list";
 
 function Pill({ done, label }: { done: boolean; label: string }) {
   return (
@@ -95,34 +94,6 @@ function KeysTab({ rows }: { rows: CharacterKeyFlagRow[] }) {
   );
 }
 
-export function QuestFlagsView({
-  keyFlags,
-  rewards,
-  stock,
-}: {
-  keyFlags: CharacterKeyFlagRow[];
-  rewards: SkyBankRewardRow[];
-  stock: SkyBankStockRow[];
-}) {
-  const [tab, setTab] = useState<"keys" | "skybank">("keys");
-
-  return (
-    <div>
-      <div className="mb-4 flex gap-2 border-b border-border">
-        {(["keys", "skybank"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-3 py-2 text-sm font-medium ${
-              tab === t ? "border-b-2 border-accent text-neutral-100" : "text-neutral-500 hover:text-neutral-300"
-            }`}
-          >
-            {t === "keys" ? "EmpVT / ST Keys" : "Sky Bank"}
-          </button>
-        ))}
-      </div>
-      {tab === "keys" ? <KeysTab rows={keyFlags} /> : <SkyBankSection rewards={rewards} stock={stock} />}
-    </div>
-  );
+export function QuestFlagsView({ keyFlags }: { keyFlags: CharacterKeyFlagRow[] }) {
+  return <KeysTab rows={keyFlags} />;
 }

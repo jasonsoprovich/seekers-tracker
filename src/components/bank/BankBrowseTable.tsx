@@ -3,14 +3,13 @@
 import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
 
-import { addManualHoldingAction, deleteHoldingAction, removeUnverifiedHoldingAction, updateHoldingAction, type AddHoldingInput } from "@/app/(app)/bank/actions";
+import { addManualHoldingAction, deleteHoldingAction, updateHoldingAction, type AddHoldingInput } from "@/app/(app)/bank/actions";
 import { ItemLink } from "@/components/items/ItemLink";
 import { Button } from "@/components/ui/Button";
 import { useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import { BANK_MANUAL_ADD_ENABLED } from "@/lib/bank/constants";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
-import { normalizeBankItemName } from "@/lib/bank/item-name";
 
 type SortKey = "holderName" | "mainName" | "category" | "itemName" | "quantity" | "status";
 type SortDir = "asc" | "desc";
@@ -27,25 +26,11 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 // "General1" (a bag itself) -> "General1"; "General1" slot 3 -> "General1
 // slot 3"; a manual entry's sentinel container (holdings.ts's
 // manualContainer) -> "Manual entry" rather than a confusing raw
-// "Manual slot 1"; a sheet-migrated row's synthetic "Sheet" container
-// (migration 0053) shows its ORIGINAL sheet position via legacyLocation
-// instead of the meaningless synthetic slot number — a member reading the
-// Location column shouldn't have to know "Sheet" is an internal bookkeeping
-// container at all.
-function formatLocation(container: string, slotIndex: number, legacyLocation: string | null): string {
-  if (container === "Sheet") return legacyLocation ?? "Sheet (no recorded location)";
+// "Manual slot 1".
+function formatLocation(container: string, slotIndex: number): string {
   if (container === "Manual") return "Manual entry";
   return slotIndex === 0 ? container : `${container} slot ${slotIndex}`;
 }
-
-// Officer-only unverified-state badge (BankHoldingRow.unverifiedState) —
-// members see every row exactly the same regardless of sync status, per
-// Jason's own transparency concern: nothing should look like it vanished.
-const UNVERIFIED_BADGE: Record<Exclude<BankHoldingRow["unverifiedState"], null>, { label: string; className: string }> = {
-  sheet: { label: "Sheet", className: "bg-neutral-800 text-neutral-500" },
-  manual: { label: "Unverified", className: "bg-neutral-800 text-neutral-500" },
-  not_found: { label: "Needs review", className: "bg-amber-950/50 text-amber-400" },
-};
 
 export type LastImportRow = {
   characterId: number;
@@ -88,7 +73,7 @@ const emptyAddForm: AddHoldingInput = {
 // held by multiple mules. Grouped by (category, itemId) when an item ID
 // is known — the reliable join key, same reasoning bank_holdings.itemId's
 // own schema comment gives — falling back to a lowercased item-name match
-// for sheet/manual rows that never captured one.
+// for manual rows that never captured one.
 // ---------------------------------------------------------------------
 
 type BankGroup = {
@@ -104,12 +89,6 @@ type BankGroup = {
   statusMixed: boolean;
   classRestriction: string | null;
   classMixed: boolean;
-  // Counts, not booleans — a group spanning several holders (e.g. 3
-  // identical spells) can have some rows verified and some not; the
-  // group-row badge shows "needs review" if ANY row does, "unverified" if
-  // any pending-but-not-flagged row does, otherwise nothing.
-  unverifiedCount: number;
-  notFoundCount: number;
   rows: BankHoldingRow[];
 };
 
@@ -136,8 +115,6 @@ function buildGroups(rows: BankHoldingRow[]): BankGroup[] {
         statusMixed: false,
         classRestriction: row.classRestriction,
         classMixed: false,
-        unverifiedCount: 0,
-        notFoundCount: 0,
         rows: [],
       };
       map.set(key, g);
@@ -147,8 +124,6 @@ function buildGroups(rows: BankHoldingRow[]): BankGroup[] {
     if (row.ownerMainName && !g.mainNames.includes(row.ownerMainName)) g.mainNames.push(row.ownerMainName);
     if (g.status !== row.status) g.statusMixed = true;
     if (g.classRestriction !== row.classRestriction) g.classMixed = true;
-    if (row.unverifiedState !== null) g.unverifiedCount += 1;
-    if (row.unverifiedState === "not_found") g.notFoundCount += 1;
     g.rows.push(row);
   }
   return [...map.values()];
@@ -215,8 +190,6 @@ export function BankBrowseTable({
   const [editNote, setEditNote] = useState("");
   const [editAuditNote, setEditAuditNote] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<number | string | null>(null);
-  const [unverifiedOnly, setUnverifiedOnly] = useState(false);
 
   // Guild-bank-at-a-glance stats — always over the full status=guild_bank
   // set, not the current filter, same reasoning RosterTable's counts don't
@@ -238,90 +211,6 @@ export function BankBrowseTable({
     () => [...lastImports].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [lastImports],
   );
-  // 2026-09-27 unverified-item tracking (was "sheetHolders"/Retire —
-  // holdings.ts's BankHoldingRow.unverifiedState). Officer-only: per-holder
-  // progress toward full verification, and the "needs review" list of
-  // items a real sync couldn't find. A holder's first real sync resolves
-  // most of these automatically (src/lib/bank/sync.ts's
-  // reconcileUnverified); this panel is for what's left.
-  const verification = useMemo(() => {
-    const total = holdings.length;
-    const unverified = holdings.filter((h) => h.unverifiedState !== null);
-    const notFound = holdings.filter((h) => h.unverifiedState === "not_found");
-
-    const syncedIds = new Set(lastImports.map((i) => i.characterId));
-    const byHolder = new Map<number, { characterId: number; name: string; unverified: number; notFound: number; synced: boolean }>();
-    for (const h of unverified) {
-      const entry = byHolder.get(h.holderCharacterId) ?? {
-        characterId: h.holderCharacterId,
-        name: h.holderName,
-        unverified: 0,
-        notFound: 0,
-        synced: syncedIds.has(h.holderCharacterId),
-      };
-      entry.unverified += 1;
-      if (h.unverifiedState === "not_found") entry.notFound += 1;
-      byHolder.set(h.holderCharacterId, entry);
-    }
-    const holders = [...byHolder.values()].sort((a, b) => b.notFound - a.notFound || b.unverified - a.unverified || a.name.localeCompare(b.name));
-    // 2026-10-21: split by what an officer should actually do. Only a synced
-    // holder's not-found rows need a decision; a synced holder's other rows
-    // sit in bags not flagged yet (flag + re-sync), and a never-synced
-    // holder's rows just wait for its first sync — no remove-all button
-    // there, it would wipe real inventory nobody has checked.
-    const waitingOnBags = holders.filter((h) => h.synced && h.unverified > h.notFound);
-    const neverSynced = holders.filter((h) => !h.synced);
-
-    // For each not-found item, whether the same item name already exists
-    // as a VERIFIED row on a different holder — a hint that it may just be
-    // sitting somewhere else in the guild's bank already, computed
-    // client-side from rows already loaded (no extra query).
-    const verifiedNamesByHolder = new Map<string, Set<number>>();
-    for (const h of holdings) {
-      if (h.unverifiedState !== null) continue;
-      const key = normalizeBankItemName(h.itemName);
-      const set = verifiedNamesByHolder.get(key) ?? new Set<number>();
-      set.add(h.holderCharacterId);
-      verifiedNamesByHolder.set(key, set);
-    }
-    // Not-found rows grouped per holder, then per item name — one line for
-    // "Brell's Mountainous Barrier ×3" instead of three near-identical rows.
-    type ReviewGroup = { key: string; itemName: string; itemId: number | null; quantity: number; ids: number[]; locations: string[]; alsoOn: string[] };
-    const reviewByHolder = new Map<number, { characterId: number; name: string; ids: number[]; groups: Map<string, ReviewGroup> }>();
-    for (const h of notFound) {
-      const holder = reviewByHolder.get(h.holderCharacterId) ?? { characterId: h.holderCharacterId, name: h.holderName, ids: [] as number[], groups: new Map<string, ReviewGroup>() };
-      const key = normalizeBankItemName(h.itemName);
-      const group = holder.groups.get(key) ?? {
-        key,
-        itemName: h.itemName,
-        itemId: h.itemId,
-        quantity: 0,
-        ids: [],
-        locations: [],
-        alsoOn: [...(verifiedNamesByHolder.get(key) ?? [])].filter((id) => id !== h.holderCharacterId).map((id) => nameByCharacterId.get(id) ?? `#${id}`),
-      };
-      group.quantity += h.quantity;
-      group.ids.push(h.id);
-      group.locations.push(formatLocation(h.container, h.slotIndex, h.legacyLocation));
-      holder.groups.set(key, group);
-      holder.ids.push(h.id);
-      reviewByHolder.set(h.holderCharacterId, holder);
-    }
-    const needsReview = [...reviewByHolder.values()]
-      .map((h) => ({ ...h, groups: [...h.groups.values()].sort((a, b) => a.itemName.localeCompare(b.itemName)) }))
-      .sort((a, b) => b.ids.length - a.ids.length || a.name.localeCompare(b.name));
-
-    return {
-      total,
-      verifiedCount: total - unverified.length,
-      unverifiedCount: unverified.length,
-      notFoundCount: notFound.length,
-      needsReview,
-      waitingOnBags,
-      neverSynced,
-    };
-  }, [holdings, nameByCharacterId, lastImports]);
-
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return holdings.filter((h) => {
@@ -332,10 +221,9 @@ export function BankBrowseTable({
       if (holderFilter !== "all" && h.holderName !== holderFilter) return false;
       if (statusFilter !== "all" && h.status !== statusFilter) return false;
       if (hideNoDrop && h.noDrop) return false;
-      if (unverifiedOnly && h.unverifiedState === null) return false;
       return true;
     });
-  }, [holdings, search, categoryFilter, holderFilter, statusFilter, hideNoDrop, unverifiedOnly]);
+  }, [holdings, search, categoryFilter, holderFilter, statusFilter, hideNoDrop]);
 
   const groups = useMemo(() => buildGroups(filteredRows), [filteredRows]);
   const sortedGroups = useMemo(() => {
@@ -416,48 +304,6 @@ export function BankBrowseTable({
     router.refresh();
   }
 
-  // 2026-09-27 (was onRetire): removes an unverified sheet/manual row —
-  // one item, or every remaining unverified row for one holder — for
-  // something genuinely gone rather than just unsynced yet. Always
-  // requires a note (server-enforced; removeUnverifiedHoldingAction
-  // refuses a blank one) so the audit trail keeps saying WHY.
-  async function onRemoveUnverified(
-    target: { kind: "row"; id: number } | { kind: "rows"; ids: number[] } | { kind: "holder"; holderCharacterId: number },
-    label: string,
-    key: number | string = target.kind === "row" ? target.id : target.kind === "holder" ? `holder:${target.holderCharacterId}` : `rows:${label}`,
-  ): Promise<boolean> {
-    const result = await confirmWith({
-      title: "Remove from the guild bank?",
-      message:
-        target.kind === "row"
-          ? `Remove "${label}"? This can't be undone. Only do this for an item that's genuinely gone — not just unsynced yet.`
-          : target.kind === "rows"
-            ? `Remove ${label}? These are old sheet entries the last sync looked for and didn't find. This can't be undone, and the note is saved to the bank's Audit tab.`
-            : `Remove all of ${label}'s old sheet rows? Only do this if ${label} will never be synced from the officer app — otherwise sync it first and most rows confirm themselves.`,
-      confirmLabel: "Remove",
-      danger: true,
-      textInput: { label: "Note — who received it, or why it's gone", placeholder: "Given to…" },
-    });
-    if (!result.ok) return false;
-    setRemovingId(key);
-    const outcome = await removeUnverifiedHoldingAction(target, result.note ?? "");
-    setRemovingId(null);
-    if (outcome.error) {
-      alert(outcome.error);
-      return false;
-    }
-    router.refresh();
-    return true;
-  }
-
-  // Wraps onRemoveUnverified for the inline edit-row Remove button — closes
-  // the edit row on success (same as saveEdit) so a removed row doesn't sit
-  // half-open in edit mode after it's gone.
-  async function removeRowWhileEditing(row: BankHoldingRow) {
-    const ok = await onRemoveUnverified({ kind: "row", id: row.id }, row.itemName);
-    if (ok && editingId === row.id) setEditingId(null);
-  }
-
   // Actions column background while it's pinned via `sticky right-0` (see
   // below) — a sticky cell needs its OWN opaque background, not just its
   // row's, since it has to visually cover whatever scrolls underneath it.
@@ -477,11 +323,6 @@ export function BankBrowseTable({
           {row.noDrop && (
             <span className="ml-1.5 rounded-full bg-red-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
               No drop
-            </span>
-          )}
-          {canManage && row.unverifiedState !== null && (
-            <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${UNVERIFIED_BADGE[row.unverifiedState].className}`}>
-              {UNVERIFIED_BADGE[row.unverifiedState].label}
             </span>
           )}
         </td>
@@ -513,7 +354,7 @@ export function BankBrowseTable({
             <span className="text-neutral-500">Reserved</span>
           )}
         </td>
-        <td className="px-3 py-2 text-neutral-500">{formatLocation(row.container, row.slotIndex, row.legacyLocation)}</td>
+        <td className="px-3 py-2 text-neutral-500">{formatLocation(row.container, row.slotIndex)}</td>
         <td className="px-3 py-2 text-neutral-500">
           {isEditing ? (
             <input value={editNote} onChange={(e) => setEditNote(e.target.value)} className={`${fieldClasses({ size: "sm" })} w-32`} />
@@ -538,22 +379,6 @@ export function BankBrowseTable({
                 <Button type="button" size="sm" variant="outline" onClick={() => setEditingId(null)}>
                   Cancel
                 </Button>
-                {/* Unverified rows only (sheet-migrated / manual rows a real
-                    sync hasn't confirmed yet) — a verified holding stays
-                    protected from manual deletion since a sync keeps it
-                    accurate on its own. Reuses the same required-note,
-                    audit-logged path the Verification progress panel above
-                    already calls, just reachable without leaving this row. */}
-                {row.unverifiedState !== null && (
-                  <button
-                    type="button"
-                    disabled={removingId !== null}
-                    onClick={() => removeRowWhileEditing(row)}
-                    className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
-                  >
-                    {removingId === row.id ? "Removing…" : "Remove"}
-                  </button>
-                )}
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -607,138 +432,6 @@ export function BankBrowseTable({
         </details>
       )}
 
-      {canManage && verification.unverifiedCount > 0 && (
-        <details className="mb-4 rounded-lg border border-border px-4 py-2 text-sm" open={verification.notFoundCount > 0}>
-          <summary className="cursor-pointer select-none text-neutral-400">
-            Old sheet cleanup — {verification.verifiedCount.toLocaleString()} of {verification.total.toLocaleString()} bank items confirmed
-            {verification.notFoundCount > 0 && (
-              <span className="ml-2 text-amber-400">
-                · {verification.notFoundCount} need{verification.notFoundCount === 1 ? "s" : ""} a decision
-              </span>
-            )}
-          </summary>
-
-          <p className="mt-3 max-w-3xl text-neutral-400">
-            Everything from the old Google Sheet starts out unconfirmed. When a character syncs from the officer app, every sheet entry
-            that&apos;s really on that character confirms itself. You only need to act on the first list below. Everything else clears up as
-            characters get synced.
-          </p>
-
-          {verification.needsReview.length > 0 && (
-            <div className="mt-4">
-              <div className="mb-1 text-xs uppercase tracking-wide text-amber-400/90">1 · Needs a decision</div>
-              <p className="mb-3 max-w-3xl text-neutral-500">
-                The character synced and these weren&apos;t in the bag the sheet listed, or anywhere else in its synced bags. Usually they were
-                handed out, used or vendored and the sheet never caught up. If one is actually in a bag that isn&apos;t flagged as guild yet,
-                flag that bag in the officer app and sync again instead. Otherwise remove it with a short note.
-              </p>
-              <div className="space-y-4">
-                {verification.needsReview.map((h) => (
-                  <div key={h.characterId}>
-                    <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className="font-medium text-neutral-200">{h.name}</span>
-                      <span className="text-neutral-500">
-                        {h.ids.length} not found
-                      </span>
-                      <button
-                        type="button"
-                        disabled={removingId !== null}
-                        onClick={() =>
-                          onRemoveUnverified({ kind: "rows", ids: h.ids }, `all ${h.ids.length} of ${h.name}'s not-found item${h.ids.length === 1 ? "" : "s"}`, `review:${h.characterId}`)
-                        }
-                        className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
-                      >
-                        {removingId === `review:${h.characterId}` ? "Removing…" : `Remove all ${h.ids.length}…`}
-                      </button>
-                    </div>
-                    <ul className="space-y-1 border-l border-border pl-3">
-                      {h.groups.map((g) => (
-                        <li key={g.key} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-neutral-400">
-                          <span className="text-neutral-200">
-                            <ItemLink name={g.itemName} itemId={g.itemId} />
-                          </span>
-                          <span className="text-neutral-500">
-                            ×{g.quantity} · sheet: {g.locations.join(", ")}
-                          </span>
-                          {g.alsoOn.length > 0 && <span className="text-sky-400/80">also on {g.alsoOn.join(", ")}</span>}
-                          <button
-                            type="button"
-                            disabled={removingId !== null}
-                            onClick={() =>
-                              g.ids.length === 1
-                                ? onRemoveUnverified({ kind: "row", id: g.ids[0] }, g.itemName)
-                                : onRemoveUnverified({ kind: "rows", ids: g.ids }, `${g.itemName} ×${g.quantity} from ${h.name}`, `group:${h.characterId}:${g.key}`)
-                            }
-                            className="text-red-500/80 hover:text-red-400 disabled:opacity-50"
-                          >
-                            {removingId === g.ids[0] || removingId === `group:${h.characterId}:${g.key}` ? "Removing…" : "Remove…"}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {verification.waitingOnBags.length > 0 && (
-            <div className="mt-5 border-t border-border pt-3">
-              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">2 · Synced, but some bags aren&apos;t flagged yet</div>
-              <p className="mb-2 max-w-3xl text-neutral-500">
-                These sheet entries are listed in bags that weren&apos;t part of the sync. Nothing to remove. In the officer app, flag the bags it
-                suggests (&ldquo;Flag all suggested bags&rdquo;) and sync again.
-              </p>
-              <ul className="space-y-1 text-neutral-400">
-                {verification.waitingOnBags.map((h) => (
-                  <li key={h.characterId}>
-                    <span className="text-neutral-200">{h.name}</span> — {h.unverified - h.notFound} entr{h.unverified - h.notFound === 1 ? "y" : "ies"}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {verification.neverSynced.length > 0 && (
-            <div className="mt-5 border-t border-border pt-3">
-              <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">3 · Not synced yet</div>
-              <p className="mb-2 max-w-3xl text-neutral-500">
-                Nothing to do here on the website. Log in to each one, run <code className="text-neutral-300">/outputfile inventory</code>, and sync
-                it from the officer app.
-              </p>
-              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-neutral-400">
-                {verification.neverSynced.map((h) => (
-                  <li key={h.characterId}>
-                    <span className="text-neutral-200">{h.name}</span> {h.unverified}
-                  </li>
-                ))}
-              </ul>
-              <details className="mt-3 text-xs">
-                <summary className="cursor-pointer select-none text-neutral-500">A character that will never be synced?</summary>
-                <p className="mt-2 text-neutral-500">
-                  Only if the character is gone for good or emptied (deleted, items moved elsewhere). This removes every one of its old sheet
-                  entries.
-                </p>
-                <ul className="mt-2 space-y-1">
-                  {verification.neverSynced.map((h) => (
-                    <li key={h.characterId}>
-                      <button
-                        type="button"
-                        disabled={removingId !== null}
-                        onClick={() => onRemoveUnverified({ kind: "holder", holderCharacterId: h.characterId }, h.name)}
-                        className="text-red-500/70 hover:text-red-400 disabled:opacity-50"
-                      >
-                        {removingId === `holder:${h.characterId}` ? "Removing…" : `Remove all ${h.unverified} of ${h.name}'s sheet entries…`}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </div>
-          )}
-        </details>
-      )}
-
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-neutral-400">Search</span>
@@ -785,13 +478,6 @@ export function BankBrowseTable({
           <input type="checkbox" checked={hideNoDrop} onChange={(e) => setHideNoDrop(e.target.checked)} />
           Hide NO DROP
         </label>
-
-        {canManage && (
-          <label className="flex items-center gap-1.5 pb-1.5 text-sm text-neutral-400">
-            <input type="checkbox" checked={unverifiedOnly} onChange={(e) => setUnverifiedOnly(e.target.checked)} />
-            Unverified only
-          </label>
-        )}
 
         <span className="pb-1.5 text-sm text-neutral-500">
           {sortedGroups.length} row{sortedGroups.length === 1 ? "" : "s"} ({filteredRows.length} of {holdings.length} holding
@@ -957,16 +643,6 @@ export function BankBrowseTable({
                       {g.noDrop && (
                         <span className="ml-1.5 rounded-full bg-red-950/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
                           No drop
-                        </span>
-                      )}
-                      {canManage && g.notFoundCount > 0 && (
-                        <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${UNVERIFIED_BADGE.not_found.className}`}>
-                          {UNVERIFIED_BADGE.not_found.label} ({g.notFoundCount})
-                        </span>
-                      )}
-                      {canManage && g.notFoundCount === 0 && g.unverifiedCount > 0 && (
-                        <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${UNVERIFIED_BADGE.sheet.className}`}>
-                          Unverified ({g.unverifiedCount})
                         </span>
                       )}
                     </td>

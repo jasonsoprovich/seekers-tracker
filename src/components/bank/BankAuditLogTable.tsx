@@ -10,7 +10,7 @@ export type BankAuditLogRow = {
   holderCharacterId: number;
   holderName: string;
   itemName: string;
-  action: "create" | "update" | "delete" | "verify";
+  action: "create" | "update" | "delete";
   source: "manual" | "sync";
   changedAt: Date;
   changedByName: string | null;
@@ -21,7 +21,7 @@ export type BankAuditLogRow = {
 };
 
 // Mirrors src/lib/bank/audit.ts's BankAuditBatch — one line per real batch
-// (a sync, or a bulk "remove unverified item" pass) or per one-off event.
+// (a sync) or per one-off event.
 export type BankAuditLogBatch = {
   batchId: string | null;
   changedAt: Date;
@@ -29,7 +29,7 @@ export type BankAuditLogBatch = {
   holderName: string;
   source: "manual" | "sync";
   changedByName: string | null;
-  summary: { created: number; updated: number; removed: number; verified: number };
+  summary: { created: number; updated: number; removed: number };
   rows: BankAuditLogRow[];
 };
 
@@ -52,7 +52,7 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
 
-// A create/delete shows the row's key fields; an update/verify shows only
+// A create/delete shows the row's key fields; an update shows only
 // what actually moved, "field: old → new".
 function describe(row: BankAuditLogRow): { field: string; text: string }[] {
   const before = asRecord(row.before);
@@ -75,7 +75,6 @@ const ACTION_STYLE: Record<BankAuditLogRow["action"], string> = {
   create: "text-emerald-400",
   update: "text-amber-400",
   delete: "text-red-400",
-  verify: "text-sky-400",
 };
 
 // Guild-bank-appropriate language for officers, not raw CRUD verbs — the
@@ -85,7 +84,6 @@ const ACTION_LABEL: Record<BankAuditLogRow["action"], string> = {
   create: "Add",
   update: "Edit",
   delete: "Remove",
-  verify: "Verify",
 };
 
 const SOURCE_LABEL: Record<BankAuditLogRow["source"], string> = {
@@ -99,7 +97,6 @@ function summaryLine(b: BankAuditLogBatch): string {
     return row ? row.itemName : "";
   }
   const parts: string[] = [];
-  if (b.summary.verified > 0) parts.push(`${b.summary.verified} verified from sheet`);
   if (b.summary.created > 0) parts.push(`${b.summary.created} added`);
   if (b.summary.updated > 0) parts.push(`${b.summary.updated} edited`);
   if (b.summary.removed > 0) parts.push(`${b.summary.removed} removed`);

@@ -428,6 +428,13 @@
       "when": 1792970862977,
       "tag": "0060_remove_bank_eq_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1792971929629,
+      "tag": "0061_remove_sky_bank_and_sheet_columns",
+      "breakpoints": true
     }
   ]
 }

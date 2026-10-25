@@ -1,17 +1,14 @@
 // Read-side queries for PLAN.md §11 Phase 11 (quest flags) — backs the
-// /keys page. Three independent shapes, matching the three real sheet
-// tabs the data comes from (scripts/import-quest-flags.ts):
+// /keys page, from the sheet's key tabs (scripts/import-quest-flags.ts):
 //  - character_key_flags: per-character EmpVT/ST attunement, grouped here
 //    into one row per character (only characters with at least one flag —
 //    unlike Progression's every-character table, EmpVT/ST are opt-in
 //    content most of the roster has never touched, so an all-783-rows
 //    table would be almost entirely empty).
-//  - sky_bank_rewards / sky_bank_stock: guild-wide catalogs, no character
-//    grouping — listed as-is.
 import { asc, eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { characterKeyFlags, characters, skyBankRewards, skyBankStock } from "@/db";
+import { characterKeyFlags, characters } from "@/db";
 import { charClassLabel } from "@/lib/eq/enums";
 
 type Db = ReturnType<typeof drizzle>;
@@ -69,28 +66,4 @@ export async function listCharacterKeyFlags(db: Db): Promise<CharacterKeyFlagRow
     }
   }
   return [...byCharacter.values()];
-}
-
-export type SkyBankRewardRow = {
-  itemName: string;
-  qty: number;
-  questName: string;
-  classRestriction: string | null;
-  item2Status: string | null;
-  item3Status: string | null;
-  item4Status: string | null;
-  officerHolding: string | null;
-};
-
-export async function listSkyBankRewards(db: Db): Promise<SkyBankRewardRow[]> {
-  return db.select().from(skyBankRewards).orderBy(asc(skyBankRewards.questName), asc(skyBankRewards.itemName));
-}
-
-export type SkyBankStockRow = { itemName: string; qty: number };
-
-export async function listSkyBankStock(db: Db): Promise<SkyBankStockRow[]> {
-  return db
-    .select({ itemName: skyBankStock.itemName, qty: skyBankStock.qty })
-    .from(skyBankStock)
-    .orderBy(asc(skyBankStock.itemName));
 }

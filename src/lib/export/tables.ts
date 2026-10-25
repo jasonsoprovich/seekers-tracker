@@ -92,8 +92,6 @@ export const EXPORT_TABLES: ExportTable[] = [
   // --- Reference ---------------------------------------------------------------
   { key: "bank_holdings", label: "Guild Bank Holdings", table: "bank_holdings", dateColumn: "updated_at", dateColumnType: "timestamp", columns: null, group: "Reference" },
   { key: "bank_slot_designations", label: "Guild Bank Slot Designations", table: "bank_slot_designations", dateColumn: "updated_at", dateColumnType: "timestamp", columns: null, group: "Reference" },
-  { key: "sky_bank_stock", label: "Sky Bank Stock", table: "sky_bank_stock", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
-  { key: "sky_bank_rewards", label: "Sky Bank Rewards", table: "sky_bank_rewards", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
   { key: "cycles", label: "EPGP Cycles", table: "cycles", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
   { key: "role_permissions", label: "Permission Overrides", table: "role_permissions", dateColumn: null, dateColumnType: null, columns: null, group: "Reference" },
   { key: "guild_info_cards", label: "Guild Rules/Policies Cards", table: "guild_info_cards", dateColumn: "updated_at", dateColumnType: "timestamp", columns: null, group: "Reference" },

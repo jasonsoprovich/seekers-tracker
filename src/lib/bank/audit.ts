@@ -29,10 +29,7 @@ export type BankHoldingSnapshot = {
   note: string | null;
 };
 
-// "verify" (2026-09-27): a sync matched this item against an existing
-// unverified sheet/manual row instead of that row being a plain delete and
-// the synced item a plain create — see sync.ts's reconcileUnverified.
-export type BankAuditAction = "create" | "update" | "delete" | "verify";
+export type BankAuditAction = "create" | "update" | "delete";
 export type BankAuditSource = "manual" | "sync";
 
 export type BankAuditInsert = {
@@ -125,8 +122,8 @@ export type BankAuditRow = {
   batchId: string | null;
 };
 
-// One line on the Audit tab — either a real multi-row batch (a sync, or a
-// bulk "remove unverified item" pass — see sync.ts/actions.ts) collapsed to
+// One line on the Audit tab — either a real multi-row batch (a sync)
+// collapsed to
 // a summary with its rows available to expand, or a single one-off event
 // (a manual add/edit/delete) shown with rows === [that one row] and no
 // expand affordance the table needs to render. 2026-09-27 officer feedback:
@@ -139,7 +136,7 @@ export type BankAuditBatch = {
   holderName: string;
   source: BankAuditSource;
   changedByName: string | null;
-  summary: { created: number; updated: number; removed: number; verified: number };
+  summary: { created: number; updated: number; removed: number };
   rows: BankAuditRow[];
 };
 
@@ -191,7 +188,7 @@ export async function listBankAuditLog(
   // A search narrows to matching individual rows, shown flat (one
   // singleton "batch" per matching row) rather than grouped — batching a
   // filtered subset of a sync's rows would show a misleading partial
-  // summary ("2 verified" when the sync actually verified 380), and the
+  // summary ("2 added" when the sync actually added 380), and the
   // whole point of a search here is finding one specific item/event, not
   // browsing. The unfiltered default view (no search term) is where
   // batching actually matters, and that's the common case.
@@ -233,7 +230,6 @@ export async function listBankAuditLog(
           created: r.action === "create" ? 1 : 0,
           updated: r.action === "update" ? 1 : 0,
           removed: r.action === "delete" ? 1 : 0,
-          verified: r.action === "verify" ? 1 : 0,
         },
         rows: [r],
       })),
@@ -259,7 +255,6 @@ export async function listBankAuditLog(
       created: sql<number>`sum(case when ${bankAuditLog.action} = 'create' then 1 else 0 end)`,
       updated: sql<number>`sum(case when ${bankAuditLog.action} = 'update' then 1 else 0 end)`,
       removed: sql<number>`sum(case when ${bankAuditLog.action} = 'delete' then 1 else 0 end)`,
-      verified: sql<number>`sum(case when ${bankAuditLog.action} = 'verify' then 1 else 0 end)`,
     })
     .from(bankAuditLog)
     .innerJoin(characters, eq(characters.id, bankAuditLog.holderCharacterId))
@@ -321,7 +316,7 @@ export async function listBankAuditLog(
     holderName: b.holderName,
     source: b.source as BankAuditSource,
     changedByName: b.changedByName,
-    summary: { created: b.created, updated: b.updated, removed: b.removed, verified: b.verified },
+    summary: { created: b.created, updated: b.updated, removed: b.removed },
     rows: rowsByBatchKey.get(b.batchKey) ?? [],
   }));
 

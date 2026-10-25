@@ -1,6 +1,6 @@
-// Converts the guild's "EmpVT Key List", "ST Key List", and "Sky Bank"
-// sheet tabs into SQL seeding character_key_flags/sky_bank_rewards/
-// sky_bank_stock — see PLAN.md §3, §4g, §11 Phase 11.
+// Converts the guild's "EmpVT Key List" and "ST Key List" sheet tabs into
+// SQL seeding character_key_flags — see PLAN.md §3, §4g, §11 Phase 11.
+// (The "Sky Bank" tab was dropped 2026-10-25: one guild bank now.)
 //
 // Same non-destructive-by-default shape as import-epgp.ts: this does NOT
 // talk to D1 directly, it emits a reviewable .sql file. Unlike that script,
@@ -17,11 +17,6 @@
 //    with `ON CONFLICT ... DO UPDATE ... WHERE source = 'import'` — re-
 //    running always reflects the sheet's current state, but never clobbers
 //    a future manual (officer-edited) row.
-//  - sky_bank_rewards / sky_bank_stock: guild-wide reference catalogs with
-//    no per-row provenance to protect, so every run deletes and reinserts
-//    the whole table wholesale — same "always matches the sheet" idea as
-//    bank_holdings' per-character delete-and-replace (§3), just at table
-//    granularity since there's no holder character to scope it to.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -58,21 +53,9 @@ function cellText(cell: Cell): string {
   const v = cellRaw(cell);
   return v === null || v === undefined ? "" : String(v).trim();
 }
-function cellNumber(cell: Cell): number | null {
-  const v = cellRaw(cell);
-  if (typeof v === "number") return v;
-  if (typeof v === "string" && v.trim() !== "") {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
 function sqlStr(v: string | null): string {
   if (v === null) return "NULL";
   return `'${v.replace(/'/g, "''")}'`;
-}
-function sqlNum(v: number | null): string {
-  return v === null || !Number.isFinite(v) ? "NULL" : String(v);
 }
 function sqlBool(v: boolean): string {
   return v ? "1" : "0";
@@ -119,9 +102,8 @@ async function main() {
 
   const empvtSheet = wb.getWorksheet("EmpVT Key List");
   const stSheet = wb.getWorksheet("ST Key List");
-  const skyBankSheet = wb.getWorksheet("Sky Bank");
-  if (!empvtSheet || !stSheet || !skyBankSheet) {
-    throw new Error('Expected sheets "EmpVT Key List", "ST Key List", "Sky Bank" were not all found in the workbook.');
+  if (!empvtSheet || !stSheet) {
+    throw new Error('Expected sheets "EmpVT Key List" and "ST Key List" were not both found in the workbook.');
   }
 
   const out: string[] = [];
@@ -198,79 +180,6 @@ async function main() {
         `ON CONFLICT(character_id, flag_key) DO UPDATE SET\n` +
         `  done = excluded.done, logged_by = excluded.logged_by, note = excluded.note, updated_at = unixepoch()\n` +
         `WHERE character_key_flags.source = 'import';`,
-    );
-  }
-
-  // ---------- Sky Bank: No-Drop reward catalog ----------
-  assertHeaders(skyBankSheet, 2, {
-    1: "Item Name",
-    2: "Qty",
-    4: "Item Name",
-    5: "Qty",
-    6: "Quest Name",
-    7: "Class",
-    8: "Item 2",
-    9: "Item 3",
-    10: "Item 4",
-    11: "Officer Holding",
-  });
-  type RewardRow = {
-    itemName: string;
-    qty: number;
-    questName: string;
-    classRestriction: string | null;
-    item2: string | null;
-    item3: string | null;
-    item4: string | null;
-    officerHolding: string | null;
-  };
-  // itemName -> qty. Keyed/summed rather than pushed straight to a list —
-  // the same item can occupy more than one physical stack in-game and
-  // shows up as two rows for the same name (one real case: "Fire Sky
-  // Ruby" x2); QTY becomes SUM() same as §3's bank-tab normalization.
-  const stockByName = new Map<string, number>();
-  // itemName -> reward. The right block has genuine duplicate rows too
-  // (23 items appear 2-3 times, always with the identical quest name —
-  // confirmed 2026-08-24, not two different quests coincidentally sharing
-  // an item name) — a stray re-paste in the sheet, not real data. Last
-  // occurrence wins: the later duplicate is consistently the more filled-
-  // in one (e.g. Officer Holding set on a later row, blank on an earlier
-  // one of the same item).
-  const rewardsByName = new Map<string, RewardRow>();
-  skyBankSheet.eachRow((row: Row, rowNumber: number) => {
-    if (rowNumber <= 2) return;
-
-    const stockName = cellText(row.getCell(1));
-    if (stockName) stockByName.set(stockName, (stockByName.get(stockName) ?? 0) + (cellNumber(row.getCell(2)) ?? 0));
-
-    const itemName = cellText(row.getCell(4));
-    const questName = cellText(row.getCell(6));
-    if (itemName && questName) {
-      rewardsByName.set(itemName, {
-        itemName,
-        qty: cellNumber(row.getCell(5)) ?? 0,
-        questName,
-        classRestriction: cellText(row.getCell(7)) || null,
-        item2: cellText(row.getCell(8)) || null,
-        item3: cellText(row.getCell(9)) || null,
-        item4: cellText(row.getCell(10)) || null,
-        officerHolding: cellText(row.getCell(11)) || null,
-      });
-    }
-  });
-  console.log(`Sky Bank: ${stockByName.size} distinct stock items, ${rewardsByName.size} distinct No-Drop reward items parsed.`);
-
-  out.push("\n-- sky_bank_stock (Sky Bank tab, left Item Name/Qty block — whole-table refresh)");
-  out.push("DELETE FROM sky_bank_stock;");
-  for (const [itemName, qty] of stockByName) {
-    out.push(`INSERT INTO sky_bank_stock (item_name, qty, updated_at) VALUES (${sqlStr(itemName)}, ${sqlNum(qty)}, unixepoch());`);
-  }
-
-  out.push("\n-- sky_bank_rewards (Sky Bank tab, No-Drop reward catalog — whole-table refresh)");
-  out.push("DELETE FROM sky_bank_rewards;");
-  for (const r of rewardsByName.values()) {
-    out.push(
-      `INSERT INTO sky_bank_rewards (item_name, qty, quest_name, class_restriction, item2_status, item3_status, item4_status, officer_holding, updated_at) VALUES (${sqlStr(r.itemName)}, ${sqlNum(r.qty)}, ${sqlStr(r.questName)}, ${sqlStr(r.classRestriction)}, ${sqlStr(r.item2)}, ${sqlStr(r.item3)}, ${sqlStr(r.item4)}, ${sqlStr(r.officerHolding)}, unixepoch());`,
     );
   }
 

@@ -262,45 +262,6 @@ export const characterKeyFlags = sqliteTable(
   (table) => [primaryKey({ columns: [table.characterId, table.flagKey] })],
 );
 
-// Sky Bank quest-reward catalog — the "No Drop Items" block of the sheet's
-// "Sky Bank" tab (PLAN.md §3, §4g): guild-wide reference data (which item
-// comes from which quest, class-restricted, whether its extra components
-// have dropped yet) rather than a per-character flag, so there's no
-// characterId here by design. item2/3/4Status preserve the sheet's raw
-// YES/NO/N/A rather than a derived enum, since what those three columns
-// track per quest isn't documented anywhere but the sheet itself.
-export const skyBankRewards = sqliteTable(
-  "sky_bank_rewards",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    itemName: text("item_name").notNull(),
-    qty: integer("qty").notNull().default(0),
-    questName: text("quest_name").notNull(),
-    classRestriction: text("class_restriction"),
-    item2Status: text("item2_status"),
-    item3Status: text("item3_status"),
-    item4Status: text("item4_status"),
-    officerHolding: text("officer_holding"),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .default(sql`(unixepoch())`),
-  },
-  (table) => [uniqueIndex("sky_bank_rewards_item_unique").on(table.itemName)],
-);
-
-// The plain Item Name/Qty block of the same "Sky Bank" tab — a hand-counted
-// guild-wide stockpile, not tied to any holder character or bag slot (no
-// Zeal export exists for it the way Phase 8's per-mule bankHoldings does).
-// Kept alongside skyBankRewards since both come from one sheet import
-// (scripts/import-quest-flags.ts), not folded into bankHoldings.
-export const skyBankStock = sqliteTable("sky_bank_stock", {
-  itemName: text("item_name").primaryKey(),
-  qty: integer("qty").notNull().default(0),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
 export const characterGear = sqliteTable(
   "character_gear",
   {
@@ -1146,26 +1107,6 @@ export const bankHoldings = sqliteTable(
     note: text("note"),
     source: text("source", { enum: ["manual", "import"] }).notNull(),
     importId: integer("import_id").references(() => bankImports.id),
-    // The sheet's original comma-list location string for this row
-    // ("Bank3-Slot2") — only ever set on a sheet-migrated row
-    // (import-bank-tabs.ts). Migration 0053 moved every sheet/manual row's
-    // container to "Sheet"/"Manual" (a running per-holder slot_index, not a
-    // real bag position) so an unverified row can never collide with a real
-    // synced row landing in the same physical slot; this column is what
-    // lets sync.ts's reconcileUnverified still recognize "this sheet row
-    // and this incoming synced row are probably the same physical item"
-    // even though their container/slotIndex no longer literally match.
-    legacyLocation: text("legacy_location"),
-    // Set by applySync when a holder's sync completes and this row (a sheet
-    // or manual row still unverified) didn't match anything in the new
-    // sync — an officer needs to either flag the right bag and re-sync, or
-    // remove the row with a note (2026-09-27 officer feedback: never
-    // silently delete). Cleared the moment a later sync DOES match it.
-    // NULL for a genuinely verified row, or a sheet/manual row that simply
-    // hasn't been through a sync of this holder yet (see holdings.ts/
-    // sync.ts's "unverified state" resolution — pending vs not-found is a
-    // read-time distinction, not a separate column).
-    notFoundSince: integer("not_found_since", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -1260,13 +1201,7 @@ export const bankAuditLog = sqliteTable(
       .notNull()
       .references(() => characters.id),
     itemName: text("item_name").notNull(),
-    // "verify" (2026-09-27): a sync matched this item against an existing
-    // unverified sheet/manual row instead of that row being a plain
-    // delete and the synced item a plain create — before/after carry the
-    // unverified snapshot and the newly-synced snapshot respectively, so
-    // the audit trail reads "sheet item confirmed by sync," not
-    // "removed" + "added" as two unrelated events.
-    action: text("action", { enum: ["create", "update", "delete", "verify"] }).notNull(),
+    action: text("action", { enum: ["create", "update", "delete"] }).notNull(),
     // Whether this row came from a real officer-app sync (applySync) or a
     // manual add/edit/delete on /bank — the one bank-specific dimension
     // ledger_audit_log has no equivalent of.
