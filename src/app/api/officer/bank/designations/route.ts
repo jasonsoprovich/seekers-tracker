@@ -1,5 +1,5 @@
 import { requireOfficerApiKey, requireOfficerCapability } from "@/lib/api-key-auth";
-import { updateDesignations, type DesignationInput, type DesignationOwner } from "@/lib/bank/sync";
+import { updateDesignations, type DesignationInput } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 
@@ -39,9 +39,9 @@ function parseRemoveSlots(raw: unknown): { container: string; slotIndex: number 
   return out;
 }
 
-// PUT /api/officer/bank/designations — mutates one owner's guild-flagged
-// positions (a character's personal Bank/General slots, or an EQ account's
-// SharedBank slots). Since the 2026-09-25 officer-feedback pass, a
+// PUT /api/officer/bank/designations — mutates one character's guild-flagged
+// positions (its Bank/General slots and, since 2026-10-25, its SharedBank
+// slots — EQ account groups are gone). Since the 2026-09-25 officer-feedback pass, a
 // "position" is (container, slotIndex): slotIndex 0 flags the whole
 // top-level container, 1..N flags one item inside a bag. Body takes any
 // combination of:
@@ -70,11 +70,18 @@ export async function PUT(request: Request) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const hasCharacterId = typeof body.characterId === "number" && Number.isInteger(body.characterId);
-  const hasEqAccountId = typeof body.eqAccountId === "number" && Number.isInteger(body.eqAccountId);
-  if (hasCharacterId === hasEqAccountId) {
-    return Response.json({ error: "Exactly one of `characterId`/`eqAccountId` is required." }, { status: 400 });
+  // An officer app from before 2026-10-25 flags SharedBank slots on an EQ
+  // account group; those no longer exist.
+  if (body.eqAccountId !== undefined && body.eqAccountId !== null && body.eqAccountId !== 0) {
+    return Response.json(
+      { error: "EQ account groups were removed. Update the officer app to flag Shared Bank slots per character." },
+      { status: 410 },
+    );
   }
+  if (typeof body.characterId !== "number" || !Number.isInteger(body.characterId) || body.characterId <= 0) {
+    return Response.json({ error: "`characterId` is required." }, { status: 400 });
+  }
+  const characterId = body.characterId;
   if (body.set === undefined && body.add === undefined && body.remove === undefined) {
     return Response.json({ error: "At least one of `set`/`add`/`remove` is required." }, { status: 400 });
   }
@@ -98,8 +105,7 @@ export async function PUT(request: Request) {
     remove = parsed;
   }
 
-  const owner: DesignationOwner = hasCharacterId ? { characterId: body.characterId as number } : { eqAccountId: body.eqAccountId as number };
-  const result = await updateDesignations(db, auth.userId, owner, { set, add, remove });
+  const result = await updateDesignations(db, auth.userId, characterId, { set, add, remove });
   if (result.error) return Response.json({ error: result.error }, { status: 422 });
 
   const actor = await officerApiActor(db, auth.userId);
@@ -109,8 +115,8 @@ export async function PUT(request: Request) {
   if (remove) summaryParts.push(`-${remove.length}`);
   await recordSystemEvent(db, actor, {
     action: "bank.designations.update",
-    targetType: hasCharacterId ? "character" : "bank_eq_account",
-    targetId: hasCharacterId ? (body.characterId as number) : (body.eqAccountId as number),
+    targetType: "character",
+    targetId: characterId,
     summary: `Guild bank designations updated: ${summaryParts.join(", ")}`,
   });
 

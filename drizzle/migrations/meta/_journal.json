@@ -421,6 +421,13 @@
       "when": 1792789607358,
       "tag": "0059_purple_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1792970862977,
+      "tag": "0060_remove_bank_eq_accounts",
+      "breakpoints": true
     }
   ]
 }

@@ -2,8 +2,8 @@ import { requireOfficerApiKey, requireOfficerCapability } from "@/lib/api-key-au
 import { loadBankConfig } from "@/lib/bank/sync";
 import { getDb } from "@/lib/db";
 
-// GET /api/officer/bank/sync's counterpart read: every designation, every
-// EQ-account group, and each holder's last import — everything the parser
+// GET /api/officer/bank/sync's counterpart read: every designation and each
+// holder's last import — everything the parser
 // app's Guild Bank tab needs to render its character list and build a
 // sync payload the server will actually accept. See src/lib/bank/sync.ts.
 export async function GET(request: Request) {
@@ -19,9 +19,12 @@ export async function GET(request: Request) {
   const config = await loadBankConfig(db);
 
   return Response.json({
-    personalDesignations: Object.fromEntries(config.personalDesignations),
-    sharedDesignations: Object.fromEntries(config.sharedDesignations),
-    accounts: config.accounts,
+    // Every character's flags, SharedBank included. `sharedDesignations` and
+    // `accounts` stay as empty values so officer apps from before EQ account
+    // groups were removed (2026-10-25) still decode the response.
+    personalDesignations: Object.fromEntries(config.designations),
+    sharedDesignations: {},
+    accounts: [],
     lastImports: Object.fromEntries([...config.lastImports].map(([id, info]) => [id, { ...info, createdAt: info.createdAt.toISOString() }])),
     syncedContents: Object.fromEntries(config.syncedContents),
     // 2026-09-27 unverified-item tracking — what the Guild Bank tab

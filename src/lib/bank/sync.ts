@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 
-import { bankEqAccountCharacters, bankEqAccounts, bankHoldings, bankImports, bankSlotDesignations, characters, users } from "@/db";
+import { bankHoldings, bankImports, bankSlotDesignations, users } from "@/db";
 import { bankAuditStatements, type BankAuditInsert } from "@/lib/bank/audit";
 import { normalizeBankItemName } from "@/lib/bank/item-name";
 
@@ -36,8 +36,15 @@ export function isValidSharedContainer(container: string): boolean {
   return SHARED_CONTAINER_RE.test(container);
 }
 
+// Any container a character can flag: its own bags/bank, or its login's
+// SharedBank (flagged on one character per login — the officer app warns
+// when two of an officer's characters flag the same SharedBank).
+export function isValidSyncContainer(container: string): boolean {
+  return isValidPersonalContainer(container) || isValidSharedContainer(container);
+}
+
 // ---------------------------------------------------------------------
-// Config: every designation + account group + each holder's last import +
+// Config: every designation + each holder's last import +
 // each holder's last-synced contents — the shape the parser app needs to
 // build its own sync payload (and detect a bag that's moved since the last
 // sync/designation, internal/bankexport/moves.go) and the shape /bank uses
@@ -57,13 +64,6 @@ export type DesignationSlot = {
   slotIndex: number;
   expectedItemId: number | null;
   expectedItemName: string | null;
-};
-
-export type BankEqAccountConfig = {
-  id: number;
-  label: string;
-  sharedBankHolderCharacterId: number;
-  characterIds: number[];
 };
 
 export type BankImportInfo = {
@@ -101,13 +101,8 @@ export type UnverifiedContentEntry = {
 };
 
 export type BankSyncConfig = {
-  // Personal designations, keyed by characterId.
-  personalDesignations: Map<number, DesignationSlot[]>;
-  // SharedBank designations, keyed by eqAccountId.
-  sharedDesignations: Map<number, DesignationSlot[]>;
-  accounts: BankEqAccountConfig[];
-  // Which account (if any) a given character belongs to.
-  accountByCharacterId: Map<number, BankEqAccountConfig>;
+  // Every designation (bags, bank and SharedBank), keyed by characterId.
+  designations: Map<number, DesignationSlot[]>;
   lastImports: Map<number, BankImportInfo>;
   // Last-synced contents per holder characterId — the baseline for "has
   // this changed since the last real sync" independent of designation.
@@ -119,27 +114,16 @@ export type BankSyncConfig = {
 };
 
 export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
-  const [designationRows, accountRows, memberRows, importRows, syncedRows, unverifiedRows] = await Promise.all([
+  const [designationRows, importRows, syncedRows, unverifiedRows] = await Promise.all([
     db
       .select({
         characterId: bankSlotDesignations.characterId,
-        eqAccountId: bankSlotDesignations.eqAccountId,
         container: bankSlotDesignations.container,
         slotIndex: bankSlotDesignations.slotIndex,
         expectedItemId: bankSlotDesignations.expectedItemId,
         expectedItemName: bankSlotDesignations.expectedItemName,
       })
       .from(bankSlotDesignations),
-    db
-      .select({
-        id: bankEqAccounts.id,
-        label: bankEqAccounts.label,
-        sharedBankHolderCharacterId: bankEqAccounts.sharedBankHolderCharacterId,
-      })
-      .from(bankEqAccounts),
-    db
-      .select({ characterId: bankEqAccountCharacters.characterId, eqAccountId: bankEqAccountCharacters.eqAccountId })
-      .from(bankEqAccountCharacters),
     db
       .select({
         characterId: bankImports.characterId,
@@ -182,43 +166,16 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
       ),
   ]);
 
-  const personalDesignations = new Map<number, DesignationSlot[]>();
-  const sharedDesignations = new Map<number, DesignationSlot[]>();
+  const designations = new Map<number, DesignationSlot[]>();
   for (const row of designationRows) {
-    const slot: DesignationSlot = {
+    const list = designations.get(row.characterId) ?? [];
+    list.push({
       container: row.container,
       slotIndex: row.slotIndex,
       expectedItemId: row.expectedItemId,
       expectedItemName: row.expectedItemName,
-    };
-    if (row.characterId !== null) {
-      const list = personalDesignations.get(row.characterId) ?? [];
-      list.push(slot);
-      personalDesignations.set(row.characterId, list);
-    } else if (row.eqAccountId !== null) {
-      const list = sharedDesignations.get(row.eqAccountId) ?? [];
-      list.push(slot);
-      sharedDesignations.set(row.eqAccountId, list);
-    }
-  }
-
-  const membersByAccount = new Map<number, number[]>();
-  for (const row of memberRows) {
-    const list = membersByAccount.get(row.eqAccountId) ?? [];
-    list.push(row.characterId);
-    membersByAccount.set(row.eqAccountId, list);
-  }
-
-  const accounts: BankEqAccountConfig[] = accountRows.map((row) => ({
-    id: row.id,
-    label: row.label,
-    sharedBankHolderCharacterId: row.sharedBankHolderCharacterId,
-    characterIds: membersByAccount.get(row.id) ?? [],
-  }));
-
-  const accountByCharacterId = new Map<number, BankEqAccountConfig>();
-  for (const account of accounts) {
-    for (const characterId of account.characterIds) accountByCharacterId.set(characterId, account);
+    });
+    designations.set(row.characterId, list);
   }
 
   // Last import per holder — importRows is ordered oldest-first, so the
@@ -257,7 +214,7 @@ export async function loadBankConfig(db: Db): Promise<BankSyncConfig> {
     unverifiedContents.set(row.holderCharacterId, list);
   }
 
-  return { personalDesignations, sharedDesignations, accounts, accountByCharacterId, lastImports, syncedContents, unverifiedContents };
+  return { designations, lastImports, syncedContents, unverifiedContents };
 }
 
 // ---------------------------------------------------------------------
@@ -285,6 +242,9 @@ export type OccupantInput = { container: string; slotIndex: number; itemId: numb
 export type SyncHolderInput = {
   characterId: number;
   sourceFile: string | null;
+  // Informational only (recorded on bank_imports): whether this sync
+  // included SharedBank rows. Whether a SharedBank row is allowed is
+  // decided by the character's own designations, same as any bag.
   reportsSharedBank: boolean;
   rows: SyncRowInput[];
   occupants: OccupantInput[];
@@ -308,30 +268,14 @@ export function validateSyncPayload(holders: SyncHolderInput[], config: BankSync
   const errors: SyncValidationError[] = [];
 
   for (const holder of holders) {
-    const account = config.accountByCharacterId.get(holder.characterId);
-    if (holder.reportsSharedBank && (!account || account.sharedBankHolderCharacterId !== holder.characterId)) {
-      errors.push({
-        characterId: holder.characterId,
-        error: "This character is not the designated SharedBank holder for its EQ account group.",
-      });
-      continue;
-    }
-
-    const personalAllowed = config.personalDesignations.get(holder.characterId) ?? [];
-    const sharedAllowed = account ? (config.sharedDesignations.get(account.id) ?? []) : [];
+    const allowed = config.designations.get(holder.characterId) ?? [];
 
     for (const row of holder.rows) {
-      if (isValidSharedContainer(row.container)) {
-        if (!holder.reportsSharedBank || !designationMatches(sharedAllowed, row.container, row.slotIndex)) {
-          errors.push({ characterId: holder.characterId, error: `${row.container} slot ${row.slotIndex} is not a designated shared-bank position for this account.` });
-        }
-        continue;
-      }
-      if (!isValidPersonalContainer(row.container)) {
+      if (!isValidSyncContainer(row.container)) {
         errors.push({ characterId: holder.characterId, error: `${row.container} is not a syncable container.` });
         continue;
       }
-      if (!designationMatches(personalAllowed, row.container, row.slotIndex)) {
+      if (!designationMatches(allowed, row.container, row.slotIndex)) {
         errors.push({ characterId: holder.characterId, error: `${row.container} slot ${row.slotIndex} is not designated as guild bank for this character.` });
       }
     }
@@ -621,13 +565,8 @@ export function legacyPositionSynced(legacyLocation: string | null, holder: Sync
   if (!m) return null;
   const container = m[1];
   const slotIndex = m[2] ? Number(m[2]) : 0;
-  if (isValidSharedContainer(container)) {
-    if (!holder.reportsSharedBank) return false;
-    const account = config.accountByCharacterId.get(holder.characterId);
-    return designationMatches(account ? (config.sharedDesignations.get(account.id) ?? []) : [], container, slotIndex);
-  }
-  if (!isValidPersonalContainer(container)) return null;
-  return designationMatches(config.personalDesignations.get(holder.characterId) ?? [], container, slotIndex);
+  if (!isValidSyncContainer(container)) return null;
+  return designationMatches(config.designations.get(holder.characterId) ?? [], container, slotIndex);
 }
 
 // Every unverified (sheet/manual) row for a holder — the pool
@@ -688,17 +627,6 @@ export async function hasUnverifiedBankRows(db: Db): Promise<boolean> {
 const INSERT_CHUNK_SIZE = 8;
 
 export type ApplySyncResult = { diffs: HolderDiff[] };
-
-// Resolves which designation owner (a character, or its EQ account) a
-// given container belongs to, so an occupant update lands on the right
-// bank_slot_designations row.
-function occupantOwnerClause(container: string, holder: SyncHolderInput, accountId: number | undefined) {
-  if (isValidSharedContainer(container)) {
-    if (accountId === undefined) return undefined;
-    return eq(bankSlotDesignations.eqAccountId, accountId);
-  }
-  return eq(bankSlotDesignations.characterId, holder.characterId);
-}
 
 // Verified-only existing-holdings fetch — the diff/audit base a sync
 // compares against. import_id IS NOT NULL is what makes this "verified":
@@ -782,8 +710,6 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
     const batchId = `sync:${importRow.id}`;
     for (const row of auditRows) row.batchId = batchId;
 
-    const accountId = config.accountByCharacterId.get(holder.characterId)?.id;
-
     const statements: BatchItem<"sqlite">[] = [
       db
         .delete(bankHoldings)
@@ -823,13 +749,17 @@ export async function applySync(db: Db, userId: string, holders: SyncHolderInput
     }
 
     for (const occupant of holder.occupants) {
-      const ownerClause = occupantOwnerClause(occupant.container, holder, accountId);
-      if (!ownerClause) continue;
       statements.push(
         db
           .update(bankSlotDesignations)
           .set({ expectedItemId: occupant.itemId, expectedItemName: occupant.itemName, updatedBy: userId, updatedAt: new Date() })
-          .where(and(ownerClause, eq(bankSlotDesignations.container, occupant.container), eq(bankSlotDesignations.slotIndex, occupant.slotIndex))),
+          .where(
+            and(
+              eq(bankSlotDesignations.characterId, holder.characterId),
+              eq(bankSlotDesignations.container, occupant.container),
+              eq(bankSlotDesignations.slotIndex, occupant.slotIndex),
+            ),
+          ),
       );
     }
 
@@ -1029,16 +959,14 @@ export async function removeUnverifiedHoldings(
 }
 
 // ---------------------------------------------------------------------
-// Designations / account group mutations.
+// Designation mutations.
 // ---------------------------------------------------------------------
-
-export type DesignationOwner = { characterId: number } | { eqAccountId: number };
 
 export type DesignationInput = { container: string; slotIndex: number; expectedItemId?: number | null; expectedItemName?: string | null };
 
-// D1 caps a statement at 100 bound parameters — each row binds 7
-// (characterId, eqAccountId, container, slotIndex, expectedItemId,
-// expectedItemName, updatedBy), so 15/chunk (105 params) actually blows
+// D1 caps a statement at 100 bound parameters — each row binds 6
+// (characterId, container, slotIndex, expectedItemId, expectedItemName,
+// updatedBy), and 15/chunk at the old 7 params/row (105) actually blew
 // the cap — confirmed live by this file's own verify script tripping
 // "too many SQL variables" the first time this was tried. 10/chunk (70
 // params) leaves real headroom. A real character can have up to 30 Bank
@@ -1048,14 +976,13 @@ export type DesignationInput = { container: string; slotIndex: number; expectedI
 // unchunked insert (found 2026-09-24).
 const DESIGNATION_CHUNK_SIZE = 10;
 
-function validateContainers(isShared: boolean, slots: { container: string }[]): string | undefined {
-  const validator = isShared ? isValidSharedContainer : isValidPersonalContainer;
-  const bad = slots.find((s) => !validator(s.container));
-  if (bad) return `"${bad.container}" is not a valid ${isShared ? "shared-bank" : "personal"} container.`;
+function validateContainers(slots: { container: string }[]): string | undefined {
+  const bad = slots.find((s) => !isValidSyncContainer(s.container));
+  if (bad) return `"${bad.container}" is not a valid bag, bank or shared-bank container.`;
   return undefined;
 }
 
-// Replaces, adds to, or removes from one owner's designated positions.
+// Replaces, adds to, or removes from one character's designated positions.
 // Exactly one of set/add/remove is expected per call (the officer app's
 // per-checkbox toggles use add/remove now, so flipping one container never
 // touches — and never silently drops — any other container's flag; "Mark
@@ -1066,14 +993,13 @@ function validateContainers(isShared: boolean, slots: { container: string }[]): 
 export async function updateDesignations(
   db: Db,
   userId: string,
-  owner: DesignationOwner,
+  characterId: number,
   ops: { set?: DesignationInput[]; add?: DesignationInput[]; remove?: { container: string; slotIndex: number }[] },
 ): Promise<{ error?: string }> {
-  const isShared = "eqAccountId" in owner;
-  const ownerClause = isShared ? eq(bankSlotDesignations.eqAccountId, owner.eqAccountId) : eq(bankSlotDesignations.characterId, owner.characterId);
+  const ownerClause = eq(bankSlotDesignations.characterId, characterId);
 
   if (ops.set) {
-    const badMsg = validateContainers(isShared, ops.set);
+    const badMsg = validateContainers(ops.set);
     if (badMsg) return { error: badMsg };
 
     await db.delete(bankSlotDesignations).where(ownerClause);
@@ -1081,8 +1007,7 @@ export async function updateDesignations(
       const chunk = ops.set.slice(i, i + DESIGNATION_CHUNK_SIZE);
       await db.insert(bankSlotDesignations).values(
         chunk.map((slot) => ({
-          characterId: isShared ? null : owner.characterId,
-          eqAccountId: isShared ? owner.eqAccountId : null,
+          characterId,
           container: slot.container,
           slotIndex: slot.slotIndex,
           expectedItemId: slot.expectedItemId ?? null,
@@ -1094,7 +1019,7 @@ export async function updateDesignations(
   }
 
   if (ops.remove && ops.remove.length > 0) {
-    const badMsg = validateContainers(isShared, ops.remove);
+    const badMsg = validateContainers(ops.remove);
     if (badMsg) return { error: badMsg };
     for (const slot of ops.remove) {
       await db
@@ -1104,7 +1029,7 @@ export async function updateDesignations(
   }
 
   if (ops.add && ops.add.length > 0) {
-    const badMsg = validateContainers(isShared, ops.add);
+    const badMsg = validateContainers(ops.add);
     if (badMsg) return { error: badMsg };
     for (let i = 0; i < ops.add.length; i += DESIGNATION_CHUNK_SIZE) {
       const chunk = ops.add.slice(i, i + DESIGNATION_CHUNK_SIZE);
@@ -1112,8 +1037,7 @@ export async function updateDesignations(
         .insert(bankSlotDesignations)
         .values(
           chunk.map((slot) => ({
-            characterId: isShared ? null : owner.characterId,
-            eqAccountId: isShared ? owner.eqAccountId : null,
+            characterId,
             container: slot.container,
             slotIndex: slot.slotIndex,
             expectedItemId: slot.expectedItemId ?? null,
@@ -1122,9 +1046,7 @@ export async function updateDesignations(
           })),
         )
         .onConflictDoUpdate({
-          target: isShared
-            ? [bankSlotDesignations.eqAccountId, bankSlotDesignations.container, bankSlotDesignations.slotIndex]
-            : [bankSlotDesignations.characterId, bankSlotDesignations.container, bankSlotDesignations.slotIndex],
+          target: [bankSlotDesignations.characterId, bankSlotDesignations.container, bankSlotDesignations.slotIndex],
           set: { updatedBy: userId, updatedAt: new Date() },
         });
       // Note: an add() re-flagging an already-designated position does NOT
@@ -1134,58 +1056,5 @@ export async function updateDesignations(
     }
   }
 
-  return {};
-}
-
-export type SaveAccountInput = { id?: number; label: string; characterIds: number[]; sharedBankHolderCharacterId: number };
-
-export async function saveEqAccount(db: Db, userId: string, input: SaveAccountInput): Promise<{ error?: string; id?: number }> {
-  const label = input.label.trim();
-  if (!label) return { error: "Label is required." };
-  if (input.characterIds.length === 0) return { error: "An account group needs at least one character." };
-  if (!input.characterIds.includes(input.sharedBankHolderCharacterId)) {
-    return { error: "The SharedBank holder must be one of the group's own characters." };
-  }
-  const dupes = new Set(input.characterIds);
-  if (dupes.size !== input.characterIds.length) return { error: "Duplicate character in group." };
-
-  const existingRows = await db
-    .select({ id: characters.id })
-    .from(characters)
-    .where(inArray(characters.id, input.characterIds));
-  if (existingRows.length !== input.characterIds.length) return { error: "One or more characters do not exist." };
-
-  let accountId = input.id;
-  if (accountId !== undefined) {
-    await db
-      .update(bankEqAccounts)
-      .set({ label, sharedBankHolderCharacterId: input.sharedBankHolderCharacterId, updatedBy: userId, updatedAt: new Date() })
-      .where(eq(bankEqAccounts.id, accountId));
-  } else {
-    const [row] = await db
-      .insert(bankEqAccounts)
-      .values({ label, sharedBankHolderCharacterId: input.sharedBankHolderCharacterId, updatedBy: userId })
-      .returning({ id: bankEqAccounts.id });
-    accountId = row.id;
-  }
-
-  // A character can belong to at most one account — pull it out of any
-  // other group before assigning it here (explicit, not relied on via FK
-  // cascade — this codebase's established pattern for multi-step deletes).
-  await db.delete(bankEqAccountCharacters).where(inArray(bankEqAccountCharacters.characterId, input.characterIds));
-  await db.insert(bankEqAccountCharacters).values(input.characterIds.map((characterId) => ({ characterId, eqAccountId: accountId! })));
-
-  return { id: accountId };
-}
-
-export async function deleteEqAccount(db: Db, id: number): Promise<{ error?: string }> {
-  // Explicit child cleanup ahead of the parent delete — mirrors this
-  // codebase's established multi-step delete pattern (e.g. reverseRaid
-  // nulling loot_events.winning_bid_id before deleting bids) rather than
-  // depending solely on the schema's onDelete: cascade.
-  await db.delete(bankSlotDesignations).where(eq(bankSlotDesignations.eqAccountId, id));
-  await db.delete(bankEqAccountCharacters).where(eq(bankEqAccountCharacters.eqAccountId, id));
-  const result = await db.delete(bankEqAccounts).where(eq(bankEqAccounts.id, id)).returning({ id: bankEqAccounts.id });
-  if (result.length === 0) return { error: "Not found." };
   return {};
 }

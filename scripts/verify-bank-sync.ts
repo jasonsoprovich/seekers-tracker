@@ -4,10 +4,11 @@
 // expected_* refresh, the currency purge, and removeUnverifiedHoldings
 // (was retireSheetRows). Extended again 2026-09-27 for unverified-item
 // reconciliation: sheet/manual rows matched or flagged not-found by a real
-// sync, and the audit trail's batchId grouping.
+// sync, and the audit trail's batchId grouping. Updated 2026-10-25 when EQ
+// account groups were removed: SharedBank slots are flagged per character.
 //
 // Exercises src/lib/bank/sync.ts's real functions (loadBankConfig,
-// updateDesignations, saveEqAccount, deleteEqAccount, validateSyncPayload,
+// updateDesignations, validateSyncPayload,
 // previewSync, applySync, removeUnverifiedHoldings, reconcileUnverified)
 // against local D1, same pattern as verify-guild-removal.ts: synthetic
 // users/characters/holdings, snapshotted first and restored in a `finally`
@@ -27,12 +28,10 @@ import { bankAuditLog, bankHoldings, bankImports, characters, users } from "../s
 import { createManualHolding, deleteManualHolding, updateHolding } from "../src/lib/bank/holdings";
 import {
   applySync,
-  deleteEqAccount,
   loadBankConfig,
   previewSync,
   reconcileUnverified,
   removeUnverifiedHoldings,
-  saveEqAccount,
   updateDesignations,
   validateSyncPayload,
   type SyncHolderInput,
@@ -102,27 +101,17 @@ async function main() {
     const altId = await makeCharacter(db, `VerifyAlt-${randomUUID().slice(0, 8)}`, { charType: "alt" });
 
     // ---------------------------------------------------------------
-    // Scenario 1: designations round-trip and EQ account grouping.
+    // Scenario 1: designations round-trip, SharedBank flagged per character.
     // ---------------------------------------------------------------
-    console.log("\nScenario 1: designations + EQ account group");
-    let result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: [{ container: "Bank1", slotIndex: 0 }, { container: "Bank2", slotIndex: 0 }] });
+    console.log("\nScenario 1: designations (bags, bank and SharedBank per character)");
+    let result = await updateDesignations(db, actor.id, muleId, { set: [{ container: "Bank1", slotIndex: 0 }, { container: "Bank2", slotIndex: 0 }] });
     check(failures, !result.error, `updateDesignations accepts personal containers (${result.error ?? "ok"})`);
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: [{ container: "SharedBank2", slotIndex: 0 }] });
-    check(failures, !!result.error, "updateDesignations refuses a SharedBank container on a personal owner");
-
-    const accountResult = await saveEqAccount(db, actor.id, {
-      label: "Verify Account",
-      characterIds: [muleId, altId],
-      sharedBankHolderCharacterId: muleId,
-    });
-    check(failures, !accountResult.error && accountResult.id !== undefined, `saveEqAccount creates a group (${accountResult.error ?? "ok"})`);
-    const accountId = accountResult.id!;
-
-    const badHolder = await saveEqAccount(db, actor.id, { label: "Bad", characterIds: [muleId], sharedBankHolderCharacterId: soloId });
-    check(failures, !!badHolder.error, "saveEqAccount refuses a holder that isn't a member of its own group");
-
-    result = await updateDesignations(db, actor.id, { eqAccountId: accountId }, { set: [{ container: "SharedBank1", slotIndex: 0 }, { container: "SharedBank2", slotIndex: 0 }] });
-    check(failures, !result.error, `updateDesignations accepts SharedBank containers on an account owner (${result.error ?? "ok"})`);
+    result = await updateDesignations(db, actor.id, altId, { set: [{ container: "SharedBank2", slotIndex: 0 }] });
+    check(failures, !result.error, `updateDesignations accepts a SharedBank container on a character (${result.error ?? "ok"})`);
+    result = await updateDesignations(db, actor.id, altId, { add: [{ container: "SharedBank11", slotIndex: 0 }] });
+    check(failures, !!result.error, "updateDesignations refuses SharedBank11 (only SharedBank1-10 exist)");
+    result = await updateDesignations(db, actor.id, altId, { add: [{ container: "Bank-Coin", slotIndex: 0 }] });
+    check(failures, !!result.error, "updateDesignations refuses a non-bag location");
 
     // Regression: "Mark all Bank slots guild" sends all 30 real Bank
     // containers in one call (Darkclaw-Inventory.txt has all 30 real —
@@ -130,30 +119,29 @@ async function main() {
     // params; an unchunked insert (30 rows) blows past D1's 100-param
     // cap and 500s.
     const allBankContainers = Array.from({ length: 30 }, (_, i) => ({ container: `Bank${i + 1}`, slotIndex: 0 }));
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: allBankContainers });
+    result = await updateDesignations(db, actor.id, muleId, { set: allBankContainers });
     check(failures, !result.error, `updateDesignations accepts all 30 real Bank containers in one call, unchunked (${result.error ?? "ok"})`);
     let config = await loadBankConfig(db);
     check(
       failures,
-      (config.personalDesignations.get(muleId) ?? []).length === 30,
-      `all 30 Bank containers landed (got ${(config.personalDesignations.get(muleId) ?? []).length})`,
+      (config.designations.get(muleId) ?? []).length === 30,
+      `all 30 Bank containers landed (got ${(config.designations.get(muleId) ?? []).length})`,
     );
     // Reset back to the smaller set the rest of this script's scenarios expect.
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { set: [{ container: "Bank1", slotIndex: 0 }, { container: "Bank2", slotIndex: 0 }] });
+    result = await updateDesignations(db, actor.id, muleId, { set: [{ container: "Bank1", slotIndex: 0 }, { container: "Bank2", slotIndex: 0 }] });
     check(failures, !result.error, `updateDesignations resets back to Bank1/Bank2 (${result.error ?? "ok"})`);
 
     config = await loadBankConfig(db);
     check(
       failures,
-      (config.personalDesignations.get(muleId) ?? []).map((s) => s.container).sort().join(",") === "Bank1,Bank2",
+      (config.designations.get(muleId) ?? []).map((s) => s.container).sort().join(",") === "Bank1,Bank2",
       "loadBankConfig reflects personal designations",
     );
     check(
       failures,
-      (config.sharedDesignations.get(accountId) ?? []).map((s) => s.container).sort().join(",") === "SharedBank1,SharedBank2",
-      "loadBankConfig reflects shared designations",
+      (config.designations.get(altId) ?? []).map((s) => s.container).join(",") === "SharedBank2",
+      "loadBankConfig reflects a character's SharedBank designation",
     );
-    check(failures, config.accountByCharacterId.get(altId)?.id === accountId, "loadBankConfig maps a member character back to its account");
 
     // ---------------------------------------------------------------
     // Scenario 1b: per-item (sub-slot) designation, and add/remove leave
@@ -163,18 +151,18 @@ async function main() {
     // vanished on the next click.
     // ---------------------------------------------------------------
     console.log("\nScenario 1b: sub-slot designation + add/remove don't clobber other flags");
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { add: [{ container: "Bank3", slotIndex: 2, expectedItemId: 500, expectedItemName: "Sub-slot Item" }] });
+    result = await updateDesignations(db, actor.id, muleId, { add: [{ container: "Bank3", slotIndex: 2, expectedItemId: 500, expectedItemName: "Sub-slot Item" }] });
     check(failures, !result.error, `add accepts a sub-slot position (${result.error ?? "ok"})`);
     config = await loadBankConfig(db);
-    const bank3Slots = config.personalDesignations.get(muleId) ?? [];
+    const bank3Slots = config.designations.get(muleId) ?? [];
     check(failures, bank3Slots.some((s) => s.container === "Bank3" && s.slotIndex === 2), "the sub-slot designation landed");
     check(failures, bank3Slots.some((s) => s.container === "Bank1" && s.slotIndex === 0), "add left Bank1 (added earlier via set) untouched");
     check(failures, bank3Slots.some((s) => s.container === "Bank2" && s.slotIndex === 0), "add left Bank2 untouched");
 
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { remove: [{ container: "Bank3", slotIndex: 2 }] });
+    result = await updateDesignations(db, actor.id, muleId, { remove: [{ container: "Bank3", slotIndex: 2 }] });
     check(failures, !result.error, `remove accepts a sub-slot position (${result.error ?? "ok"})`);
     config = await loadBankConfig(db);
-    const afterRemove = config.personalDesignations.get(muleId) ?? [];
+    const afterRemove = config.designations.get(muleId) ?? [];
     check(failures, !afterRemove.some((s) => s.container === "Bank3" && s.slotIndex === 2), "the sub-slot designation is gone after remove");
     check(failures, afterRemove.some((s) => s.container === "Bank1" && s.slotIndex === 0), "remove left Bank1 untouched");
     check(failures, afterRemove.length === 2, `exactly the original 2 designations remain (got ${afterRemove.length})`);
@@ -184,12 +172,12 @@ async function main() {
     // it — this is the actual regression, not just "did the API accept a
     // sub-slot", so add something else and confirm Bank1/Bank2 are still
     // there afterward.
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { add: [{ container: "Bank4", slotIndex: 0 }] });
+    result = await updateDesignations(db, actor.id, muleId, { add: [{ container: "Bank4", slotIndex: 0 }] });
     check(failures, !result.error, "add accepts another container");
     config = await loadBankConfig(db);
-    const afterSecondAdd = (config.personalDesignations.get(muleId) ?? []).map((s) => s.container).sort();
+    const afterSecondAdd = (config.designations.get(muleId) ?? []).map((s) => s.container).sort();
     check(failures, afterSecondAdd.join(",") === "Bank1,Bank2,Bank4", `Bank1/Bank2 survived an unrelated add (got ${afterSecondAdd.join(",")})`);
-    result = await updateDesignations(db, actor.id, { characterId: muleId }, { remove: [{ container: "Bank4", slotIndex: 0 }] });
+    result = await updateDesignations(db, actor.id, muleId, { remove: [{ container: "Bank4", slotIndex: 0 }] });
     check(failures, !result.error, "remove cleans up Bank4");
 
     // ---------------------------------------------------------------
@@ -208,15 +196,19 @@ async function main() {
     let errors = validateSyncPayload([undesignatedRow], config);
     check(failures, errors.length === 1, "validateSyncPayload rejects a row in an undesignated container");
 
+    // SharedBank1 is flagged on the mule only; altId flagged SharedBank2.
+    result = await updateDesignations(db, actor.id, muleId, { add: [{ container: "SharedBank1", slotIndex: 0 }] });
+    check(failures, !result.error, `the mule flags SharedBank1 (${result.error ?? "ok"})`);
+    config = await loadBankConfig(db);
     const wrongHolderShared: SyncHolderInput = {
-      characterId: altId, // altId is in the account but is NOT its SharedBank holder
+      characterId: altId, // altId never flagged SharedBank1
       sourceFile: "Alt-Inventory.txt",
       reportsSharedBank: true,
       rows: [{ container: "SharedBank1", slotIndex: 1, category: "item", itemName: "Shared Item", itemId: 111, quantity: 1 }],
       occupants: [],
     };
     errors = validateSyncPayload([wrongHolderShared], config);
-    check(failures, errors.length === 1, "validateSyncPayload rejects SharedBank rows from a non-holder character");
+    check(failures, errors.length === 1, "validateSyncPayload rejects SharedBank rows the character didn't flag");
 
     const validPayload: SyncHolderInput = {
       characterId: muleId,
@@ -270,7 +262,7 @@ async function main() {
     // The occupant sent in validPayload should have refreshed Bank1's
     // expected_item_id/expected_item_name.
     config = await loadBankConfig(db);
-    const bank1Designation = (config.personalDesignations.get(muleId) ?? []).find((s) => s.container === "Bank1" && s.slotIndex === 0);
+    const bank1Designation = (config.designations.get(muleId) ?? []).find((s) => s.container === "Bank1" && s.slotIndex === 0);
     check(failures, bank1Designation?.expectedItemId === 300 && bank1Designation?.expectedItemName === "Test Ore", "applySync refreshed the designation's expected occupant from the sync's occupants list");
 
     // Re-sync the identical payload: idempotent, no changes.
@@ -394,28 +386,21 @@ async function main() {
     check(failures, soloLeft.some((r) => r.id === verifiedRow.id), "a verified (synced) row is never removed even if its id is passed");
 
     // ---------------------------------------------------------------
-    // Scenario 7: deleteEqAccount cleans up its designations/membership.
+    // Scenario 7: validation reads live config — unflagging the mule's
+    // SharedBank1 makes the payload that used to pass fail again.
     // ---------------------------------------------------------------
-    console.log("\nScenario 7: deleteEqAccount cleanup");
-    const deleteResult = await deleteEqAccount(db, accountId);
-    check(failures, !deleteResult.error, `deleteEqAccount succeeds (${deleteResult.error ?? "ok"})`);
+    console.log("\nScenario 7: unflagging a SharedBank slot rejects its rows again");
+    result = await updateDesignations(db, actor.id, muleId, { remove: [{ container: "SharedBank1", slotIndex: 0 }] });
+    check(failures, !result.error, `remove unflags SharedBank1 (${result.error ?? "ok"})`);
     config = await loadBankConfig(db);
-    check(failures, config.accounts.every((a) => a.id !== accountId), "the deleted account no longer appears in loadBankConfig");
-    check(failures, (config.sharedDesignations.get(accountId) ?? []).length === 0, "the deleted account's shared designations are gone");
-
-    // A payload that used to be valid via the (now-deleted) account is
-    // rejected again — proves validation reads live config, not a cache.
-    // muleId is no longer in any account, so it fails the holder-level
-    // "designated SharedBank holder" check before ever reaching a
-    // per-container check.
     errors = validateSyncPayload([validPayload], config);
-    check(failures, errors.length === 1 && /designated SharedBank holder/i.test(errors[0].error), "SharedBank rows are rejected again once the account is gone");
+    check(failures, errors.length === 1 && /SharedBank1/.test(errors[0].error), "SharedBank rows are rejected once the flag is gone");
 
     const remainingCharacterIds = await db
       .select({ id: characters.id })
       .from(characters)
       .where(inArray(characters.id, [muleId, soloId, altId]));
-    check(failures, remainingCharacterIds.length === 3, "deleting the account did not delete its member characters");
+    check(failures, remainingCharacterIds.length === 3, "the test characters are untouched");
 
     // ---------------------------------------------------------------
     // Scenario 8: item-level audit trail (bank_audit_log) — both the
@@ -516,7 +501,7 @@ async function main() {
     // ---------------------------------------------------------------
     console.log("\nScenario 9: unverified row reconciliation");
     const reconcileId = await makeCharacter(db, `VerifyReconcile-${randomUUID().slice(0, 8)}`);
-    let rResult = await updateDesignations(db, actor.id, { characterId: reconcileId }, {
+    let rResult = await updateDesignations(db, actor.id, reconcileId, {
       set: [
         { container: "Bank1", slotIndex: 0 },
         { container: "Bank2", slotIndex: 0 },
@@ -683,7 +668,7 @@ async function main() {
     console.log("\nScenario 12: verifying 150 sheet rows in one sync");
     const bulkId = await makeCharacter(db, `VerifyBulk-${randomUUID().slice(0, 8)}`);
     const bulkBags = Array.from({ length: 15 }, (_, i) => ({ container: `Bank${i + 1}`, slotIndex: 0 }));
-    const bulkDesig = await updateDesignations(db, actor.id, { characterId: bulkId }, { set: bulkBags });
+    const bulkDesig = await updateDesignations(db, actor.id, bulkId, { set: bulkBags });
     check(failures, !bulkDesig.error, `15 bags designated (${bulkDesig.error ?? "ok"})`);
     const bulkSpells = Array.from({ length: 150 }, (_, i) => ({ container: `Bank${Math.floor(i / 10) + 1}`, slot: (i % 10) + 1, name: `Bulk Spell ${i}` }));
     for (let i = 0; i < bulkSpells.length; i += 10) {
