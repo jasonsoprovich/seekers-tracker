@@ -334,6 +334,24 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Guild bank: EQ account groups removed, 2026-10-25 (branch
+`feature/remove-bank-eq-accounts` in both repos; migration 0060; not yet
+deployed).** Officers found the EQ Accounts groups unnecessary. Every
+`bank_slot_designations` row now belongs to one character (`character_id`
+NOT NULL), SharedBank1-10 included; `bank_eq_accounts`/
+`bank_eq_account_characters` are dropped (prod had 2 groups, 0 shared
+flags — lossless). 0060 rebuilds designations BEFORE dropping the group
+tables (hand-reordered from drizzle-kit's output). Old officer-app builds
+stay safe: `/api/officer/bank/config` still returns `accounts: []` +
+`sharedDesignations: {}`, and a designations call with `eqAccountId` or
+any `/bank/accounts` write gets a 410 "update the officer app". The parser
+warns/blocks when two characters on one login both flag the Shared Bank.
+Same day, production bank data was wiped for a clean start (bookmark
+`pre-bank-wipe-10-25-2026`; holdings, audit log, imports, Sky Bank tables).
+Verified: `verify:bank-sync`, curl pass against local preview, parser
+`go test` + an end-to-end throwaway test of the real App methods against
+real exports (double flag → both blocked → unflag one → syncs).
+
 **Cycle rollover on cycle decay, 2026-10-23 (branch `feature/decay-cycle-rollover`;
 migration 0059; not yet deployed).** Cycles used to be the sheet's pre-filled calendar,
 which ran out at cycle 72 (11/28) with nothing to extend it. Now committing a
