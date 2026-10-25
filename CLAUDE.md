@@ -335,8 +335,8 @@ contents, and never print raw Discord IDs into logs or commit messages.
 ## Roadmap / status (update this section as things ship or change)
 
 **Guild bank: EQ account groups removed, 2026-10-25 (branch
-`feature/remove-bank-eq-accounts` in both repos; migration 0060; not yet
-deployed).** Officers found the EQ Accounts groups unnecessary. Every
+`feature/remove-bank-eq-accounts` in both repos; migrations 0060 + 0061;
+not yet deployed).** Officers found the EQ Accounts groups unnecessary. Every
 `bank_slot_designations` row now belongs to one character (`character_id`
 NOT NULL), SharedBank1-10 included; `bank_eq_accounts`/
 `bank_eq_account_characters` are dropped (prod had 2 groups, 0 shared
@@ -351,6 +351,18 @@ Same day, production bank data was wiped for a clean start (bookmark
 Verified: `verify:bank-sync`, curl pass against local preview, parser
 `go test` + an end-to-end throwaway test of the real App methods against
 real exports (double flag → both blocked → unflag one → syncs).
+Same branch: **sheet-era bank code and Sky Bank removed** — no
+import-bank-tabs.ts, no unverified-row reconciliation (sheet/manual matching,
+not-found flags, the `verify` audit action, `/api/officer/bank/unverified`),
+no Sheet/Needs-review UI or "under construction" banner on /bank, no
+SkyBankSection; the officer app lost its flag suggestions and Needs review
+panel. Migration 0061 drops `sky_bank_*` and `bank_holdings.legacy_location`/
+`not_found_since` (drops the 0023 sandbox views over them first, rebuilds
+`v_bank_holdings`). Also: the **This cycle meter now says when the cap resets**
+— "when the guild leader runs cycle decay", plus the planned day for a calendar
+cycle (`plannedEndDay`, cycles.ts) or the start day for a decay-opened one;
+Cycle Overview's Ends row shows the same planned day. Known, unrelated: the two
+geocities-theme e2e tests fail on the baseline too.
 
 **Cycle rollover on cycle decay, 2026-10-23 (branch `feature/decay-cycle-rollover`;
 migration 0059; not yet deployed).** Cycles used to be the sheet's pre-filled calendar,
