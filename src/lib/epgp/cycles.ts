@@ -106,6 +106,16 @@ export async function getCurrentCycleWindow(db: Db, asOf: Date = new Date()): Pr
   return windowAt(await loadCycleWindows(db), asOf) ?? undefined;
 }
 
+// The day a running cycle was planned to end, for display only: a calendar
+// cycle from the sheet keeps its end_date, while a cycle a decay opened has
+// only a placeholder (end_date = start_date), so it has no planned day. The
+// cycle really ends when the leader runs cycle decay, which may be earlier
+// or later. Returned as the stored UTC-midnight date.
+export function plannedEndDay(w: CycleWindow): Date | null {
+  if (!w.open || w.cycle.startedByDecayEventId != null) return null;
+  return w.cycle.endDate > w.cycle.startDate ? w.cycle.endDate : null;
+}
+
 // "Current cycle" as of a given instant. Returns undefined only when no
 // cycle has started yet at all (fresh dev DB).
 export async function getCurrentCycle(db: Db, asOf: Date = new Date()): Promise<Cycle | undefined> {

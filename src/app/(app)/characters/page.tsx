@@ -14,7 +14,7 @@ import { charClassLabel, charRaceName } from "@/lib/eq/enums";
 import { resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
 import { ACTIVITY_WINDOWS, getOwnedAccountActivitySummaries } from "@/lib/epgp/account-activity";
-import { CycleEpMeter } from "@/components/epgp/CycleEpMeter";
+import { CycleEpMeter, cycleResetNote } from "@/components/epgp/CycleEpMeter";
 import { getCurrentCycleEp } from "@/lib/epgp/ep-cap";
 import { ledgerDate } from "@/lib/format-date";
 
@@ -46,6 +46,7 @@ export default async function CharactersPage() {
   const cycleEp = activitySummaries.length > 0 ? await getCurrentCycleEp(db, activitySummaries.map((s) => s.playerId), now) : null;
   // A running cycle has no end date — it ends at the next cycle decay.
   const cycleEndsLabel = cycleEp && !cycleEp.open ? ledgerDate(cycleEp.cycle.endDate) : null;
+  const cycleReset = cycleEp ? cycleResetNote(cycleEp, now) : null;
 
   // Same order as the account page (characters/[id]/account): the main
   // first, then alts, then mules, each alphabetical.
@@ -158,6 +159,7 @@ export default async function CharactersPage() {
                         cap={cycleEp.cap}
                         cycleNumber={cycleEp.cycle.cycleNumber}
                         endsLabel={cycleEndsLabel}
+                        resetNote={cycleReset}
                       />
                     </div>
                   )}

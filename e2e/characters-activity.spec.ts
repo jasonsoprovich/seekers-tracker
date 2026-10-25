@@ -19,4 +19,5 @@ test("Your Characters shows EP earned this cycle against the cap", async ({ page
   await expect(page.getByText(/^This cycle/).first()).toBeVisible();
   await expect(page.getByText(/\d+ \/ \d+ EP/).first()).toBeVisible();
   await expect(page.getByText(/EP left before the cap|At the cycle cap/).first()).toBeVisible();
+  await expect(page.getByText(/Resets when the guild leader runs (the next )?cycle decay/).first()).toBeVisible();
 });

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { InfoSectionEditor } from "@/components/epgp/InfoSectionEditor";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { epgpPointValues } from "@/db";
-import { getCurrentCycleWindow } from "@/lib/epgp/cycles";
+import { getCurrentCycleWindow, plannedEndDay } from "@/lib/epgp/cycles";
 import { guildDate } from "@/lib/guild-timezone";
 import { getDb } from "@/lib/db";
 import { listInfoSections } from "@/lib/epgp/info-sections";
@@ -64,7 +64,20 @@ export default async function EpgpInfoPage() {
               </div>
               <div className="flex justify-between">
                 <dt className="text-neutral-400">Ends</dt>
-                <dd className="font-medium">{currentCycle.open ? "When the guild leader runs cycle decay" : guildDate(new Date(currentCycle.end.getTime() - 1))}</dd>
+                <dd className="text-right font-medium">
+                  {currentCycle.open ? (
+                    <>
+                      When the guild leader runs cycle decay
+                      {plannedEndDay(currentCycle) && (
+                        <span className="block text-xs font-normal text-neutral-500">
+                          planned for {guildDate(plannedEndDay(currentCycle), "UTC")}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    guildDate(new Date(currentCycle.end.getTime() - 1))
+                  )}
+                </dd>
               </div>
             </dl>
           ) : (
