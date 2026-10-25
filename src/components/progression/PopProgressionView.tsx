@@ -104,14 +104,31 @@ const STATE_META: Record<ZoneState, { swatch: string; label: string }> = {
   complete: { swatch: "bg-emerald-500", label: "Complete" },
 };
 
+// Small gold key overlaid on a zone cell when the character holds that
+// zone's one-per-raid door/port key. Purely an overlay — keys are optional
+// flags, so they never change the cell's color or the progress tally.
+function KeyIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className}>
+      <circle cx="5" cy="8" r="3.25" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path d="M8 8h7M12.5 8v3M15 8v2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function ZoneCell({ zone, bandStart }: { zone: ZoneStatus; bandStart: boolean }) {
   const meta = STATE_META[zone.state];
+  const keyNote = zone.keys.length > 0 ? `\nHas key: ${zone.keys.join(", ")}` : "";
   return (
     <td className={`px-0.5 py-1.5 text-center ${bandStart ? "border-l border-border" : ""}`}>
       <div
-        title={`${zone.zone} — ${zone.done}/${zone.total} (${meta.label})`}
-        className={`mx-auto h-4 w-4 rounded-sm ${meta.swatch}`}
-      />
+        title={`${zone.zone} — ${zone.done}/${zone.total} (${meta.label})${keyNote}`}
+        className={`mx-auto flex h-4 w-4 items-center justify-center rounded-sm ${meta.swatch}`}
+      >
+        {zone.keys.length > 0 && (
+          <KeyIcon className="h-3 w-3 text-amber-300 drop-shadow-[0_0_1px_rgba(0,0,0,0.9)]" />
+        )}
+      </div>
     </td>
   );
 }
@@ -334,6 +351,10 @@ export function PopProgressionView({
             {STATE_META[state].label}
           </span>
         ))}
+        <span className="flex items-center gap-1.5">
+          <KeyIcon className="h-3 w-3 text-amber-300" />
+          Holds the zone&apos;s raid key
+        </span>
         <span>Hover a cell for detail.</span>
       </div>
 

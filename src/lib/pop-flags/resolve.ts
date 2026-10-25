@@ -153,6 +153,11 @@ export interface ZoneStatus {
   done: number;
   total: number;
   state: ZoneState;
+  // Labels of the door/port keys (role "key" — one-per-raid items like the
+  // Crystalline Globe or Screaming Sphere Key) this character holds in the
+  // zone. Optional, so they never touch done/total or the state color — the
+  // grid just overlays a key icon so officers can spot key holders.
+  keys: string[];
 }
 
 // Per-zone milestone state for a resolved character, for the Pop
@@ -161,7 +166,13 @@ export interface ZoneStatus {
 // one is reachable but none is done yet.
 export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
   const byZone = new Map<string, { done: number; total: number; allLocked: boolean }>();
+  const keysByZone = new Map<string, string[]>();
   for (const f of resolved.flags) {
+    if (f.role === "key" && f.done) {
+      const keys = keysByZone.get(f.zone) ?? [];
+      keys.push(f.label);
+      keysByZone.set(f.zone, keys);
+    }
     if (f.optional || f.group) continue;
     const cur = byZone.get(f.zone) ?? { done: 0, total: 0, allLocked: true };
     cur.total++;
@@ -177,6 +188,6 @@ export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
     else if (agg.done > 0) state = "in_progress";
     else if (agg.total > 0 && agg.allLocked) state = "locked";
     else state = "available";
-    return { zone, tier, done: agg.done, total: agg.total, state };
+    return { zone, tier, done: agg.done, total: agg.total, state, keys: keysByZone.get(zone) ?? [] };
   });
 }
