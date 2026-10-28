@@ -33,7 +33,7 @@ verification task passes.
 |---|---|
 | `seekers-tracker` (this repo) | The website: Next.js on Cloudflare Workers, D1, R2. Guild roster, character claiming, PoP flags, EPGP ledger/standings, admin panel. |
 | `../seekers-epgp-parser` | Standalone desktop app (Wails: Go + React/TS) an officer runs locally. Parses their EverQuest log for raid attendance and loot bids, submits over HTTP. |
-| `../seekers-bot` | Discord slash-command bot (Cloudflare Worker). **Not created yet — PLAN.md Phase 9.** |
+| `../seekers-bot` | Read-only Discord slash-command bot (Cloudflare Worker, `bot.seekersofsouls.com`): character lookups + EPGP standings straight from D1. Never writes. |
 
 **This repo owns the D1 schema and all migrations.** The other repos bind to
 the database but never migrate it.
