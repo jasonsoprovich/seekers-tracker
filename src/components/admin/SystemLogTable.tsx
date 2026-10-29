@@ -31,6 +31,7 @@ const CATEGORY_STYLE: Record<string, string> = {
   epgp: "text-violet-400",
   bank: "text-lime-400",
   claims: "text-cyan-400",
+  flags: "text-orange-400",
   system: "text-neutral-400",
 };
 

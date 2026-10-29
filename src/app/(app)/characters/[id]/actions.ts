@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { canManageCharacter } from "@/lib/permissions";
 import { getFlagById, resolveFlags } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
+import { recordPopFlagEvent } from "@/lib/system-log/pop-flags";
 
 export type ToggleFlagResult = { error?: string };
 
@@ -61,6 +62,11 @@ export async function setManualFlag(
       target: [characterPopFlags.characterId, characterPopFlags.flagId],
       set: { done, source: "manual", updatedAt: now },
     });
+
+  await recordPopFlagEvent(db, session.user.id, character, "flags.toggle", `${flag.label} ${done ? "checked" : "unchecked"}`, {
+    flagId,
+    done,
+  });
 
   return {};
 }

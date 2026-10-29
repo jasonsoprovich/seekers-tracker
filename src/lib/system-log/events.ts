@@ -16,6 +16,7 @@ export const SYSTEM_EVENT_CATEGORIES = [
   "epgp",
   "bank",
   "claims",
+  "flags",
   "system",
 ] as const;
 
@@ -52,6 +53,12 @@ export const SYSTEM_EVENTS = {
   "claims.request": { category: "claims", label: "Claim requested" },
   "claims.approve": { category: "claims", label: "Claim approved" },
   "claims.deny": { category: "claims", label: "Claim denied" },
+
+  // --- PoP flags --------------------------------------------------------
+  // One row per checklist click, one summary row per import (the per-flag
+  // detail of an import already lives in import_log + its R2 archive).
+  "flags.toggle": { category: "flags", label: "PoP flag checked/unchecked" },
+  "flags.import": { category: "flags", label: "PoP flags imported" },
 
   // --- Permissions --------------------------------------------------------
   "permissions.save": { category: "permissions", label: "Permission matrix saved" },
