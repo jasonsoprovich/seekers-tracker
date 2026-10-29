@@ -19,6 +19,7 @@ import {
   parseSeer,
 } from "@/lib/pop-flags";
 import { getSession } from "@/lib/session";
+import { recordPopFlagEvent } from "@/lib/system-log/pop-flags";
 
 export type SeerImportState = {
   error?: string;
@@ -84,6 +85,7 @@ export async function importSeerText(
     r2Key,
     summary,
   });
+  await recordPopFlagEvent(db, session.user.id, character, "flags.import", `Seer import — ${summary}`, { kind: "seer_text" });
 
   return {
     result: {
@@ -171,6 +173,7 @@ export async function importPopFlagsText(
     r2Key,
     summary,
   });
+  await recordPopFlagEvent(db, session.user.id, character, "flags.import", `#popflags import — ${summary}`, { kind: "popflags_text" });
 
   return {
     result: {
@@ -317,6 +320,7 @@ export async function importPqCompanionExport(
     r2Key,
     summary,
   });
+  await recordPopFlagEvent(db, session.user.id, character, "flags.import", `pq-companion import — ${summary}`, { kind: "pqc_export" });
 
   return {
     result: {
