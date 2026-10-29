@@ -10,12 +10,22 @@ export interface NavLinkItem {
   href: string;
   label: string;
   badge?: number;
+  alert?: { tone: "soon" | "due"; title: string };
 }
 
 function NavBadge({ count }: { count: number }) {
   return (
-    <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
+    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
       {count}
+    </span>
+  );
+}
+
+// Orange while something is coming up, red once it's due.
+export function AlertDot({ tone, title }: { tone: "soon" | "due"; title: string }) {
+  return (
+    <span title={title} className={`inline-block h-2 w-2 shrink-0 rounded-full ${tone === "due" ? "bg-red-500" : "bg-orange-400"}`}>
+      <span className="sr-only">{title}</span>
     </span>
   );
 }
@@ -88,6 +98,9 @@ export function Sidebar({ links, username, avatarUrl }: { links: NavLinkItem[]; 
     return pathname === href || pathname.startsWith(`${href}/`);
   }
 
+  // Red beats orange if more than one link ever carries an alert.
+  const menuAlert = links.find((l) => l.alert?.tone === "due")?.alert ?? links.find((l) => l.alert)?.alert;
+
   function linkClasses(href: string, mobile = false) {
     const base = `flex items-center gap-2 rounded-md px-3 font-medium transition-colors ${mobile ? "py-3 text-base" : "py-2 text-sm"}`;
     return `${base} ${isActive(href) ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"}`;
@@ -102,7 +115,12 @@ export function Sidebar({ links, username, avatarUrl }: { links: NavLinkItem[]; 
           {links.map((link) => (
             <Link key={link.href} href={link.href} className={linkClasses(link.href)}>
               {link.label}
-              {!!link.badge && <NavBadge count={link.badge} />}
+              {(link.alert || !!link.badge) && (
+                <span className="ml-auto flex items-center gap-1.5">
+                  {link.alert && <AlertDot {...link.alert} />}
+                  {!!link.badge && <NavBadge count={link.badge} />}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -115,14 +133,20 @@ export function Sidebar({ links, username, avatarUrl }: { links: NavLinkItem[]; 
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
+          aria-label={menuAlert ? `Open menu (${menuAlert.title})` : "Open menu"}
           aria-expanded={mobileOpen}
           aria-haspopup="dialog"
-          className="flex h-11 w-11 items-center justify-center rounded-md border border-field text-neutral-300"
+          className="relative flex h-11 w-11 items-center justify-center rounded-md border border-field text-neutral-300"
         >
           <svg width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M2 4.5h14M2 9h14M2 13.5h14" strokeLinecap="round" />
           </svg>
+          {/* The drawer's links are hidden until it opens, so surface their alert here. */}
+          {menuAlert && (
+            <span aria-hidden className="absolute right-1.5 top-1.5 flex">
+              <AlertDot {...menuAlert} />
+            </span>
+          )}
         </button>
       </header>
 
@@ -204,7 +228,12 @@ function MobileNavDrawer({
           {links.map((link) => (
             <Link key={link.href} href={link.href} onClick={onClose} className={linkClasses(link.href, true)}>
               {link.label}
-              {!!link.badge && <NavBadge count={link.badge} />}
+              {(link.alert || !!link.badge) && (
+                <span className="ml-auto flex items-center gap-1.5">
+                  {link.alert && <AlertDot {...link.alert} />}
+                  {!!link.badge && <NavBadge count={link.badge} />}
+                </span>
+              )}
             </Link>
           ))}
         </nav>

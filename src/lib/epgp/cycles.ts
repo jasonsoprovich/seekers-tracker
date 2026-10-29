@@ -2,7 +2,7 @@ import { inArray } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { cycles, epLedger, gpLedger } from "@/db";
-import { guildDayBounds } from "@/lib/guild-timezone";
+import { guildDayBounds, toGuildDateString } from "@/lib/guild-timezone";
 
 export type Cycle = typeof cycles.$inferSelect;
 type Db = ReturnType<typeof drizzle>;
@@ -114,6 +114,28 @@ export async function getCurrentCycleWindow(db: Db, asOf: Date = new Date()): Pr
 export function plannedEndDay(w: CycleWindow): Date | null {
   if (!w.open || w.cycle.startedByDecayEventId != null) return null;
   return w.cycle.endDate > w.cycle.startDate ? w.cycle.endDate : null;
+}
+
+// How long a cycle opened by a decay is expected to run — the sheet's
+// calendar cycles were two weeks. Only used to remind the leader below.
+const CYCLE_DAYS = 14;
+const REMINDER_DAYS = 3;
+
+export type DecayReminder = { tone: "soon" | "due"; title: string };
+
+// Nudge for the leader to run cycle decay: "soon" within REMINDER_DAYS of
+// the due day, "due" on the day itself and every day after until the decay
+// is committed (which opens a new cycle and resets this). The due day is the
+// planned end for a calendar cycle, else CYCLE_DAYS after a decay-opened
+// cycle started. Days are guild (Eastern) days.
+export function decayReminder(w: CycleWindow, now: Date = new Date()): DecayReminder | null {
+  if (!w.open) return null;
+  const planned = plannedEndDay(w);
+  const dueDay = planned ? utcDay(planned) : shiftDay(toGuildDateString(w.start), CYCLE_DAYS);
+  const daysLeft = Math.round((Date.parse(`${dueDay}T00:00:00Z`) - Date.parse(`${toGuildDateString(now)}T00:00:00Z`)) / (24 * HOUR));
+  if (daysLeft > REMINDER_DAYS) return null;
+  if (daysLeft > 0) return { tone: "soon", title: `Cycle decay due in ${daysLeft} day${daysLeft === 1 ? "" : "s"}` };
+  return { tone: "due", title: daysLeft === 0 ? "Cycle decay is due today" : `Cycle decay is ${-daysLeft} day${daysLeft === -1 ? "" : "s"} overdue` };
 }
 
 // "Current cycle" as of a given instant. Returns undefined only when no
