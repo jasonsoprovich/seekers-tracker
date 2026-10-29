@@ -8,9 +8,11 @@ import { SiteFeatureToggles } from "@/components/admin/SiteFeatureToggles";
 import { LiveBidVisibilityControl } from "@/components/admin/LiveBidVisibilityControl";
 import { ViewAsControls } from "@/components/admin/ViewAsControls";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { AlertDot } from "@/components/shell/Sidebar";
 import { characterClaims, characters, players, users } from "@/db";
 import { getRealUserRole, LEADERSHIP_ROLES } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { decayReminder, getCurrentCycleWindow } from "@/lib/epgp/cycles";
 import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { type Capability, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -34,7 +36,7 @@ type AdminLink = {
   label: string;
   description: string;
   external?: boolean;
-  badgeKey?: "pendingClaims";
+  badgeKey?: "pendingClaims" | "decayDue";
   capability?: Capability;
   adminOnly?: boolean;
   leadershipOnly?: boolean;
@@ -67,7 +69,7 @@ const ADMIN_SECTIONS: { title: string; description: string; links: AdminLink[] }
     description: "Leader-level configuration and controlled ledger-wide changes.",
     links: [
       { href: "/epgp/settings", label: "EPGP Settings", description: "Change effective-dated guild settings.", capability: "epgp.config" },
-      { href: "/epgp/decay", label: "EPGP Decay", description: "Preview, commit, or reverse decay events.", capability: "epgp.decay" },
+      { href: "/epgp/decay", label: "EPGP Decay", description: "Preview, commit, or reverse decay events.", capability: "epgp.decay", badgeKey: "decayDue" },
     ],
   },
   {
@@ -119,6 +121,10 @@ export default async function AdminPage() {
     .from(characterClaims)
     .where(eq(characterClaims.status, "pending"));
   const pendingClaimCount = pendingClaimRows.length;
+
+  // Same leader/admin-only reminder as the Admin nav dot (AppShell).
+  const currentCycle = realRole !== null && LEADERSHIP_ROLES.includes(realRole) ? await getCurrentCycleWindow(db) : undefined;
+  const decayAlert = currentCycle ? decayReminder(currentCycle) : null;
 
   // Admin is about PEOPLE (site accounts, roles, claims, guild membership)
   // — characters are managed from the Roster, where every character page
@@ -208,6 +214,12 @@ export default async function AdminPage() {
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-black">
                           {pendingClaimCount}
                         </span>
+                      )}
+                      {link.badgeKey === "decayDue" && decayAlert && (
+                        <>
+                          <AlertDot {...decayAlert} />
+                          <span className={`text-xs font-normal ${decayAlert.tone === "due" ? "text-red-400" : "text-orange-300"}`}>{decayAlert.title}</span>
+                        </>
                       )}
                       {link.external && <span aria-hidden className="text-xs text-neutral-500">↗</span>}
                     </span>

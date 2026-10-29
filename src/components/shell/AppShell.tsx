@@ -2,8 +2,9 @@ import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 
 import { characterClaims } from "@/db";
-import type { Role } from "@/lib/authz";
+import { LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { type DecayReminder, decayReminder, getCurrentCycleWindow } from "@/lib/epgp/cycles";
 import { type Capability, type PermissionMatrix, roleCan } from "@/lib/permissions";
 
 import { Sidebar } from "./Sidebar";
@@ -12,7 +13,7 @@ import { Sidebar } from "./Sidebar";
 // current role must pass that capability against `matrix`. Filtered
 // server-side below, so a member's client bundle never even receives an
 // officer-only href.
-type NavLinkDef = { href: string; label: string; badge?: number; capability?: Capability };
+type NavLinkDef = { href: string; label: string; badge?: number; alert?: DecayReminder; capability?: Capability };
 
 export async function AppShell({
   username,
@@ -29,10 +30,16 @@ export async function AppShell({
 }) {
   const isManager = roleCan(matrix, role, "admin.view");
   let pendingClaimCount = 0;
+  let decayAlert: DecayReminder | undefined;
   if (isManager) {
     const db = await getDb();
     const rows = await db.select({ id: characterClaims.id }).from(characterClaims).where(eq(characterClaims.status, "pending"));
     pendingClaimCount = rows.length;
+    // Cycle decay is the leader's job, so only leaders/admins get the dot.
+    if (role && LEADERSHIP_ROLES.includes(role)) {
+      const current = await getCurrentCycleWindow(db);
+      decayAlert = (current && decayReminder(current)) || undefined;
+    }
   }
 
   const allLinks: NavLinkDef[] = [
@@ -46,7 +53,7 @@ export async function AppShell({
     { href: "/progression", label: "PoP Progression" },
     { href: "/live-bids", label: "Live Bids" },
     { href: "/dashboard", label: "Dashboard" },
-    { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, capability: "admin.view" },
+    { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, alert: decayAlert, capability: "admin.view" },
   ];
   const links = allLinks.filter((l) => !l.capability || roleCan(matrix, role, l.capability));
 
