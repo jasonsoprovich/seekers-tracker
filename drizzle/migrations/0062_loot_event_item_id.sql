@@ -1,0 +1,1 @@
+ALTER TABLE `loot_events` ADD `item_id` integer;

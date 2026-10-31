@@ -334,6 +334,26 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Duplicate-name item ids, 2026-10-31 (branch `fix/duplicate-item-id-tiebreak` in both
+repos; migration 0062; not yet deployed).** Rizy: the 10/30 Carved Bone Ring linked
+Crusader Kezzal's ring (6441), not Terris Thule's NO DROP one (10127). ~150 names have
+several ids that drop, and the log only carries the name.
+- `items` seed: ties now go to the highest dropping-NPC level, then lowest id (was
+  droppable, then lowest id). 55 names change id.
+- The officer app now picks the id per round from its log (recent kills, then zone, then
+  that level rule; `internal/items.Resolve`), with a picker on the Bids tab, and sends
+  `itemId` on live-bid pushes, resolve and `POST /api/officer/bids`.
+- New nullable `loot_events.item_id` (0062). The DO round carries `itemId`;
+  Live Bids, Bids History, raid loot and the GP ledger (via `gp_ledger.loot_event_id`,
+  only while the names still match) pass it to `ItemLink`, which falls back to the name
+  lookup when it's null.
+- Rollout: `migrations apply --remote` → deploy → reseed `items` on remote
+  (`data/items-seed.sql`) → `drizzle/seed/fix-carved-bone-ring-2026-10-30.sql` (the one
+  backfilled row; older rows ignored unless reported) → release the parser.
+- Verified: `verify:bid-finalization` (new itemId checks), `verify:item-resolve`, tsc,
+  webpack build, e2e live-bids/tooltips/leader-feedback 19/19, and a real HTTP pass
+  against `npm run preview` (push → board → re-pick → submit → resolve, old client → null).
+
 **Guild bank: EQ account groups removed, 2026-10-25 (branch
 `feature/remove-bank-eq-accounts` in both repos; migrations 0060 + 0061;
 not yet deployed).** Officers found the EQ Accounts groups unnecessary. Every

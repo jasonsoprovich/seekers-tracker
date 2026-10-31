@@ -435,6 +435,13 @@
       "when": 1792971929629,
       "tag": "0061_remove_sky_bank_and_sheet_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1793475870035,
+      "tag": "0062_loot_event_item_id",
+      "breakpoints": true
     }
   ]
 }

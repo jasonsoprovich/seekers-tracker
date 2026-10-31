@@ -56,6 +56,10 @@ type LiveStatus = "live" | "idle" | "resolved";
 
 type Round = {
   itemName: string;
+  // Which copy of a duplicate-named item this is (see loot_events.item_id);
+  // null when the officer app didn't send one. Absent on rounds persisted
+  // before this field existed.
+  itemId?: number | null;
   officerId: string;
   officerName: string;
   bids: LiveBidTell[];
@@ -75,6 +79,7 @@ type Round = {
 
 type RoundView = {
   itemName: string;
+  itemId: number | null;
   officerName: string;
   bids: LiveBidTell[];
   // The round's TRUE bid count, independent of how many of `bids` this
@@ -93,6 +98,7 @@ type ServerMessage = { type: "state"; rounds: RoundView[]; collectingDetail: Col
 
 type PushBody = {
   itemName?: unknown;
+  itemId?: unknown;
   characterName?: unknown;
   tier?: unknown;
   occurredAt?: unknown;
@@ -102,6 +108,7 @@ type PushBody = {
 };
 type ValidPushBody = {
   itemName: string;
+  itemId?: unknown;
   // Single-tell form (parser <= v0.1.12). Absent on a snapshot push.
   characterName: string;
   tier: string;
@@ -119,7 +126,7 @@ type ClearBody = { itemName?: unknown; officerId?: unknown };
 type DismissBody = { itemName?: unknown; userId?: unknown };
 type ResolveWinnerBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown };
 type ResolveBidBody = { characterName?: unknown; tier?: unknown; priorityRating?: unknown; occurredAt?: unknown };
-type ResolveBody = { itemName?: unknown; winners?: unknown; bids?: unknown; officerId?: unknown; officerName?: unknown };
+type ResolveBody = { itemName?: unknown; itemId?: unknown; winners?: unknown; bids?: unknown; officerId?: unknown; officerName?: unknown };
 
 function isPushBody(v: unknown): v is ValidPushBody {
   const b = v as PushBody & { bids?: unknown };
@@ -362,6 +369,14 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
         round.resolvedAt = 0;
       }
 
+      // The officer can change which copy the round is for mid-round (the
+      // app's variant picker), so the latest push's id wins.
+      const pushedItemId = typeof body.itemId === "number" ? body.itemId : null;
+      if (pushedItemId !== (round.itemId ?? null)) {
+        round.itemId = pushedItemId;
+        mustPersist = true;
+      }
+
       const before = JSON.stringify(round.bids.map((b) => [b.characterName, b.tier, b.occurredAt]));
       const snapshot = (body as { bids?: unknown }).bids;
       if (Array.isArray(snapshot)) {
@@ -450,7 +465,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
       } catch {
         return Response.json({ error: "Invalid JSON body." }, { status: 400 });
       }
-      const { itemName, winners, bids, officerId, officerName } = body as ResolveBody;
+      const { itemName, itemId, winners, bids, officerId, officerName } = body as ResolveBody;
       if (typeof itemName !== "string" || !itemName.trim()) {
         return Response.json({ error: "itemName is required." }, { status: 400 });
       }
@@ -505,6 +520,9 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
             }))
         : [];
       if (resolvedBids.length > 0) round.bids = resolvedBids;
+      // The submitted round's id is final; an older app sends none, so keep
+      // whatever the pushes left.
+      if (typeof itemId === "number") round.itemId = itemId;
       round.state = "resolved";
       round.resolvedAt = now;
       round.lastSeenAt = now;
@@ -778,6 +796,7 @@ export class LiveAuctionSession extends DurableObject<CloudflareEnv> {
           : r.bids;
         return {
           itemName: r.itemName,
+          itemId: r.itemId ?? null,
           officerName: r.officerName,
           bids,
           bidCount: r.bids.length,

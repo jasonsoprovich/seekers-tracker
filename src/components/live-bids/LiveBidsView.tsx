@@ -32,6 +32,9 @@ type CollectingDetail = "full" | "limited" | "none";
 // auto-sizing grid.
 type RoundView = {
   itemName: string;
+  // The copy of a duplicate-named item the officer app picked; null = look
+  // the name up. Absent from an older DO build.
+  itemId?: number | null;
   officerName: string;
   // In "limited"/"none" mode, a still-collecting round's `bids` is already
   // trimmed server-side to just this viewer's own linked characters (2026-
@@ -410,7 +413,7 @@ export function LiveBidsView({ canForceClear = false }: { canForceClear?: boolea
                 <header className="border-b border-border px-4 py-3">
                   <div className="flex items-start gap-2">
                     <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-neutral-100" title={round.itemName}>
-                      <ItemLink name={round.itemName} />
+                      <ItemLink name={round.itemName} itemId={round.itemId} />
                     </h2>
                     <StatusPill status={round.status} />
                   </div>

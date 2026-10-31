@@ -77,7 +77,7 @@ export function RaidLootTable({ loot, timeZone }: { loot: RaidLoot[]; timeZone: 
                   >
                     <span className="flex-[2] font-medium">
                       <span className="mr-1 text-[10px] text-neutral-500">{hasBids && isOpen ? "▾" : "▸"}</span>
-                      <ItemLink name={l.itemName} />
+                      <ItemLink name={l.itemName} itemId={l.itemId} />
                       {hasBids && <span className="ml-2 text-[11px] font-normal text-neutral-500">{l.bids.length} bids</span>}
                     </span>
                     <span className="flex-[2] space-y-1">
