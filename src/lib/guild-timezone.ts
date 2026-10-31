@@ -132,3 +132,38 @@ export function guildDayBounds(dateStr: string, timeZone: string = GUILD_TIMEZON
   if (!end) return null;
   return { start, end };
 }
+
+// Raids run in the evening and regularly go past midnight Eastern (the
+// 10/30 TT/Bert/Torment raid's last drop landed at 12:01 AM, and the
+// calendar-day bucket turned that one item into a separate 10/31 event).
+// An event's date is therefore its *raid night*: anything before this hour
+// belongs to the previous evening. Only event grouping uses this — ledger
+// date columns, cycles and decay keep the plain calendar day.
+export const RAID_NIGHT_ROLLOVER_HOUR = 6;
+
+// The raid-night date (YYYY-MM-DD) an instant belongs to.
+export function toRaidNightString(date: Date, timeZone: string = GUILD_TIMEZONE): string {
+  const day = toGuildDateString(date, timeZone);
+  const hour = Number(hourFormatter(timeZone).format(date)) % 24;
+  return hour < RAID_NIGHT_ROLLOVER_HOUR ? addDaysUtcDateString(day, -1) : day;
+}
+
+// The rollover hour on `dateStr`, as a UTC instant. Starts from local
+// midnight + N hours, then corrects by whatever the wall clock actually
+// reads, so a DST switch between midnight and the rollover is absorbed.
+function rolloverInstant(dateStr: string, timeZone: string): Date | null {
+  const midnight = findMidnightUTC(dateStr, timeZone);
+  if (!midnight) return null;
+  const candidate = new Date(midnight.getTime() + RAID_NIGHT_ROLLOVER_HOUR * 3_600_000);
+  const hour = Number(hourFormatter(timeZone).format(candidate)) % 24;
+  return new Date(candidate.getTime() + (RAID_NIGHT_ROLLOVER_HOUR - hour) * 3_600_000);
+}
+
+// [start, end) UTC instants for one raid night: the rollover hour on
+// `dateStr` to the rollover hour the next day.
+export function raidNightBounds(dateStr: string, timeZone: string = GUILD_TIMEZONE): { start: Date; end: Date } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const start = rolloverInstant(dateStr, timeZone);
+  const end = rolloverInstant(addDaysUtcDateString(dateStr, 1), timeZone);
+  return start && end ? { start, end } : null;
+}

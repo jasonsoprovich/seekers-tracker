@@ -1,4 +1,4 @@
-import { toGuildDateString } from "../guild-timezone";
+import { toRaidNightString } from "../guild-timezone";
 
 // Parser-written loot (loot_events, parse gp_ledger rows, the Event Lead ep
 // row) carries no event name — only attendance rows do. When one guild date
@@ -17,7 +17,7 @@ export function buildEventSpans(
   const byDateName = new Map<string, EventSpan>();
   for (const r of rows) {
     if (!r.raidName) continue;
-    const date = r.raidDate ?? toGuildDateString(r.occurredAt);
+    const date = r.raidDate ?? toRaidNightString(r.occurredAt);
     const key = `${date}\u0000${r.raidName}`;
     const t = r.occurredAt.getTime();
     const span = byDateName.get(key);

@@ -12,11 +12,11 @@ import { getActivePointValue } from "@/lib/epgp/point-values";
 import { dirtyMarkerStatements, settleStandings } from "@/lib/epgp/standings";
 import { recordSystemEvent, webActor } from "@/lib/system-log";
 
-import { guildDayBounds, toGuildDateString } from "../guild-timezone";
+import { raidNightBounds, toRaidNightString } from "../guild-timezone";
 
 // A "raid" is not a stored row — it's every `source='parse'` attendance
 // award plus manual attendance explicitly linked by `raid_date`, and every
-// loot event that share a calendar date **in the guild's
+// loot event that share a raid night (6 AM to 6 AM, RAID_NIGHT_ROLLOVER_HOUR) **in the guild's
 // own timezone** (leader, 2026-09-05: raids are scheduled and run on
 // Eastern time; grouping by UTC date split a single Eastern evening across
 // two rows whenever it straddled UTC midnight — see guild-timezone.ts).
@@ -123,7 +123,7 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
   const spans = buildEventSpans(attRows);
   const attByEvent = new Map<string, Bucket>();
   for (const r of attRows) {
-    const d = r.raidDate ?? toGuildDateString(r.occurredAt);
+    const d = r.raidDate ?? toRaidNightString(r.occurredAt);
     const key = eventKey(d, r.raidName ?? (r.source === "parse" && !r.raidDate ? inferEventName(spans, d, r.occurredAt) : null));
     let b = attByEvent.get(key);
     if (!b) {
@@ -143,14 +143,14 @@ export async function listRaids(db: ReturnType<typeof drizzle>): Promise<RaidLis
 
   const lootByEvent = new Map<string, number>();
   for (const r of lootRows) {
-    const d = toGuildDateString(r.occurredAt);
+    const d = toRaidNightString(r.occurredAt);
     const key = eventKey(d, inferEventName(spans, d, r.occurredAt));
     lootByEvent.set(key, (lootByEvent.get(key) ?? 0) + 1);
   }
 
   const gpByEvent = new Map<string, number>();
   for (const r of gpRows) {
-    const d = r.raidDate ?? toGuildDateString(r.occurredAt);
+    const d = r.raidDate ?? toRaidNightString(r.occurredAt);
     const key = eventKey(d, r.raidName ?? (r.source === "parse" && !r.raidDate ? inferEventName(spans, d, r.occurredAt) : null));
     gpByEvent.set(key, (gpByEvent.get(key) ?? 0) + r.points);
     if (r.source === "manual" && r.raidDate && r.itemName) {
@@ -304,7 +304,7 @@ export type RaidDetail = {
 };
 
 export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: string, raidName: string | null = null): Promise<RaidDetail | null> {
-  const bounds = guildDayBounds(raidDate);
+  const bounds = raidNightBounds(raidDate);
   if (!bounds) return null;
   const { start, end } = bounds;
 
@@ -551,7 +551,7 @@ export type ReverseRaidResult =
 // ledger rows under it. `getRaidDetail` returns non-null while that lone
 // meta row exists, so the detail page still renders (empty) — harmless.
 export async function reverseRaid(db: ReturnType<typeof drizzle>, raidDate: string, reversedBy: string): Promise<ReverseRaidResult> {
-  const bounds = guildDayBounds(raidDate);
+  const bounds = raidNightBounds(raidDate);
   if (!bounds) return { error: "Bad raid date." };
   const { start, end } = bounds;
 
@@ -628,7 +628,7 @@ export async function zeroRaidEp(
   raidName: string | null,
   actorId: string,
 ): Promise<ZeroRaidEpResult> {
-  const bounds = guildDayBounds(raidDate);
+  const bounds = raidNightBounds(raidDate);
   if (!bounds) return { error: "Bad raid date." };
   const { start, end } = bounds;
 
@@ -780,7 +780,7 @@ export async function setRaidLeader(
   changedBy: string,
   updateEventLead = false,
 ): Promise<void> {
-  const bounds = guildDayBounds(raidDate);
+  const bounds = raidNightBounds(raidDate);
   if (!bounds) throw new Error("Bad raid date.");
   const [leader] = await db
     .select({ playerId: players.id, characterId: characters.id, name: characters.name })

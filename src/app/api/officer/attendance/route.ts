@@ -15,7 +15,7 @@ import { insertEpLedgerBatch } from "@/lib/epgp/ledger-entry";
 import { nameRaidFromCapture } from "@/lib/epgp/raids";
 import { getStandingsForPlayers, settleStandings, type StandingsRow } from "@/lib/epgp/standings";
 import { getActivePointValue } from "@/lib/epgp/point-values";
-import { toGuildDateString } from "@/lib/guild-timezone";
+import { toRaidNightString } from "@/lib/guild-timezone";
 import { officerApiActor, recordSystemEvent } from "@/lib/system-log";
 import { boundedString, isoDate, LIMITS } from "@/lib/validate";
 
@@ -386,7 +386,7 @@ export async function POST(request: Request) {
   // the raid on /epgp/raids.
   if (raidName && (inserted > 0 || duplicates.length > 0)) {
     try {
-      await nameRaidFromCapture(db, toGuildDateString(occurredAt), raidName, auth.userId);
+      await nameRaidFromCapture(db, toRaidNightString(occurredAt), raidName, auth.userId);
     } catch (err) {
       console.warn(`attendance: could not name raid for ${occurredAtIso}: ${String(err)}`);
     }
