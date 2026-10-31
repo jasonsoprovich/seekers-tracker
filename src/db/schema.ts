@@ -694,7 +694,8 @@ export const guildInfoCards = sqliteTable("guild_info_cards", {
 // item NAME (all that loot/bid rows store) to its PQDI page + tooltip without
 // calling PQDI's search. `norm_name` is the officer app's normalize() — lower
 // case, collapsed whitespace, backtick/curly quote -> '. Names that map to
-// several ids resolve to a droppable one, then the lowest id.
+// several ids resolve to the one dropped by the highest-level NPC, then the
+// lowest id.
 export const items = sqliteTable(
   "items",
   {
