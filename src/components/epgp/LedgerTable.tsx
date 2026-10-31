@@ -499,7 +499,7 @@ export function LedgerTable(props: Props) {
                         </>
                       ) : (
                         <>
-                          <td className="px-3 py-2 text-neutral-400">{(r as GpRow).itemName ? <ItemLink name={(r as GpRow).itemName!} /> : "—"}</td>
+                          <td className="px-3 py-2 text-neutral-400">{(r as GpRow).itemName ? <ItemLink name={(r as GpRow).itemName!} itemId={(r as GpRow).itemId} /> : "—"}</td>
                           <td className="px-3 py-2 text-neutral-400">{(r as GpRow).tier}</td>
                         </>
                       )}

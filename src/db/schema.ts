@@ -694,7 +694,8 @@ export const guildInfoCards = sqliteTable("guild_info_cards", {
 // item NAME (all that loot/bid rows store) to its PQDI page + tooltip without
 // calling PQDI's search. `norm_name` is the officer app's normalize() — lower
 // case, collapsed whitespace, backtick/curly quote -> '. Names that map to
-// several ids resolve to a droppable one, then the lowest id.
+// several ids resolve to the one dropped by the highest-level NPC, then the
+// lowest id.
 export const items = sqliteTable(
   "items",
   {
@@ -851,6 +852,13 @@ export const lootEvents = sqliteTable(
     // pre-Phase-3 row. SQLite's UNIQUE index permits any number of NULLs,
     // so historical/old-client rows never collide.
     submissionId: text("submission_id"),
+    // Which copy of the item dropped, when the name has several ids in
+    // quarm.db (e.g. two "Carved Bone Ring"s). The officer app picks it from
+    // its log (recent kills, zone) or the officer's choice and sends it with
+    // the round (itemId). NULL on older rows and from older app builds; the
+    // site then falls back to looking the name up in `items`. GP rows a round
+    // charged reach it through gp_ledger.loot_event_id.
+    itemId: integer("item_id"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

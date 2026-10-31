@@ -277,6 +277,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
       }
       return forwardToDO(env, "push", {
         itemName: (body.itemName as string).trim(),
+        itemId: itemIdFromBody(body),
         bids: tells.map((t) => ({ ...t, priorityRating: priorityByName.get(t.characterName.toLowerCase()) ?? null })),
         officerId: auth.userId,
         officerName: collectedByFromBody(body, officerName),
@@ -438,6 +439,7 @@ async function handleOfficerLiveBids(request: Request, env: CloudflareEnv, actio
 
     return forwardToDO(env, "resolve", {
       itemName: body.itemName.trim(),
+      itemId: itemIdFromBody(body),
       winners,
       bids,
       repriceAll,
@@ -610,6 +612,14 @@ async function resolveCollectedByName(db: ReturnType<typeof drizzle>, userId: st
   if (main?.name?.trim()) return main.name.trim();
   const [row] = await db.select({ username: users.username }).from(users).where(eq(users.id, userId));
   return row?.username?.trim() || "An officer";
+}
+
+// Which copy of a duplicate-named item the officer app picked (see
+// loot_events.item_id). Null for anything that isn't a plausible item id,
+// including every push from an app build that doesn't send one.
+function itemIdFromBody(body: Record<string, unknown>): number | null {
+  const v = body.itemId;
+  return typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 999999 ? v : null;
 }
 
 function collectedByFromBody(body: Record<string, unknown>, fallback: string): string {

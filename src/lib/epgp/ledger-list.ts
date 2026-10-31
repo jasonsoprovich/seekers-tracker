@@ -29,6 +29,10 @@ export type GpLedgerRow = {
   characterName: string;
   occurredAt: Date;
   itemName: string | null;
+  // The copy that dropped, from the bid round that charged this row
+  // (loot_events.item_id via gp_ledger.loot_event_id) — only while the
+  // row's item name still matches that round's; null otherwise.
+  itemId: number | null;
   tier: string;
   points: number;
   note: string | null;
@@ -132,6 +136,7 @@ export async function listLedgerRows(
       characterName: characters.name,
       occurredAt: gpLedger.occurredAt,
       itemName: gpLedger.itemName,
+      itemId: sql<number | null>`case when lower(${lootEvents.itemName}) = lower(${gpLedger.itemName}) then ${lootEvents.itemId} end`,
       tier: gpLedger.tier,
       points: gpLedger.points,
       note: gpLedger.note,
@@ -143,6 +148,7 @@ export async function listLedgerRows(
     .from(gpLedger)
     .innerJoin(characters, eq(gpLedger.characterId, characters.id))
     .leftJoin(users, eq(gpLedger.enteredBy, users.id))
+    .leftJoin(lootEvents, eq(gpLedger.lootEventId, lootEvents.id))
     .where(gpWhere)
     .orderBy(desc(ledgerSortKey(gpLedger.occurredAt)), desc(gpLedger.id))
     .limit(pageSize + 1)
@@ -155,6 +161,8 @@ export type BidHistoryRow = {
   lootEventId: number;
   occurredAt: Date;
   itemName: string;
+  // See loot_events.item_id; null = look the name up.
+  itemId: number | null;
   characterName: string;
   tier: string;
   status: "active" | "retracted" | "won" | "lost";
@@ -200,6 +208,7 @@ export async function listBidHistory(
       lootEventId: bids.lootEventId,
       occurredAt: lootEvents.occurredAt,
       itemName: lootEvents.itemName,
+      itemId: lootEvents.itemId,
       characterName: characters.name,
       tier: bids.tier,
       status: bids.status,

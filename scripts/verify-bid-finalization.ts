@@ -99,6 +99,7 @@ async function main() {
           { characterName: loserName, tier: "Medium Bid", occurredAt: occurredAtA, isWinner: false },
         ],
         submissionId: submissionIdA,
+        itemId: 10127,
       },
       enteredBy,
     );
@@ -111,6 +112,7 @@ async function main() {
     const [lootEventA] = await db.select().from(lootEvents).where(eq(lootEvents.id, resultA.lootEventId));
     check(failures, lootEventA?.submissionId === submissionIdA, "loot event stored the submissionId");
     check(failures, lootEventA?.winningBidId != null, "winningBidId was set");
+    check(failures, lootEventA?.itemId === 10127, `loot event stored the chosen itemId (got ${lootEventA?.itemId})`);
 
     const bidsA = await db.select().from(bids).where(eq(bids.lootEventId, resultA.lootEventId));
     check(failures, bidsA.length === 2, `two bid rows recorded (got ${bidsA.length})`);
@@ -169,6 +171,8 @@ async function main() {
       itemName: concurrentItem,
       entries: [{ characterName: concurrentWinnerName, tier: "High Bid", occurredAt: now.toISOString(), isWinner: true }],
       submissionId: concurrentSubmissionId,
+      // Not a plausible item id — ignored, never an error.
+      itemId: "10127",
     };
     const concurrentResults = await Promise.all([
       finalizeBidRound(db, concurrentBody, enteredBy),
@@ -183,6 +187,7 @@ async function main() {
     const concurrentLoot = await db.select().from(lootEvents).where(eq(lootEvents.submissionId, concurrentSubmissionId));
     const concurrentGp = await db.select().from(gpLedger).where(eq(gpLedger.characterId, concurrentWinner.characterId));
     check(failures, concurrentLoot.length === 1, "concurrent requests create one loot event");
+    check(failures, concurrentLoot[0]?.itemId === null, "a non-numeric itemId is stored as NULL");
     check(failures, concurrentGp.length === 1, "concurrent requests charge GP exactly once");
 
     // -----------------------------------------------------------------

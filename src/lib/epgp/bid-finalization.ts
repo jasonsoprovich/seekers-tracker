@@ -52,6 +52,10 @@ export type BidRoundEntryInput = { characterName?: unknown; tier?: unknown; occu
 
 export type FinalizeBidRoundInput = {
   itemName?: unknown;
+  // The copy of the item that dropped (see loot_events.item_id). Optional;
+  // anything that isn't a plausible item id is ignored, never an error — an
+  // id is only ever a display hint, never worth failing a GP charge over.
+  itemId?: unknown;
   entries?: unknown;
   note?: unknown;
   confirmDuplicate?: unknown;
@@ -157,6 +161,7 @@ export async function finalizeBidRound(
     return { ok: false, status: 400, error: `Invalid name, tier, or time on ${badField.characterName || "an entry"}.` };
   }
   const itemName = itemCheck.value;
+  const itemId = typeof body.itemId === "number" && Number.isInteger(body.itemId) && body.itemId > 0 && body.itemId <= 999999 ? body.itemId : null;
   const note = typeof body.note === "string" ? body.note.trim().slice(0, LIMITS.note) || null : null;
 
   let submissionId: string | null = null;
@@ -317,6 +322,7 @@ export async function finalizeBidRound(
   const statements: BatchItem<"sqlite">[] = [
     db.insert(lootEvents).values({
       itemName,
+      itemId,
       occurredAt: lootEventOccurredAt,
       status: "awarded",
       openedBy: enteredBy,

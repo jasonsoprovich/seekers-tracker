@@ -85,7 +85,7 @@ export function BidHistoryTable({ rows }: { rows: BidHistoryRow[] }) {
               {/* Bid history is always parser-origin (loot_events), so its
                   occurredAt is a real timestamp — render in guild tz (LT-10). */}
               <td className="px-3 py-2 text-neutral-400">{ledgerDate(r.occurredAt, "parse")}</td>
-              <td className="px-3 py-2 font-medium"><ItemLink name={r.itemName} /></td>
+              <td className="px-3 py-2 font-medium"><ItemLink name={r.itemName} itemId={r.itemId} /></td>
               <td className="px-3 py-2 text-neutral-400">{r.characterName}</td>
               <td className="px-3 py-2 text-neutral-400">{r.tier}</td>
               <td className="hidden px-3 py-2 text-neutral-500 sm:table-cell">{fmtPriority(r.prioritySnapshot)}</td>

@@ -277,6 +277,9 @@ export type RaidLootWinner = {
 export type RaidLoot = {
   lootEventId: number;
   itemName: string;
+  // The copy that dropped, when the officer app recorded one
+  // (loot_events.item_id); null = look the name up.
+  itemId: number | null;
   occurredAt: Date;
   winners: RaidLootWinner[];
   manual: boolean;
@@ -334,6 +337,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
       .select({
         id: lootEvents.id,
         itemName: lootEvents.itemName,
+        itemId: lootEvents.itemId,
         occurredAt: lootEvents.occurredAt,
       })
       .from(lootEvents)
@@ -469,6 +473,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
     .map((r) => ({
       lootEventId: r.id,
       itemName: r.itemName,
+      itemId: r.itemId,
       occurredAt: r.occurredAt,
       winners: winnersByLootEvent.get(r.id) ?? [],
       manual: false,
@@ -482,6 +487,7 @@ export async function getRaidDetail(db: ReturnType<typeof drizzle>, raidDate: st
           // their expandable-row key distinct from real positive event ids.
           lootEventId: -g.id,
           itemName: g.itemName ?? "(unnamed item)",
+          itemId: null,
           occurredAt: g.occurredAt,
           winners: [{
             characterName: g.characterName ?? "(unknown)",
