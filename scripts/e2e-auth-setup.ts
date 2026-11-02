@@ -72,6 +72,16 @@ async function main() {
   const proxy = await getPlatformProxy({ configPath: "wrangler.jsonc" });
   const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
 
+  // The membership gate requires the Seekers role (isDeniedRole in
+  // src/lib/discord-verify.ts), read from .dev.vars by the dev server, so
+  // every test user carries whatever ID is configured there.
+  const memberRoleId = (proxy.env as unknown as CloudflareEnv).SEEKERS_DISCORD_MEMBER_ROLE_ID?.trim();
+  if (!memberRoleId) {
+    console.error("SEEKERS_DISCORD_MEMBER_ROLE_ID is blank in .dev.vars — every test user would be denied.");
+    process.exit(1);
+  }
+  const roleIds = JSON.stringify([memberRoleId]);
+
   for (const user of E2E_USERS) {
     await db
       .insert(users)
@@ -81,13 +91,11 @@ async function main() {
         username: user.username,
         role: user.role,
         discordVerified: true,
-        // Non-empty and not on the (locally blank) deny-list — see
-        // isDeniedRole()/isMemberAllowed() in src/lib/discord-verify.ts.
-        discordRoleIds: JSON.stringify(["000000000000000000"]),
+        discordRoleIds: roleIds,
       })
       .onConflictDoUpdate({
         target: users.id,
-        set: { role: user.role, discordVerified: true, discordRoleIds: JSON.stringify(["000000000000000000"]) },
+        set: { role: user.role, discordVerified: true, discordRoleIds: roleIds },
       });
   }
 

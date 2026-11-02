@@ -12,6 +12,7 @@ import { AlertDot } from "@/components/shell/Sidebar";
 import { characterClaims, characters, players, users } from "@/db";
 import { getRealUserRole, LEADERSHIP_ROLES } from "@/lib/authz";
 import { getDb } from "@/lib/db";
+import { isMemberAllowed } from "@/lib/discord-verify";
 import { decayReminder, getCurrentCycleWindow } from "@/lib/epgp/cycles";
 import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { type Capability, getPermissions } from "@/lib/permissions";
@@ -146,6 +147,8 @@ export default async function AdminPage() {
       id: users.id,
       username: users.username,
       discordVerified: users.discordVerified,
+      discordRoleIds: users.discordRoleIds,
+      playerStatus: players.status,
       createdAt: users.createdAt,
       mainCharacterName: mainCharacters.name,
     })
@@ -154,11 +157,13 @@ export default async function AdminPage() {
     .leftJoin(mainCharacters, eq(mainCharacters.id, players.mainCharacterId))
     .orderBy(users.username);
 
-  // discordVerified filters out shell accounts left by a denied sign-in
-  // (someone not in the guild Discord, or with no/denied roles): the
-  // membership gate already blocks them from every page. They reappear the
-  // moment a real login stamps them verified.
-  const verified = members.filter((m) => m.discordVerified);
+  // Same gate as (app)/layout.tsx, so shell accounts left by a denied
+  // sign-in (not in the guild Discord, no Seekers role, a denied role, or
+  // removed by a leader) never show up here. A guest (Orc Pawn + Guest)
+  // used to sit in this queue with no way to clear it, because only
+  // discordVerified was checked. They reappear once a login picks up the
+  // Seekers role.
+  const verified = members.filter((m) => isMemberAllowed(m));
   const ownerIds = new Set(roster.map((c) => c.ownerId).filter((id): id is string => id !== null));
   // The people who need an officer's attention first: signed in, in the
   // Discord, but no character on their account yet.
