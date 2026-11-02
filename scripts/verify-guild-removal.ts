@@ -98,6 +98,10 @@ async function main() {
   // configured in this shell/.dev.vars.
   const savedDeniedRoleIds = process.env.SEEKERS_DISCORD_DENIED_ROLE_IDS;
   Reflect.deleteProperty(process.env, "SEEKERS_DISCORD_DENIED_ROLE_IDS");
+  // Same for the required Seekers role (isDeniedRole's allow-list): point it
+  // at the role every test user is created with.
+  const savedMemberRoleId = process.env.SEEKERS_DISCORD_MEMBER_ROLE_ID;
+  process.env.SEEKERS_DISCORD_MEMBER_ROLE_ID = ALLOWED_TEST_ROLE_ID;
 
   try {
     const db = drizzle(proxy.env.DATABASE as unknown as Parameters<typeof drizzle>[0], { schema });
@@ -312,6 +316,8 @@ async function main() {
   } finally {
     if (savedDeniedRoleIds === undefined) Reflect.deleteProperty(process.env, "SEEKERS_DISCORD_DENIED_ROLE_IDS");
     else process.env.SEEKERS_DISCORD_DENIED_ROLE_IDS = savedDeniedRoleIds;
+    if (savedMemberRoleId === undefined) Reflect.deleteProperty(process.env, "SEEKERS_DISCORD_MEMBER_ROLE_ID");
+    else process.env.SEEKERS_DISCORD_MEMBER_ROLE_ID = savedMemberRoleId;
     await proxy.dispose();
     console.log(`Restoring snapshot '${SNAPSHOT_NAME}'...`);
     execFileSync("scripts/snapshot.sh", ["restore", SNAPSHOT_NAME], { stdio: "inherit" });

@@ -13,6 +13,7 @@ interface __BaseEnv_CloudflareEnv {
 	DISCORD_CLIENT_SECRET: string;
 	SEEKERS_DISCORD_GUILD_ID: string;
 	SEEKERS_DISCORD_DENIED_ROLE_IDS: string;
+	SEEKERS_DISCORD_MEMBER_ROLE_ID: string;
 	LIVE_AUCTION_SESSION: DurableObjectNamespace<import("./custom-worker").LiveAuctionSession>;
 	WORKER_SELF_REFERENCE: Service<typeof import("./custom-worker").default>;
 }
@@ -28,7 +29,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "NEXTJS_ENV" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "DISCORD_CLIENT_ID" | "DISCORD_CLIENT_SECRET" | "SEEKERS_DISCORD_GUILD_ID" | "SEEKERS_DISCORD_DENIED_ROLE_IDS">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "NEXTJS_ENV" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "DISCORD_CLIENT_ID" | "DISCORD_CLIENT_SECRET" | "SEEKERS_DISCORD_GUILD_ID" | "SEEKERS_DISCORD_DENIED_ROLE_IDS" | "SEEKERS_DISCORD_MEMBER_ROLE_ID">> {}
 }
 
 // Begin runtime types
