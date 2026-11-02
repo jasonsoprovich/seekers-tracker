@@ -92,8 +92,21 @@ export function parseDiscordRoleIds(discordRoleIds: string | null | undefined): 
 // closed if a role fetch never completed (Discord API hiccup, or a user row
 // from before this column existed) — same call either way: no confirmed
 // role on file, no access.
+//
+// 2026-11-02: an allow-list now sits in front of that deny-list. A guest
+// holding Orc Pawn + Guest got full access in production because
+// SEEKERS_DISCORD_DENIED_ROLE_IDS had never been set there — the deny-list
+// failed open, and having any role at all was enough. Every real guild
+// member carries the "Seekers" role (officers/leaders on top of it), so
+// SEEKERS_DISCORD_MEMBER_ROLE_ID is now required, the same rule the bot
+// already enforces (seekers-bot src/access.ts SEEKER_ROLE_ID). Unset fails
+// closed: nobody gets in until it's configured. The deny-list stays as a
+// second check for anyone holding Seekers plus a denied role.
 export function isDeniedRole(roleIds: string[]): boolean {
   if (roleIds.length === 0) return true;
+
+  const memberRoleId = process.env.SEEKERS_DISCORD_MEMBER_ROLE_ID?.trim();
+  if (!memberRoleId || !roleIds.includes(memberRoleId)) return true;
 
   const raw = process.env.SEEKERS_DISCORD_DENIED_ROLE_IDS;
   if (!raw) return false;

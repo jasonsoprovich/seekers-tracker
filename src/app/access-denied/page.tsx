@@ -38,7 +38,7 @@ export default async function AccessDeniedPage() {
     ? "no longer an active member of the guild — a leader has removed your access"
     : !me?.discordVerified
       ? "not currently showing as a member of the Seekers of Souls Discord server"
-      : "in the Discord server, but as an applicant (Orc Pawn) or Guest";
+      : "in the Discord server, but doesn't have the Seekers role yet (applicants and guests don't)";
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-center text-neutral-100">
