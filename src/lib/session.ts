@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import { cache } from "react";
 
 import { createAuth } from "@/auth";
+import { getDb } from "@/lib/db";
+import { fetchIsMemberAllowed } from "@/lib/discord-verify";
 import { perfNote, timed } from "@/lib/perf";
 
 // Server-side session lookup (RSC / server actions). Rebuilds `auth` from
@@ -49,7 +51,12 @@ export class SessionLookupTimeoutError extends Error {
 
 const SESSION_LOOKUP_DEADLINE_MS = 12_000;
 
-export const getSession = cache(async function getSession() {
+// The raw better-auth session: signed in, nothing more. Only the places
+// that must see a signed-in non-member use this directly: the (app) layout
+// (to send them to /access-denied rather than /login), /login itself, and
+// /access-denied (for its sign-out button). Everything else uses
+// getSession below.
+export const getAuthSession = cache(async function getAuthSession() {
   const { env, cf } = await timed("cfContext", () => getCloudflareContext({ async: true }));
   const auth = createAuth(env, cf);
   const hdrs = await headers();
@@ -114,4 +121,17 @@ export const getSession = cache(async function getSession() {
   } finally {
     clearTimeout(deadlineTimer);
   }
+});
+
+// The session every page, server action and route handler should use: null
+// unless the signed-in user also passes the membership gate (Seekers role,
+// no denied role, not removed by a leader). The (app) layout's own check
+// only runs when the layout renders; server actions and partial (page-only)
+// RSC renders skip it, so a signed-in guest could otherwise still reach
+// member-level data and actions. Checked here, they look signed out instead.
+export const getSession = cache(async function getSession() {
+  const session = await getAuthSession();
+  if (!session) return null;
+  const db = await getDb();
+  return (await fetchIsMemberAllowed(db, session.user.id)) ? session : null;
 });

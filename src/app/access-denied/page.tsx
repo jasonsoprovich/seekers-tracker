@@ -6,13 +6,13 @@ import { SignOutButton } from "@/components/shell/SignOutButton";
 import { players, users } from "@/db";
 import { getDb } from "@/lib/db";
 import { isDeniedRole, parseDiscordRoleIds } from "@/lib/discord-verify";
-import { getSession } from "@/lib/session";
+import { getAuthSession } from "@/lib/session";
 
 // Where (app)/layout.tsx sends anyone the Phase 6 deny-list gate rejects.
 // Outside the (app) route group on purpose — it must never itself trigger
 // that layout's redirect here, which would loop.
 export default async function AccessDeniedPage() {
-  const session = await getSession();
+  const session = await getAuthSession();
   if (!session) redirect("/login");
 
   const db = await getDb();

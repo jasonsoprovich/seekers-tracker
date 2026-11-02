@@ -14,11 +14,11 @@ import { isMemberAllowed } from "@/lib/discord-verify";
 import { getDb } from "@/lib/db";
 import { timed } from "@/lib/perf";
 import { getPermissionMatrix } from "@/lib/permissions";
-import { getSession } from "@/lib/session";
+import { getAuthSession } from "@/lib/session";
 import { itemTooltipsEnabled } from "@/lib/site-settings";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const session = await getSession();
+  const session = await getAuthSession();
   if (!session) {
     const returnTo = sanitizeSignInDestination((await headers()).get("x-seekers-return-to"));
     redirect(`/login?next=${encodeURIComponent(returnTo)}`);

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DiscordSignInButton } from "@/components/auth/DiscordSignInButton";
 import { sanitizeSignInDestination } from "@/lib/auth-redirect";
-import { getSession } from "@/lib/session";
+import { getAuthSession, getSession } from "@/lib/session";
 
 type LoginSearchParams = { next?: string | string[] };
 
@@ -16,8 +16,11 @@ type LoginSearchParams = { next?: string | string[] };
 export default async function LoginPage({ searchParams }: { searchParams: Promise<LoginSearchParams> }) {
   const { next } = await searchParams;
   const destination = sanitizeSignInDestination(next);
-  const session = await getSession();
-  if (session) redirect(destination);
+  if (await getSession()) redirect(destination);
+  // Signed in but not a member (no Seekers role, or removed): pages treat
+  // them as signed out and send them here, so sending them back to the
+  // destination would loop. /access-denied explains why instead.
+  if (await getAuthSession()) redirect("/access-denied");
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#090b07] px-6 text-center text-[#d8cda6]">
