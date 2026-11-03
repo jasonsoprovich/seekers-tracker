@@ -3,6 +3,7 @@ import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { drizzle } from "drizzle-orm/d1";
 
 import { bids, characters, epLedger, gpLedger, lootEvents, players, users } from "@/db";
+import { isRosterPlaceholder } from "@/lib/roster-visibility";
 import { getStandings, getStandingsForPlayers } from "./standings";
 
 export type EpLedgerRow = {
@@ -284,6 +285,9 @@ export async function getTotalsRows(db: ReturnType<typeof drizzle>, opts: { q?: 
   ]);
 
   return rows
+    // NoLooter keeps its EP/GP ledger rows (it's where rot is assigned) but
+    // isn't a member, so it has no place in the standings summary.
+    .filter((r) => !isRosterPlaceholder(r.mainCharacterName))
     .filter((r) => !term || r.mainCharacterName.toLowerCase().includes(term))
     .map((r) => {
       const s = standings.get(r.playerId);
