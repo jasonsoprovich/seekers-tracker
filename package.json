@@ -18,6 +18,7 @@
     "snapshot": "scripts/snapshot.sh",
     "bookmark": "scripts/remote-bookmark.sh",
     "verify:popflags-cmd": "tsx scripts/verify-popflags-cmd.ts",
+    "verify:spellbook": "tsx scripts/verify-spellbook.ts",
     "verify:bookmark": "scripts/verify-remote-bookmark.sh",
     "verify:backup-export": "tsx scripts/verify-backup-export.ts",
     "verify:system-health": "tsx scripts/verify-system-health.ts",

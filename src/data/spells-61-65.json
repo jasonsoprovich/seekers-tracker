@@ -1,0 +1,3176 @@
+[
+ {
+  "spellId": 98,
+  "name": "Abolish Disease",
+  "scrollItemId": 15098,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 1575,
+  "name": "Acumen",
+  "scrollItemId": 19278,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3034,
+  "name": "Aeldorb's Animation",
+  "scrollItemId": 21639,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3378,
+  "name": "Agility of the Wrulan",
+  "scrollItemId": 28488,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3335,
+  "name": "Agnarr's Thunder",
+  "scrollItemId": 28446,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3381,
+  "name": "Ancestral Guard",
+  "scrollItemId": 28491,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 1526,
+  "name": "Annul Magic",
+  "scrollItemId": 19207,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 61
+   },
+   {
+    "classId": 14,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3341,
+  "name": "Apathy",
+  "scrollItemId": 28451,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3458,
+  "name": "Arag`s Celerity",
+  "scrollItemId": 28549,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3199,
+  "name": "Arcane Rune",
+  "scrollItemId": 28643,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3474,
+  "name": "Armor of the Zealot",
+  "scrollItemId": 28565,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 1414,
+  "name": "Augmentation of Death",
+  "scrollItemId": 30414,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3406,
+  "name": "Aura of Darkness",
+  "scrollItemId": 26924,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3411,
+  "name": "Aura of Hate",
+  "scrollItemId": 26927,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3403,
+  "name": "Aura of Pain",
+  "scrollItemId": 26922,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3247,
+  "name": "Aura of the Crusader",
+  "scrollItemId": 21654,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3347,
+  "name": "Beckon",
+  "scrollItemId": 28457,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3040,
+  "name": "Belt of Magi'Kot",
+  "scrollItemId": 21641,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3321,
+  "name": "Black Steel",
+  "scrollItemId": 28432,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3043,
+  "name": "Blade of The Kedge",
+  "scrollItemId": 21644,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3041,
+  "name": "Blade of Walnan",
+  "scrollItemId": 21642,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 1558,
+  "name": "Bladecoat",
+  "scrollItemId": 19249,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3441,
+  "name": "Blessing of Replenishment",
+  "scrollItemId": 28531,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   },
+   {
+    "classId": 9,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3472,
+  "name": "Blessing of Reverence",
+  "scrollItemId": 28563,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3451,
+  "name": "Blessing of the Nine",
+  "scrollItemId": 28541,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3358,
+  "name": "Bliss",
+  "scrollItemId": 28468,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3489,
+  "name": "Blood of Hate",
+  "scrollItemId": 21633,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3396,
+  "name": "Blood of Saryrn",
+  "scrollItemId": 26916,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3303,
+  "name": "Blood of Thule",
+  "scrollItemId": 28416,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3229,
+  "name": "Boggle",
+  "scrollItemId": 28644,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 456,
+  "name": "Bond of Death",
+  "scrollItemId": 15456,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3450,
+  "name": "Brackencoat",
+  "scrollItemId": 28540,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3394,
+  "name": "Breath of Ultor",
+  "scrollItemId": 26914,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3432,
+  "name": "Brell's Stalwart Shield",
+  "scrollItemId": 26938,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3431,
+  "name": "Brushfire",
+  "scrollItemId": 21626,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 1537,
+  "name": "Bulwark of Faith",
+  "scrollItemId": 19219,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3237,
+  "name": "Burnout V",
+  "scrollItemId": 21669,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3484,
+  "name": "Call of the Arch Mage",
+  "scrollItemId": 16342,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3371,
+  "name": "Call of the Banshee",
+  "scrollItemId": 28481,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3419,
+  "name": "Call of the Rathe",
+  "scrollItemId": 21628,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3473,
+  "name": "Catastrophe",
+  "scrollItemId": 28564,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 64
+   },
+   {
+    "classId": 5,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 171,
+  "name": "Celerity",
+  "scrollItemId": 15171,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3314,
+  "name": "Child of Bertoxxulous",
+  "scrollItemId": 28425,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3322,
+  "name": "Child of Ro",
+  "scrollItemId": 28433,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 1290,
+  "name": "Chloroblast",
+  "scrollItemId": 19507,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 62
+   },
+   {
+    "classId": 14,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3372,
+  "name": "Chorus of Marr",
+  "scrollItemId": 28482,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 1552,
+  "name": "Circle of Summer",
+  "scrollItemId": 19234,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 1551,
+  "name": "Circle of Winter",
+  "scrollItemId": 19232,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3490,
+  "name": "Cloak of Luclin",
+  "scrollItemId": 21635,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3380,
+  "name": "Cloud of Grummus",
+  "scrollItemId": 28490,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3355,
+  "name": "Command of Druzzil",
+  "scrollItemId": 28465,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3445,
+  "name": "Command of Tunare",
+  "scrollItemId": 28535,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3476,
+  "name": "Condemnation",
+  "scrollItemId": 28567,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 1773,
+  "name": "Conjure Corpse",
+  "scrollItemId": 19307,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 96,
+  "name": "Counteract Disease",
+  "scrollItemId": 15096,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 95,
+  "name": "Counteract Poison",
+  "scrollItemId": 15095,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 61
+   },
+   {
+    "classId": 14,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3190,
+  "name": "Crusader`s Touch",
+  "scrollItemId": 26941,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3420,
+  "name": "Cry of Thunder",
+  "scrollItemId": 26932,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3315,
+  "name": "Dark Plague",
+  "scrollItemId": 28426,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3308,
+  "name": "Death's Silence",
+  "scrollItemId": 28420,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3428,
+  "name": "Deny Undead",
+  "scrollItemId": 26937,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 62
+   },
+   {
+    "classId": 4,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3238,
+  "name": "Destroy Summoned",
+  "scrollItemId": 21659,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 65
+   },
+   {
+    "classId": 12,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3468,
+  "name": "Destroy Undead",
+  "scrollItemId": 28559,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 64
+   },
+   {
+    "classId": 10,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3336,
+  "name": "Draught of E`ci",
+  "scrollItemId": 28447,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3976,
+  "name": "Draught of Lightning",
+  "scrollItemId": 1119,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3330,
+  "name": "Draught of Ro",
+  "scrollItemId": 28441,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3334,
+  "name": "Draught of Thunder",
+  "scrollItemId": 28445,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3369,
+  "name": "Dreams of Terris",
+  "scrollItemId": 28479,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3030,
+  "name": "Dreams of Thule",
+  "scrollItemId": 21636,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 665,
+  "name": "Drifting Death",
+  "scrollItemId": 15665,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3364,
+  "name": "Druzzil's Disillusionment",
+  "scrollItemId": 28474,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3442,
+  "name": "E'ci's Frosty Breath",
+  "scrollItemId": 28532,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3192,
+  "name": "Earthen Roots",
+  "scrollItemId": 26943,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 63
+   },
+   {
+    "classId": 5,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3329,
+  "name": "Elemental Barrier",
+  "scrollItemId": 28440,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 62
+   },
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3483,
+  "name": "Elemental Silence",
+  "scrollItemId": 16341,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3309,
+  "name": "Embracing Darkness",
+  "scrollItemId": 28421,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3382,
+  "name": "Endurance of the Boar",
+  "scrollItemId": 28492,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 1529,
+  "name": "Exile Summoned",
+  "scrollItemId": 19245,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3296,
+  "name": "Faith",
+  "scrollItemId": 28646,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3399,
+  "name": "Ferine Avatar",
+  "scrollItemId": 26919,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3463,
+  "name": "Ferocity",
+  "scrollItemId": 28554,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3400,
+  "name": "Festering Darkness",
+  "scrollItemId": 26920,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3318,
+  "name": "Firebolt of Tallon",
+  "scrollItemId": 28429,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3042,
+  "name": "Fist of Ixiblat",
+  "scrollItemId": 21643,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3198,
+  "name": "Flameshield of Ro",
+  "scrollItemId": 32411,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3185,
+  "name": "Flight of Eagles",
+  "scrollItemId": 21656,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3235,
+  "name": "Focus of Soul",
+  "scrollItemId": 21661,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3397,
+  "name": "Focus of the Seventh",
+  "scrollItemId": 26917,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3245,
+  "name": "Force of Akilae",
+  "scrollItemId": 21652,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3301,
+  "name": "Force Shield",
+  "scrollItemId": 28414,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 63
+   },
+   {
+    "classId": 11,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3493,
+  "name": "Frost Spear",
+  "scrollItemId": 21630,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3418,
+  "name": "Frozen Wind",
+  "scrollItemId": 26931,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3044,
+  "name": "Girdle of Magi'Kot",
+  "scrollItemId": 21645,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3244,
+  "name": "Greater Decession",
+  "scrollItemId": 21663,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3194,
+  "name": "Greater Fetter",
+  "scrollItemId": 26944,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 61
+   },
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3195,
+  "name": "Greater Immobilize",
+  "scrollItemId": 26945,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 62
+   },
+   {
+    "classId": 2,
+    "level": 61
+   },
+   {
+    "classId": 9,
+    "level": 62
+   },
+   {
+    "classId": 10,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3242,
+  "name": "Guard of Druzzil",
+  "scrollItemId": 21667,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3478,
+  "name": "Hammer of Damnation",
+  "scrollItemId": 28569,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3435,
+  "name": "Hand of Ro",
+  "scrollItemId": 28525,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3479,
+  "name": "Hand of Virtue",
+  "scrollItemId": 28570,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3375,
+  "name": "Harmony of Sound",
+  "scrollItemId": 28485,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3455,
+  "name": "Healing of Sorsha",
+  "scrollItemId": 28545,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 1538,
+  "name": "Heroic Bond",
+  "scrollItemId": 19224,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 1533,
+  "name": "Heroism",
+  "scrollItemId": 19204,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3342,
+  "name": "Howl of Tashan",
+  "scrollItemId": 28452,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3337,
+  "name": "Iceflame of E`ci",
+  "scrollItemId": 28448,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 6,
+  "name": "Ignite Blood",
+  "scrollItemId": 15006,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3063,
+  "name": "Illusion: Froglok",
+  "scrollItemId": 21648,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3353,
+  "name": "Imbue Air",
+  "scrollItemId": 28463,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 64
+   },
+   {
+    "classId": 13,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3591,
+  "name": "Imbue Disease",
+  "scrollItemId": 21691,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   },
+   {
+    "classId": 10,
+    "level": 63
+   },
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3352,
+  "name": "Imbue Earth",
+  "scrollItemId": 28462,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   },
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3356,
+  "name": "Imbue Fire",
+  "scrollItemId": 28466,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 65
+   },
+   {
+    "classId": 13,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3595,
+  "name": "Imbue Justice",
+  "scrollItemId": 21695,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   },
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3344,
+  "name": "Imbue Nightmare",
+  "scrollItemId": 28454,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 62
+   },
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3346,
+  "name": "Imbue Storm",
+  "scrollItemId": 28456,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 62
+   },
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3594,
+  "name": "Imbue Torment",
+  "scrollItemId": 21694,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 63
+   },
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3592,
+  "name": "Imbue Valor",
+  "scrollItemId": 21692,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 64
+   },
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3593,
+  "name": "Imbue War",
+  "scrollItemId": 21693,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 64
+   },
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3357,
+  "name": "Imbue Water",
+  "scrollItemId": 28467,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 65
+   },
+   {
+    "classId": 13,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3437,
+  "name": "Immolation of Ro",
+  "scrollItemId": 28527,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 1411,
+  "name": "Improved Invis to Undead",
+  "scrollItemId": 30411,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 63
+   },
+   {
+    "classId": 4,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3454,
+  "name": "Infusion of Spirit",
+  "scrollItemId": 28544,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3349,
+  "name": "Insanity",
+  "scrollItemId": 28459,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 443,
+  "name": "Invoke Death",
+  "scrollItemId": 15443,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3438,
+  "name": "Karana's Rage",
+  "scrollItemId": 28528,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3232,
+  "name": "Karana's Renewal",
+  "scrollItemId": 21657,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3047,
+  "name": "Kazad`s Mark",
+  "scrollItemId": 21647,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3295,
+  "name": "Legacy of Bracken",
+  "scrollItemId": 28645,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3304,
+  "name": "Legacy of Zek",
+  "scrollItemId": 28417,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3430,
+  "name": "Light of Nife",
+  "scrollItemId": 26939,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3376,
+  "name": "Lullaby of Morell",
+  "scrollItemId": 28486,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3331,
+  "name": "Lure of Ro",
+  "scrollItemId": 28442,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3328,
+  "name": "Lure of Thunder",
+  "scrollItemId": 28439,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3486,
+  "name": "Maelstrom of Ro",
+  "scrollItemId": 29363,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3323,
+  "name": "Maelstrom of Thunder",
+  "scrollItemId": 28434,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3386,
+  "name": "Malicious Decay",
+  "scrollItemId": 28496,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3395,
+  "name": "Malos",
+  "scrollItemId": 26915,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3387,
+  "name": "Malosinia",
+  "scrollItemId": 28497,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   },
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3469,
+  "name": "Mark of Kings",
+  "scrollItemId": 28560,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3477,
+  "name": "Mark of the Righteous",
+  "scrollItemId": 28568,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3453,
+  "name": "Mask of the Forest",
+  "scrollItemId": 28543,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 2887,
+  "name": "Mask of the Stalker",
+  "scrollItemId": 19529,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3365,
+  "name": "Melody of Mischief",
+  "scrollItemId": 28475,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3443,
+  "name": "Nature's Infusion",
+  "scrollItemId": 28533,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3439,
+  "name": "Nature's Might",
+  "scrollItemId": 28529,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3415,
+  "name": "Nature's Rebuke",
+  "scrollItemId": 26929,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 1559,
+  "name": "Natureskin",
+  "scrollItemId": 19251,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3035,
+  "name": "Neurotoxin",
+  "scrollItemId": 21640,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3241,
+  "name": "Night`s Dark Terror",
+  "scrollItemId": 21666,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3197,
+  "name": "Pacification",
+  "scrollItemId": 26947,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 65
+   },
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3488,
+  "name": "Pact of Hate",
+  "scrollItemId": 21632,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3196,
+  "name": "Petrifying Earth",
+  "scrollItemId": 26946,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 64
+   },
+   {
+    "classId": 9,
+    "level": 64
+   },
+   {
+    "classId": 10,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3424,
+  "name": "Pious Might",
+  "scrollItemId": 26934,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 32,
+  "name": "Plague",
+  "scrollItemId": 15032,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3239,
+  "name": "Planar Renewal",
+  "scrollItemId": 21668,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3444,
+  "name": "Protection of Seasons",
+  "scrollItemId": 28534,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3234,
+  "name": "Protection of the Nine",
+  "scrollItemId": 21658,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3039,
+  "name": "Protection of the Wild",
+  "scrollItemId": 21655,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3368,
+  "name": "Psalm of Veeshan",
+  "scrollItemId": 28478,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3426,
+  "name": "Quellious' Word of Serenity",
+  "scrollItemId": 26935,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3398,
+  "name": "Quiescence",
+  "scrollItemId": 26918,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3324,
+  "name": "Rathe's Son",
+  "scrollItemId": 28435,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 1568,
+  "name": "Regrowth",
+  "scrollItemId": 19243,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 64
+   },
+   {
+    "classId": 14,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3433,
+  "name": "Replenishment",
+  "scrollItemId": 28523,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 61
+   },
+   {
+    "classId": 9,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3066,
+  "name": "Requiem of Time",
+  "scrollItemId": 21650,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 62,
+  "name": "Resist Poison",
+  "scrollItemId": 15062,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3326,
+  "name": "Resistant Armor",
+  "scrollItemId": 28437,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3362,
+  "name": "Rizlona's Call of Flame",
+  "scrollItemId": 28472,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3440,
+  "name": "Ro's Illumination",
+  "scrollItemId": 28530,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3305,
+  "name": "Rune of Death",
+  "scrollItemId": 28418,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3343,
+  "name": "Rune of Zebuxoruk",
+  "scrollItemId": 28453,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3310,
+  "name": "Saryrn's Companion",
+  "scrollItemId": 28422,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3306,
+  "name": "Saryrn's Kiss",
+  "scrollItemId": 28419,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3366,
+  "name": "Saryrn's Scream of Pain",
+  "scrollItemId": 28476,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3447,
+  "name": "Savage Roots",
+  "scrollItemId": 28537,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3492,
+  "name": "Scorpion Venom",
+  "scrollItemId": 21629,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3311,
+  "name": "Seduction of Saryrn",
+  "scrollItemId": 28423,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3187,
+  "name": "Sermon of Penitence",
+  "scrollItemId": 21690,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3320,
+  "name": "Servant of Marr",
+  "scrollItemId": 28431,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3462,
+  "name": "Sha`s Revenge",
+  "scrollItemId": 28553,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3246,
+  "name": "Shackles of Tunare",
+  "scrollItemId": 21653,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3448,
+  "name": "Shield of Bracken",
+  "scrollItemId": 28538,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3302,
+  "name": "Shield of Maelin",
+  "scrollItemId": 28415,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 64
+   },
+   {
+    "classId": 11,
+    "level": 64
+   },
+   {
+    "classId": 12,
+    "level": 64
+   },
+   {
+    "classId": 13,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3300,
+  "name": "Shield of the Arcane",
+  "scrollItemId": 28413,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 61
+   },
+   {
+    "classId": 11,
+    "level": 61
+   },
+   {
+    "classId": 12,
+    "level": 61
+   },
+   {
+    "classId": 13,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 356,
+  "name": "Shield of Thorns",
+  "scrollItemId": 15356,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3191,
+  "name": "Shock of Magic",
+  "scrollItemId": 26942,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3227,
+  "name": "Shroud of Chaos",
+  "scrollItemId": 21651,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3361,
+  "name": "Silent Song of Quellious",
+  "scrollItemId": 28471,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3354,
+  "name": "Sleep",
+  "scrollItemId": 28464,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3482,
+  "name": "Sound of Might",
+  "scrollItemId": 28573,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3491,
+  "name": "Spear of Decay",
+  "scrollItemId": 21634,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3379,
+  "name": "Spear of Torment",
+  "scrollItemId": 28489,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3240,
+  "name": "Speed of Vallon",
+  "scrollItemId": 21665,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3457,
+  "name": "Spirit of Arag",
+  "scrollItemId": 28548,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 2517,
+  "name": "Spirit of Eagle",
+  "scrollItemId": 7617,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3459,
+  "name": "Spirit of Rellic",
+  "scrollItemId": 28550,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3461,
+  "name": "Spirit of Sorsha",
+  "scrollItemId": 28552,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3417,
+  "name": "Spirit of the Predator",
+  "scrollItemId": 26930,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3460,
+  "name": "Spiritual Dominion",
+  "scrollItemId": 28551,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3456,
+  "name": "Spiritual Vigor",
+  "scrollItemId": 28547,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3434,
+  "name": "Storm's Fury",
+  "scrollItemId": 28524,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3345,
+  "name": "Strangle",
+  "scrollItemId": 28455,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3388,
+  "name": "Strength of the Diaku",
+  "scrollItemId": 28498,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3487,
+  "name": "Strength of Tunare",
+  "scrollItemId": 21627,
+  "classes": [
+   {
+    "classId": 3,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3339,
+  "name": "Strike of Solusek",
+  "scrollItemId": 28450,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3449,
+  "name": "Summer's Flame",
+  "scrollItemId": 28539,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3209,
+  "name": "Summon Glowing Bauble",
+  "scrollItemId": 29361,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3210,
+  "name": "Summon Jewelry Bag",
+  "scrollItemId": 29362,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3205,
+  "name": "Summon Platinum Choker",
+  "scrollItemId": 29357,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3206,
+  "name": "Summon Runed Mantle",
+  "scrollItemId": 29358,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3207,
+  "name": "Summon Sapphire Bracelet",
+  "scrollItemId": 29359,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3208,
+  "name": "Summon Spiked Ring",
+  "scrollItemId": 29360,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3319,
+  "name": "Sun Storm",
+  "scrollItemId": 28430,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3325,
+  "name": "Sun Vortex",
+  "scrollItemId": 28436,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3485,
+  "name": "Supernal Cleansing",
+  "scrollItemId": 21649,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3475,
+  "name": "Supernal Elixir",
+  "scrollItemId": 28566,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3480,
+  "name": "Supernal Light",
+  "scrollItemId": 28571,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3465,
+  "name": "Supernal Remedy",
+  "scrollItemId": 28556,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3446,
+  "name": "Swarming Death",
+  "scrollItemId": 28536,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 172,
+  "name": "Swift like the Wind",
+  "scrollItemId": 15172,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3466,
+  "name": "Symbol of Kazad",
+  "scrollItemId": 28557,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 1535,
+  "name": "Symbol of Marzin",
+  "scrollItemId": 19211,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3391,
+  "name": "Talisman of Alacrity",
+  "scrollItemId": 26911,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 1570,
+  "name": "Talisman of Jasinth",
+  "scrollItemId": 19264,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 1585,
+  "name": "Talisman of Kragg",
+  "scrollItemId": 19276,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3045,
+  "name": "Talisman of Return",
+  "scrollItemId": 21646,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 1571,
+  "name": "Talisman of Shadoo",
+  "scrollItemId": 19267,
+  "classes": [
+   {
+    "classId": 14,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3389,
+  "name": "Talisman of the Boar",
+  "scrollItemId": 28499,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3392,
+  "name": "Talisman of the Diaku",
+  "scrollItemId": 26912,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3384,
+  "name": "Talisman of the Tribunal",
+  "scrollItemId": 28494,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3383,
+  "name": "Talisman of the Wrulan",
+  "scrollItemId": 28493,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3481,
+  "name": "Tarnation",
+  "scrollItemId": 28572,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3189,
+  "name": "Tears of Arlyxir",
+  "scrollItemId": 26940,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3332,
+  "name": "Tears of Marr",
+  "scrollItemId": 28443,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3327,
+  "name": "Tears of Ro",
+  "scrollItemId": 28438,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3385,
+  "name": "Tears of Saryrn",
+  "scrollItemId": 28495,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3333,
+  "name": "Telekin",
+  "scrollItemId": 28444,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3243,
+  "name": "Teleport",
+  "scrollItemId": 21662,
+  "classes": [
+   {
+    "classId": 11,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3405,
+  "name": "Terror of Thule",
+  "scrollItemId": 26923,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3464,
+  "name": "The Silent Command",
+  "scrollItemId": 28555,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3393,
+  "name": "Tiny Terror",
+  "scrollItemId": 26913,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3233,
+  "name": "Tnarg`s Mending",
+  "scrollItemId": 21660,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3348,
+  "name": "Torment of Scio",
+  "scrollItemId": 28458,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3312,
+  "name": "Touch of Death",
+  "scrollItemId": 28424,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3413,
+  "name": "Touch of Innoruuk",
+  "scrollItemId": 26928,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3032,
+  "name": "Touch of Mujaki",
+  "scrollItemId": 21638,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3429,
+  "name": "Touch of Nife",
+  "scrollItemId": 21631,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3401,
+  "name": "Touch of Volatis",
+  "scrollItemId": 26921,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3350,
+  "name": "Tranquility",
+  "scrollItemId": 28460,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3377,
+  "name": "True Spirit",
+  "scrollItemId": 28487,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3367,
+  "name": "Tuyen`s Chant of Fire",
+  "scrollItemId": 28477,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3373,
+  "name": "Tuyen`s Chant of Ice",
+  "scrollItemId": 28483,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3363,
+  "name": "Tuyen`s Chant of the Plague",
+  "scrollItemId": 28473,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3370,
+  "name": "Tuyen`s Chant of Venom",
+  "scrollItemId": 28480,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3351,
+  "name": "Uproar",
+  "scrollItemId": 28461,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 63
+   }
+  ]
+ },
+ {
+  "spellId": 3178,
+  "name": "Vallon's Quickening",
+  "scrollItemId": 21664,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3390,
+  "name": "Velium Strike",
+  "scrollItemId": 26910,
+  "classes": [
+   {
+    "classId": 9,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3467,
+  "name": "Virtue",
+  "scrollItemId": 28558,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3360,
+  "name": "Voice of Quellious",
+  "scrollItemId": 28470,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3410,
+  "name": "Voice of Thule",
+  "scrollItemId": 26926,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3470,
+  "name": "Ward of Gallantry",
+  "scrollItemId": 28561,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3422,
+  "name": "Ward of Nife",
+  "scrollItemId": 26933,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3317,
+  "name": "Ward of Xegony",
+  "scrollItemId": 28428,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3374,
+  "name": "Warsong of Zek",
+  "scrollItemId": 28484,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3427,
+  "name": "Wave of Marr",
+  "scrollItemId": 26936,
+  "classes": [
+   {
+    "classId": 2,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3651,
+  "name": "Wind of Marr",
+  "scrollItemId": 16391,
+  "classes": [
+   {
+    "classId": 7,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3452,
+  "name": "Winter's Frost",
+  "scrollItemId": 28542,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3436,
+  "name": "Winter's Storm",
+  "scrollItemId": 28526,
+  "classes": [
+   {
+    "classId": 5,
+    "level": 61
+   }
+  ]
+ },
+ {
+  "spellId": 3359,
+  "name": "Word of Morell",
+  "scrollItemId": 28469,
+  "classes": [
+   {
+    "classId": 13,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3471,
+  "name": "Word of Replenishment",
+  "scrollItemId": 28562,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 64
+   }
+  ]
+ },
+ {
+  "spellId": 3316,
+  "name": "Word of Terris",
+  "scrollItemId": 28427,
+  "classes": [
+   {
+    "classId": 10,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3031,
+  "name": "Xegony's Phantasmal Guard",
+  "scrollItemId": 21637,
+  "classes": [
+   {
+    "classId": 12,
+    "level": 62
+   }
+  ]
+ },
+ {
+  "spellId": 3186,
+  "name": "Yaulp VI",
+  "scrollItemId": 21689,
+  "classes": [
+   {
+    "classId": 1,
+    "level": 65
+   }
+  ]
+ },
+ {
+  "spellId": 3408,
+  "name": "Zevfeer's Bite",
+  "scrollItemId": 26925,
+  "classes": [
+   {
+    "classId": 4,
+    "level": 62
+   }
+  ]
+ }
+]
