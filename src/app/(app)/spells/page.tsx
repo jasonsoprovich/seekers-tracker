@@ -100,7 +100,7 @@ export default async function SpellsPage() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        title="Spells 61–65"
+        title="Spell Progression"
         subtitle="Who has which level 61–65 class spells — pick a class to see every character against its spell list."
       />
       {mine.length > 0 && (

@@ -75,7 +75,9 @@ test.describe("as admin", () => {
     await expect(cell).toBeDisabled();
 
     await page.getByRole("button", { name: "Edit mode" }).click();
+    let saved = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/spells"));
     await cell.click();
+    await saved;
     await expect(page.getByTitle(`${CHAR_NAME} — Pacification: has it`)).toBeVisible({ timeout: 300 });
     await page.waitForLoadState("networkidle");
     await page.screenshot({ path: "test-results/spells-grid.png", fullPage: true });
@@ -84,8 +86,9 @@ test.describe("as admin", () => {
     await page.getByRole("button", { name: "Mains + alts" }).click();
     await page.getByLabel("Recently active").selectOption("all");
     await page.getByRole("button", { name: "Edit mode" }).click();
+    saved = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/spells"));
     await page.getByTitle(`${CHAR_NAME} — Pacification: has it`).click();
-    await page.waitForLoadState("networkidle");
+    await saved;
     await page.reload();
     await page.getByRole("button", { name: "Mains + alts" }).click();
     await page.getByLabel("Recently active").selectOption("all");
@@ -124,7 +127,7 @@ test.describe("as member", () => {
 
   test("grid is read-only with no officer controls", async ({ page }) => {
     await page.goto("/spells");
-    await expect(page.getByRole("heading", { name: "Spells 61–65" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Spell Progression" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Edit mode" })).toHaveCount(0);
     await expect(page.getByTitle(/Hide this spell guild-wide/)).toHaveCount(0);
   });

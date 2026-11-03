@@ -1,6 +1,7 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { redirect } from "next/navigation";
 
 import { characterGear, characterPopFlags, characters, characterStats, importLog } from "@/db";
@@ -191,38 +192,55 @@ export async function importPopFlagsText(
 
 type PqFlagRef = { id: string; label: string; zoneShort: string };
 
+// One character's planned changes from a pq-companion export.
+export type PqCharacterPreview = {
+  characterId: number;
+  characterName: string;
+  toMarkDone: PqFlagRef[];
+  toUnmark: PqFlagRef[];
+  // Manual rows whose state differs from the export; only applied when the
+  // member opts in to overwriting their manual settings.
+  manualConflicts: (PqFlagRef & { exportDone: boolean })[];
+  unknown: number;
+  exportFlagCount: number;
+};
+
+export type PqCharacterResult = {
+  characterName: string;
+  markedDone: PqFlagRef[];
+  unmarked: PqFlagRef[];
+  overwroteManual: number;
+  keptManual: number;
+  unknown: number;
+};
+
+// An export entry that won't be imported, and why.
+export type PqSkipped = { name: string; reason: string };
+
 export type PqExportImportState = {
   error?: string;
   // Step 1 (preview): nothing written yet. `json` is echoed back so the apply
   // step submits exactly what was previewed.
-  preview?: {
-    json: string;
-    characterName: string;
-    toMarkDone: PqFlagRef[];
-    toUnmark: PqFlagRef[];
-    // Manual rows whose state differs from the export; only applied when the
-    // member opts in to overwriting their manual settings.
-    manualConflicts: (PqFlagRef & { exportDone: boolean })[];
-    unknown: number;
-  };
-  result?: {
-    characterName: string;
-    markedDone: PqFlagRef[];
-    unmarked: PqFlagRef[];
-    overwroteManual: number;
-    keptManual: number;
-    unknown: number;
-  };
+  preview?: { json: string; characters: PqCharacterPreview[]; skipped: PqSkipped[] };
+  result?: { characters: PqCharacterResult[]; skipped: PqSkipped[] };
 };
 
+// 5 bound params per upsert row (character_id, flag_id, done, source,
+// updated_at); 18 rows = 90, under D1's 100-param statement cap.
+const PQC_UPSERT_CHUNK = 18;
+// IN-list size cap (CLAUDE.md: keep IN lists ≤ 90).
+const PQC_IN_CHUNK = 90;
+
 // pq-companion's PoP Flagging export (see src/lib/pop-flags/pqc-export.ts).
-// The file covers every character on the exporting PC; only the entry whose
-// name matches THIS page's character is used — nothing else is read or
-// created. It's a full sync of pq-companion's resolved state (done=false also
-// applies), so it can un-check flags: the preview lists those and the apply
-// step refuses to run until the member confirms them. A manual row on the
-// site wins by default; where it differs from the export the preview offers
-// an explicit "overwrite my manual settings" opt-in.
+// The file covers every character on the exporting PC (its "All" tab), so
+// one import updates every entry that matches a roster character the
+// importer can manage — not just this page's character. Entries with no
+// roster match, or someone else's character, are listed as skipped; nothing
+// is ever created. It's a full sync of pq-companion's resolved state
+// (done=false also applies), so it can un-check flags: the preview lists
+// those and the apply step refuses to run until the member confirms them. A
+// manual row on the site wins by default; where it differs from the export
+// the preview offers an explicit "overwrite my manual settings" opt-in.
 export async function importPqCompanionExport(
   characterId: number,
   _prevState: PqExportImportState,
@@ -236,102 +254,148 @@ export async function importPqCompanionExport(
   if (!raw) return { error: "Choose or paste the exported JSON first." };
 
   const db = await getDb();
-  const [character] = await db.select().from(characters).where(eq(characters.id, characterId));
-  if (!character || !(await canManageCharacter(character, session.user.id))) {
+  const [pageCharacter] = await db.select().from(characters).where(eq(characters.id, characterId));
+  if (!pageCharacter || !(await canManageCharacter(pageCharacter, session.user.id))) {
     return { error: "You don't have permission to import for this character." };
   }
 
   const parsed = parsePqExport(raw);
   if ("error" in parsed) return { error: parsed.error };
 
-  const wanted = character.name.trim().toLowerCase();
-  const entry = parsed.data.characters.find((c) => c.name.toLowerCase() === wanted);
-  if (!entry) {
-    const names = parsed.data.characters.map((c) => c.name).join(", ");
-    return {
-      error: `"${character.name}" isn't in this export (it contains: ${names}). Open the Import page of the character you want to import.`,
+  // Resolve every export name to a roster character (names are unique,
+  // case-insensitive — see characters_name_unique).
+  const lowerNames = [...new Set(parsed.data.characters.map((c) => c.name.toLowerCase()))];
+  const rosterByName = new Map<string, typeof characters.$inferSelect>();
+  for (let i = 0; i < lowerNames.length; i += PQC_IN_CHUNK) {
+    const rows = await db
+      .select()
+      .from(characters)
+      .where(inArray(sql`lower(${characters.name})`, lowerNames.slice(i, i + PQC_IN_CHUNK)));
+    for (const r of rows) rosterByName.set(r.name.toLowerCase(), r);
+  }
+
+  const skipped: PqSkipped[] = [];
+  const targets: { character: typeof characters.$inferSelect; entry: (typeof parsed.data.characters)[number] }[] = [];
+  const seen = new Set<number>();
+  for (const entry of parsed.data.characters) {
+    const character = rosterByName.get(entry.name.toLowerCase());
+    if (!character) {
+      skipped.push({ name: entry.name, reason: "not on the roster" });
+      continue;
+    }
+    if (seen.has(character.id)) continue;
+    if (!(await canManageCharacter(character, session.user.id))) {
+      skipped.push({ name: character.name, reason: "not a character you can edit" });
+      continue;
+    }
+    seen.add(character.id);
+    targets.push({ character, entry });
+  }
+  if (targets.length === 0) {
+    return { error: `None of the characters in this export are ones you can import for (it contains: ${parsed.data.characters.map((c) => c.name).join(", ")}).` };
+  }
+  // This page's character first, then alphabetical.
+  targets.sort((a, b) => Number(b.character.id === characterId) - Number(a.character.id === characterId) || a.character.name.localeCompare(b.character.name));
+
+  const targetIds = targets.map((t) => t.character.id);
+  const existingRows: (typeof characterPopFlags.$inferSelect)[] = [];
+  for (let i = 0; i < targetIds.length; i += PQC_IN_CHUNK) {
+    existingRows.push(
+      ...(await db.select().from(characterPopFlags).where(inArray(characterPopFlags.characterId, targetIds.slice(i, i + PQC_IN_CHUNK)))),
+    );
+  }
+
+  const previews: PqCharacterPreview[] = targets.map(({ character, entry }) => {
+    const existingByFlag = new Map(existingRows.filter((r) => r.characterId === character.id).map((r) => [r.flagId, r]));
+    const preview: PqCharacterPreview = {
+      characterId: character.id,
+      characterName: character.name,
+      toMarkDone: [],
+      toUnmark: [],
+      manualConflicts: [],
+      unknown: 0,
+      exportFlagCount: entry.flags.length,
     };
-  }
-
-  const existingRows = await db
-    .select()
-    .from(characterPopFlags)
-    .where(eq(characterPopFlags.characterId, characterId));
-  const existingByFlag = new Map(existingRows.map((r) => [r.flagId, r]));
-
-  const manualConflicts: (PqFlagRef & { exportDone: boolean })[] = [];
-  let unknown = 0;
-  const toMarkDone: PqFlagRef[] = [];
-  const toUnmark: PqFlagRef[] = [];
-  for (const flag of entry.flags) {
-    const dataset = getFlagById(flag.flagId);
-    if (!dataset) {
-      unknown++;
-      continue;
+    for (const flag of entry.flags) {
+      const dataset = getFlagById(flag.flagId);
+      if (!dataset) {
+        preview.unknown++;
+        continue;
+      }
+      const existing = existingByFlag.get(flag.flagId);
+      const ref = { id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short };
+      if (existing?.source === "manual") {
+        if (existing.done !== flag.done) preview.manualConflicts.push({ ...ref, exportDone: flag.done });
+        continue;
+      }
+      if (flag.done && !existing?.done) preview.toMarkDone.push(ref);
+      else if (!flag.done && existing?.done) preview.toUnmark.push(ref);
     }
-    const existing = existingByFlag.get(flag.flagId);
-    const ref = { id: dataset.id, label: dataset.label, zoneShort: dataset.zone_short };
-    if (existing?.source === "manual") {
-      if (existing.done !== flag.done) manualConflicts.push({ ...ref, exportDone: flag.done });
-      continue;
-    }
-    if (flag.done && !existing?.done) toMarkDone.push(ref);
-    else if (!flag.done && existing?.done) toUnmark.push(ref);
-  }
+    return preview;
+  });
 
   if (intent !== "apply") {
-    return {
-      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, manualConflicts, unknown },
-    };
+    return { preview: { json: raw, characters: previews, skipped } };
   }
 
-  if (toUnmark.length > 0 && formData.get("confirmUnmark") !== "on") {
+  const totalUnmark = previews.reduce((n, p) => n + p.toUnmark.length, 0);
+  if (totalUnmark > 0 && formData.get("confirmUnmark") !== "on") {
     return {
-      error: `This import would un-check ${toUnmark.length} flag${toUnmark.length === 1 ? "" : "s"}. Preview again and tick the confirmation box to proceed.`,
-      preview: { json: raw, characterName: character.name, toMarkDone, toUnmark, manualConflicts, unknown },
+      error: `This import would un-check ${totalUnmark} flag${totalUnmark === 1 ? "" : "s"}. Preview again and tick the confirmation box to proceed.`,
+      preview: { json: raw, characters: previews, skipped },
     };
   }
 
   // Manual rows only change on explicit opt-in.
-  const overwrite = formData.get("overwriteManual") === "on" ? manualConflicts : [];
-  const keptManual = manualConflicts.length - overwrite.length;
-
+  const overwriteManual = formData.get("overwriteManual") === "on";
   const now = new Date();
-  for (const [ref, done] of [
-    ...toMarkDone.map((r) => [r, true] as const),
-    ...toUnmark.map((r) => [r, false] as const),
-    ...overwrite.map((r) => [r, r.exportDone] as const),
-  ]) {
-    await db
-      .insert(characterPopFlags)
-      .values({ characterId, flagId: ref.id, done, source: "import", updatedAt: now })
-      .onConflictDoUpdate({
-        target: [characterPopFlags.characterId, characterPopFlags.flagId],
-        set: { done, source: "import", updatedAt: now },
-      });
+  const upserts: { characterId: number; flagId: string; done: boolean }[] = [];
+  for (const p of previews) {
+    const overwrite = overwriteManual ? p.manualConflicts : [];
+    for (const r of p.toMarkDone) upserts.push({ characterId: p.characterId, flagId: r.id, done: true });
+    for (const r of p.toUnmark) upserts.push({ characterId: p.characterId, flagId: r.id, done: false });
+    for (const r of overwrite) upserts.push({ characterId: p.characterId, flagId: r.id, done: r.exportDone });
+  }
+  if (upserts.length > 0) {
+    const stmts: BatchItem<"sqlite">[] = [];
+    for (let i = 0; i < upserts.length; i += PQC_UPSERT_CHUNK) {
+      stmts.push(
+        db
+          .insert(characterPopFlags)
+          .values(upserts.slice(i, i + PQC_UPSERT_CHUNK).map((u) => ({ ...u, source: "import" as const, updatedAt: now })))
+          .onConflictDoUpdate({
+            target: [characterPopFlags.characterId, characterPopFlags.flagId],
+            set: { done: sql`excluded.done`, source: "import", updatedAt: now },
+          }),
+      );
+    }
+    await db.batch(stmts as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   }
 
-  const summary = `${entry.flags.length} flags in export, ${toMarkDone.length} marked done, ${toUnmark.length} un-checked, ${overwrite.length} manual overwritten, ${keptManual} kept manual, ${unknown} unknown`;
+  // One archived copy of the file; each character gets its own import_log
+  // row and System Log entry pointing at it.
   const r2Key = await archiveImportPayload("pqc_export", characterId, raw);
-  await db.insert(importLog).values({
-    characterId,
-    uploadedBy: session.user.id,
-    kind: "pqc_export",
-    r2Key,
-    summary,
-  });
-  await recordPopFlagEvent(db, session.user.id, character, "flags.import", `pq-companion import — ${summary}`, { kind: "pqc_export" });
-
-  return {
-    result: {
-      characterName: character.name,
-      markedDone: [...toMarkDone, ...overwrite.filter((r) => r.exportDone)],
-      unmarked: [...toUnmark, ...overwrite.filter((r) => !r.exportDone)],
+  const results: PqCharacterResult[] = [];
+  for (const [i, p] of previews.entries()) {
+    const overwrite = overwriteManual ? p.manualConflicts : [];
+    const keptManual = p.manualConflicts.length - overwrite.length;
+    const summary = `${p.exportFlagCount} flags in export, ${p.toMarkDone.length} marked done, ${p.toUnmark.length} un-checked, ${overwrite.length} manual overwritten, ${keptManual} kept manual, ${p.unknown} unknown`;
+    await db.insert(importLog).values({ characterId: p.characterId, uploadedBy: session.user.id, kind: "pqc_export", r2Key, summary });
+    await recordPopFlagEvent(db, session.user.id, targets[i]!.character, "flags.import", `pq-companion import — ${summary}`, {
+      kind: "pqc_export",
+      charactersInImport: previews.length,
+    });
+    results.push({
+      characterName: p.characterName,
+      markedDone: [...p.toMarkDone, ...overwrite.filter((r) => r.exportDone)],
+      unmarked: [...p.toUnmark, ...overwrite.filter((r) => !r.exportDone)],
       overwroteManual: overwrite.length,
       keptManual,
-      unknown,
-    },
-  };
+      unknown: p.unknown,
+    });
+  }
+
+  return { result: { characters: results, skipped } };
 }
 
 export type GearImportState = {

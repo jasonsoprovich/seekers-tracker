@@ -51,7 +51,7 @@ export async function AppShell({
     { href: "/guild-info", label: "Guild Rules/Policies" },
     { href: "/bank", label: "Bank" },
     { href: "/progression", label: "PoP Progression" },
-    { href: "/spells", label: "Spells 61–65" },
+    { href: "/spells", label: "Spell Progression" },
     { href: "/live-bids", label: "Live Bids" },
     { href: "/dashboard", label: "Dashboard" },
     { href: "/admin", label: "Admin", badge: pendingClaimCount || undefined, alert: decayAlert, capability: "admin.view" },

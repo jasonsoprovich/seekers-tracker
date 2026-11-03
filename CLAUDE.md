@@ -354,6 +354,14 @@ LOCAL ONLY; not deployed).** Members track which class spells each character has
   columns via the eye icon. System Log category `spells`.
 - Verified: `npm run verify:spellbook` 16/16, tsc, webpack build, e2e `spells.spec.ts`
   12/12 + related specs (91/91 total), screenshots at 1440/390.
+- Nav/title renamed "Spell Progression" (2026-11-03, user).
+- Same branch: **pq-companion import is multi-character.** An export from pq-companion's All
+  tab lists every character on the PC; `importPqCompanionExport` now resolves every entry by
+  name (case-insensitive) and updates each roster character the importer can manage in one
+  preview/apply, listing the rest as skipped (not on roster / not yours). One un-check
+  confirm and one overwrite-manual opt-in cover the whole import; upserts are batched (18
+  rows/stmt); one R2 archive copy, one `import_log` + System Log row per character. e2e
+  `pqc-multi-import.spec.ts`.
 - Rollout: `migrations apply --remote` → deploy. No parser/bot change.
 
 **Duplicate-name item ids, 2026-10-31 (branch `fix/duplicate-item-id-tiebreak` in both
