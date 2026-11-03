@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { setCharacterSpell } from "@/app/(app)/characters/[id]/spells/actions";
@@ -70,6 +70,13 @@ export function SpellChecklist({
   const [, startRefresh] = useTransition();
   const [local, setLocal] = useState<Record<number, string>>(owned);
   const [error, setError] = useState<string | null>(null);
+  // Same rule as PopFlagChecklist: a server refresh (after a save or an
+  // import) replaces the local copy, but not while a save is in flight, or
+  // an earlier click's refresh would undo a later one.
+  const pendingSaves = useRef(0);
+  useEffect(() => {
+    if (pendingSaves.current === 0) setLocal(owned);
+  }, [owned]);
   const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds]);
 
   const visible = spells.filter((s) => !hidden.has(s.spellId));
@@ -86,9 +93,11 @@ export function SpellChecklist({
       else delete next[spell.spellId];
       return next;
     });
+    pendingSaves.current += 1;
     const result = await setCharacterSpell(characterId, spell.spellId, has).catch(() => ({
       error: "Couldn't save — check your connection and try again.",
     }));
+    pendingSaves.current -= 1;
     if (result.error) {
       setLocal((prev) => {
         const next = { ...prev };

@@ -74,8 +74,6 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
 
       <div className="mt-6">
         <SpellChecklist
-          // Remount after an import so the optimistic state picks up new rows.
-          key={ownedRows.length}
           characterId={character.id}
           spells={spells}
           owned={owned}

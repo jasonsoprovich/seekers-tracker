@@ -22,5 +22,6 @@ export const config = {
     "/profile/:path*",
     "/progression/:path*",
     "/roster/:path*",
+    "/spells/:path*",
   ],
 };
