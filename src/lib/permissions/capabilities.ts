@@ -83,6 +83,12 @@ export const CAPABILITIES = {
     description: "Approve or deny a member's request to claim an unclaimed roster character.",
     defaults: ["officer", "leader"],
   },
+  "spells.manage": {
+    group: "Roster & Characters",
+    label: "Hide or show 61-65 spells guild-wide",
+    description: "Hide spells that don't matter from /spells and every character's Spells tab, so they stop counting as missing.",
+    defaults: ["officer", "leader"],
+  },
   "members.assignCharacter": {
     group: "Roster & Characters",
     label: "Assign a character in the account setup queue",

@@ -262,6 +262,39 @@ export const characterKeyFlags = sqliteTable(
   (table) => [primaryKey({ columns: [table.characterId, table.flagKey] })],
 );
 
+// Which of the fixed level 61-65 spells (src/data/spells-61-65.json, joined
+// by spellId) a character has scribed. A row means "has it"; un-checking
+// deletes the row. `source` is how it was last set — a hand check or a Zeal
+// spellbook import (which only ever adds). `updatedBy` shows when an officer
+// checked one off for a member.
+export const characterSpells = sqliteTable(
+  "character_spells",
+  {
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id),
+    spellId: integer("spell_id").notNull(),
+    source: text("source", { enum: ["manual", "zeal"] }).notNull(),
+    updatedBy: text("updated_by").references(() => users.id),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [primaryKey({ columns: [table.characterId, table.spellId] })],
+);
+
+// Guild-wide officer settings per spell. Sparse: no row means visible.
+// Hiding only drops a spell from the views and the done/missing counts —
+// nobody's character_spells rows are touched, so unhiding restores them.
+export const spellSettings = sqliteTable("spell_settings", {
+  spellId: integer("spell_id").primaryKey(),
+  hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
+  updatedBy: text("updated_by").references(() => users.id),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const characterGear = sqliteTable(
   "character_gear",
   {

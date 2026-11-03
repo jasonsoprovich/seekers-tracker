@@ -442,6 +442,13 @@
       "when": 1793475870035,
       "tag": "0062_loot_event_item_id",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "6",
+      "when": 1793743505672,
+      "tag": "0063_spells_61_65",
+      "breakpoints": true
     }
   ]
 }

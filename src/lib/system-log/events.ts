@@ -17,6 +17,7 @@ export const SYSTEM_EVENT_CATEGORIES = [
   "bank",
   "claims",
   "flags",
+  "spells",
   "system",
 ] as const;
 
@@ -59,6 +60,11 @@ export const SYSTEM_EVENTS = {
   // detail of an import already lives in import_log + its R2 archive).
   "flags.toggle": { category: "flags", label: "PoP flag checked/unchecked" },
   "flags.import": { category: "flags", label: "PoP flags imported" },
+
+  // --- Spells (61-65) --------------------------------------------------
+  "spells.toggle": { category: "spells", label: "Spell checked/unchecked" },
+  "spells.import": { category: "spells", label: "Spellbook imported" },
+  "spells.hide": { category: "spells", label: "Spell hidden/shown guild-wide" },
 
   // --- Permissions --------------------------------------------------------
   "permissions.save": { category: "permissions", label: "Permission matrix saved" },

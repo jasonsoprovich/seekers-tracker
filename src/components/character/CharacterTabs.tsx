@@ -11,6 +11,7 @@ const TABS = [
   { key: "account", label: "Account", path: "/account" },
   { key: "edit", label: "Edit", path: "/edit" },
   { key: "pop", label: "PoP Checklist", path: "/pop" },
+  { key: "spells", label: "Spells", path: "/spells" },
 ] as const;
 
 export type CharacterTabKey = (typeof TABS)[number]["key"] | "gear" | "stats";
