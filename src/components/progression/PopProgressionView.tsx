@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { fieldClasses } from "@/components/ui/Field";
@@ -174,9 +174,12 @@ export function PopProgressionView({
 
   // Render a page at a time — 790 rows of the zone grid was the slow part on
   // navigation (leader).
-  useEffect(() => {
+  const limitResetKey = JSON.stringify([search, classFilter, typeFilter, statusFilter, activityFilter, sortKey, sortDir]);
+  const [limitKey, setLimitKey] = useState(limitResetKey);
+  if (limitKey !== limitResetKey) {
+    setLimitKey(limitResetKey);
     setLimit(PAGE_SIZE);
-  }, [search, classFilter, typeFilter, statusFilter, activityFilter, sortKey, sortDir]);
+  }
   const visible = useMemo(() => sorted.slice(0, limit), [sorted, limit]);
   const hasMore = sorted.length > visible.length;
 

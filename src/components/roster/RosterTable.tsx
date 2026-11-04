@@ -113,6 +113,8 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [activeFilter, setActiveFilter] = useState<string>(DEFAULT_ACTIVE_WINDOW);
+  // Read the clock once per mount, not during render.
+  const [nowMs] = useState(() => Date.now());
   const [minLevel, setMinLevel] = useState("");
   const [maxLevel, setMaxLevel] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -142,7 +144,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
     const min = minLevel === "" ? null : Number(minLevel);
     const max = maxLevel === "" ? null : Number(maxLevel);
     const activeMs = ACTIVE_WINDOWS.find((w) => w.key === activeFilter)?.ms ?? null;
-    const activeCutoff = activeMs === null ? null : Date.now() - activeMs;
+    const activeCutoff = activeMs === null ? null : nowMs - activeMs;
     return {
       matchesFilters: (r: RosterRow) => {
         if (classFilters.size > 0 && !classFilters.has(r.classId)) return false;
@@ -163,7 +165,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
       matchesActive: (r: RosterRow) =>
         activeCutoff === null || (r.lastActivityAt !== null && r.lastActivityAt >= activeCutoff),
     };
-  }, [q, classFilters, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel]);
+  }, [q, classFilters, raceFilter, typeFilter, statusFilter, activeFilter, minLevel, maxLevel, nowMs]);
 
   // The full per-row predicate — used only on the NO-search path (and for
   // the auto-expand check). While searching, the active window is dropped

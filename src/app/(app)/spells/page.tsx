@@ -97,6 +97,9 @@ export default async function SpellsPage() {
     .filter((c) => c.ownerId === session.user.id && c.status !== "removed" && c.charType !== "mule" && SPELL_CLASS_IDS.includes(c.classId))
     .sort((a, b) => Number(b.id === myPlayer?.mainCharacterId) - Number(a.id === myPlayer?.mainCharacterId) || a.name.localeCompare(b.name));
 
+  // Server component: one clock read per request is the intent.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
@@ -123,7 +126,7 @@ export default async function SpellsPage() {
         defaultClassId={mainClass}
         canEdit={perms.can("characters.manageAny")}
         canHide={perms.can("spells.manage")}
-        nowMs={Date.now()}
+        nowMs={nowMs}
       />
     </div>
   );

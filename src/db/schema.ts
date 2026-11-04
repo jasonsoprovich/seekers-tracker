@@ -7,7 +7,6 @@ import {
   primaryKey,
   index,
   uniqueIndex,
-  check,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 

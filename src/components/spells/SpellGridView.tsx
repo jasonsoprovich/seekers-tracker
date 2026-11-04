@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { setCharacterSpell } from "@/app/(app)/characters/[id]/spells/actions";
 import { setSpellHidden } from "@/app/(app)/spells/actions";
@@ -105,6 +105,7 @@ export function SpellGridView({
   // A class picked earlier in this browser wins over the viewer's main's.
   useEffect(() => {
     const saved = Number(readStorage(CLASS_STORAGE_KEY));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser storage is only readable after mount
     if (readStorage(CLASS_STORAGE_KEY) !== null && SPELL_CLASS_IDS.includes(saved)) setClassId(saved);
     if (readStorage(ORDER_STORAGE_KEY) === "name") setOrder("name");
   }, []);
@@ -122,10 +123,13 @@ export function SpellGridView({
 
   const ownedSets = useMemo(() => new Map(rows.map((r) => [r.id, new Set(r.owned)])), [rows]);
 
-  function has(charId: number, spellId: number): boolean {
-    const o = overrides.get(`${charId}:${spellId}`);
-    return o ?? ownedSets.get(charId)?.has(spellId) ?? false;
-  }
+  const has = useCallback(
+    (charId: number, spellId: number): boolean => {
+      const o = overrides.get(`${charId}:${spellId}`);
+      return o ?? ownedSets.get(charId)?.has(spellId) ?? false;
+    },
+    [overrides, ownedSets],
+  );
 
   // Rows that pass every filter except class — the class pills summarize these.
   const baseRows = useMemo(() => {
@@ -158,7 +162,7 @@ export function SpellGridView({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [baseRows, classId, countedSpells, sortKey, sortDir, overrides]);
+  }, [baseRows, classId, countedSpells, sortKey, sortDir, has]);
 
   const classSummary = useMemo(
     () =>
@@ -170,7 +174,7 @@ export function SpellGridView({
         for (const r of members) for (const s of spells) if (has(r.id, s.spellId)) done++;
         return { id, members: members.length, pct: total === 0 ? null : Math.round((done / total) * 100) };
       }),
-    [baseRows, hidden, overrides],
+    [baseRows, hidden, has],
   );
 
   function toggleSort(key: SortKey) {

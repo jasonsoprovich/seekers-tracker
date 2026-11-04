@@ -141,10 +141,12 @@ export class BackupWorkflow extends WorkflowEntrypoint<Env> {
   }
 }
 
-export default {
+const worker = {
   async fetch(): Promise<Response> {
     return new Response("seekers-tracker-db-backup — daily D1 -> R2 export. Not a public app.", {
       status: 200,
     });
   },
 };
+
+export default worker;

@@ -64,6 +64,7 @@ export function GeocitiesTheme() {
   useLayoutEffect(() => {
     const initial = readStored();
     setActive(initial);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser storage is only readable after mount
     if (initial) setVisitors(bumpVisitors());
   }, []);
 

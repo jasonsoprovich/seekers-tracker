@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { drizzle } from "drizzle-orm/d1";
 

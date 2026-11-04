@@ -172,7 +172,6 @@ async function main() {
 
   out.push("-- character_key_flags (EmpVT + ST, PLAN.md §11 Phase 11)");
   for (const r of merged.values()) {
-    const charIdExpr = `(SELECT id FROM characters WHERE name = ${sqlStr(r.name)} COLLATE NOCASE)`;
     out.push(
       `INSERT INTO character_key_flags (character_id, category, flag_key, label, done, logged_by, note, source, updated_at)\n` +
         `SELECT id, ${sqlStr(r.flagKey.startsWith("st_") ? "st" : "empvt")}, ${sqlStr(r.flagKey)}, ${sqlStr(r.label)}, ${sqlBool(r.done)}, ${sqlStr(r.loggedBy)}, ${sqlStr(r.note)}, 'import', unixepoch()\n` +

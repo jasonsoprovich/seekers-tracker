@@ -21,8 +21,10 @@ export function useTableSort<T, K extends string>(
   // Accessors are defined inline by callers and so are a fresh object every
   // render; keep them in a ref so the memo below only re-runs on rows/sort.
   const accRef = useRef(accessors);
+  // eslint-disable-next-line react-hooks/refs -- "latest ref": accessors are pure, so reading the newest one is safe
   accRef.current = accessors;
 
+  /* eslint-disable react-hooks/refs -- see accRef above */
   const sorted = useMemo(() => {
     if (!sort) return rows;
     const get = accRef.current[sort.key];
@@ -37,6 +39,7 @@ export function useTableSort<T, K extends string>(
       return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }) * factor;
     });
   }, [rows, sort]);
+  /* eslint-enable react-hooks/refs */
 
   function toggle(key: K) {
     setSort((prev) => (prev?.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
@@ -65,13 +68,12 @@ export function SortableTh<K extends string>({
 }) {
   const active = sort?.key === sortKey;
   return (
-    <th className={className}>
+    <th className={className} aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
         title={title}
         className="inline-flex items-center gap-1 font-medium transition-colors hover:text-neutral-200"
-        aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"}
       >
         {label}
         <span className="text-[10px] opacity-50">{active ? (sort!.dir === "asc" ? "▲" : "▼") : "↕"}</span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import { fieldClasses } from "@/components/ui/Field";
 
@@ -49,10 +49,13 @@ export function LedgerSearchBox({
 
   // The URL's own q (and which tab we're on) can change from outside this
   // component — clicking a different tab, or a stale timer from a prior
-  // keystroke landing after navigation. Keep the input in sync with it.
-  useEffect(() => {
+  // keystroke landing after navigation. Keep the input in sync with it
+  // (adjusted during render, React's pattern for resetting on a prop change).
+  const [syncedQuery, setSyncedQuery] = useState(initialQuery);
+  if (syncedQuery !== initialQuery) {
+    setSyncedQuery(initialQuery);
     setValue(initialQuery);
-  }, [initialQuery]);
+  }
 
   // Keeps every other current param (tab/type) untouched, sets/clears q,
   // and resets page to 1 — the same contract the old server-built

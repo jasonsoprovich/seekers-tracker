@@ -5,7 +5,7 @@ import { cache } from "react";
 import { users } from "@/db";
 
 import { getDb } from "./db";
-import { isViewAsRole, VIEW_AS_COOKIE, VIEW_AS_ROLES } from "./view-as";
+import { isViewAsRole, VIEW_AS_COOKIE } from "./view-as";
 
 export { VIEW_AS_COOKIE, VIEW_AS_ROLES } from "./view-as";
 

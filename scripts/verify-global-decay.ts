@@ -140,7 +140,6 @@ async function main() {
     let expectedEp = new Map(await rawBalances(db, epLedger, trackedPlayerIds));
     let expectedGp = new Map(await rawBalances(db, gpLedger, trackedPlayerIds));
     const startingEp = new Map(expectedEp);
-    const startingGp = new Map(expectedGp);
 
     // Cycle-decay already on file before this test writes any (e.g. the
     // legacy_cycle cutover bake) — computeEpgpTotals' epDecay reports the

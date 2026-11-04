@@ -307,6 +307,7 @@ export function LiveBidsView({ canForceClear = false }: { canForceClear?: boolea
   //    or leaves the board.
   useEffect(() => {
     const onBoard = new Map(rounds.map((r) => [r.itemName, r.status] as const));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- prunes against each server frame; returns prev when nothing changed
     setPendingDismiss((prev) => {
       if (prev.size === 0) return prev;
       const next = new Set([...prev].filter((n) => onBoard.get(n) === "resolved"));
@@ -390,7 +391,7 @@ export function LiveBidsView({ canForceClear = false }: { canForceClear?: boolea
 
       {visibleRounds.length === 0 ? (
         <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-neutral-500">
-          "No live bid rounds right now — this fills in the moment an officer starts collecting tells."
+          &quot;No live bid rounds right now — this fills in the moment an officer starts collecting tells.&quot;
         </div>
       ) : (
         <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">

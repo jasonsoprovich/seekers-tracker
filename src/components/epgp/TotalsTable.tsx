@@ -32,17 +32,19 @@ export function TotalsTable({ rows, searching = false }: { rows: TotalsRow[]; se
   // check one. Off by default; "inactive" players still show either way —
   // only "departed" is filtered by this toggle.
   const [showDeparted, setShowDeparted] = useState(false);
+  // Read the clock once per mount, not during render.
+  const [nowMs] = useState(() => Date.now());
 
   const filtered = useMemo(() => {
     const ms = ACTIVE_WINDOWS.find((w) => w.key === activeFilter)?.ms ?? null;
     let result = rows;
     if (ms !== null) {
-      const cutoff = Date.now() - ms;
+      const cutoff = nowMs - ms;
       result = result.filter((r) => r.lastActivityAt !== null && new Date(r.lastActivityAt).getTime() >= cutoff);
     }
     if (!showDeparted) result = result.filter((r) => r.playerStatus !== "departed");
     return result;
-  }, [rows, activeFilter, showDeparted]);
+  }, [rows, activeFilter, showDeparted, nowMs]);
 
   type Col = "main" | "lastActivity" | "ep" | "epDecay" | "gp" | "gpDecay" | "priority";
   const { sorted, sort, toggle } = useTableSort<TotalsRow, Col>(filtered, {

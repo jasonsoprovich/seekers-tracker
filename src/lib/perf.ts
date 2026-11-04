@@ -8,7 +8,6 @@
 // it back.
 
 declare global {
-  // eslint-disable-next-line no-var
   var __PERF_DEBUG__: boolean | undefined;
 }
 

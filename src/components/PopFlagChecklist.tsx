@@ -113,6 +113,7 @@ export function PopFlagChecklist({
   // Remembered per browser; read after mount so SSR markup stays stable.
   useEffect(() => {
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- browser storage is only readable after mount
       if (localStorage.getItem("pop_flag_view") === "flow") setView("flow");
     } catch {}
   }, []);

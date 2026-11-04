@@ -25,7 +25,7 @@ export function ClaimThisCharacterButton({ characterId, alreadyPending }: { char
   }
 
   if (submitted) {
-    return <p className="text-sm text-neutral-400">You've claimed this character — pending officer review.</p>;
+    return <p className="text-sm text-neutral-400">You&apos;ve claimed this character — pending officer review.</p>;
   }
 
   return (

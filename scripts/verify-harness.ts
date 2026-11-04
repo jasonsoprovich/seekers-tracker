@@ -16,7 +16,6 @@
 // Exits non-zero if any fixture fails or is missing, so it's usable as a CI
 // gate later. Never point this at remote D1 (PLAN.md §5) — it's read-only,
 // but "local" is what makes running it freely, on every phase, free.
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 

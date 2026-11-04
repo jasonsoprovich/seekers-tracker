@@ -21,7 +21,7 @@ export default async function ProfilePage() {
       <section className="mt-4 rounded-lg border border-border p-4">
         <h2 className="text-base font-semibold">Display timezone</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          Only changes how dates/times are shown to you — the guild's own schedule (raid nights, cycle dates) always
+          Only changes how dates/times are shown to you — the guild&apos;s own schedule (raid nights, cycle dates) always
           runs on Eastern time regardless of this setting.
         </p>
         <div className="mt-3">

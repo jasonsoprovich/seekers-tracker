@@ -23,7 +23,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy } from "wrangler";
 
 import * as schema from "../src/db";
-import { bankAuditLog, bankHoldings, bankImports, characters, users } from "../src/db";
+import { bankAuditLog, bankHoldings, characters, users } from "../src/db";
 import { createManualHolding, deleteManualHolding, updateHolding } from "../src/lib/bank/holdings";
 import {
   applySync,
@@ -241,7 +241,7 @@ async function main() {
       { holderCharacterId: muleId, category: "item", container: "Manual", slotIndex: 1, itemName: "Hand-added item", quantity: 1, status: "guild_bank", source: "manual" },
     ]);
 
-    let applied1 = await applySync(db, actor.id, [validPayload]);
+    const applied1 = await applySync(db, actor.id, [validPayload]);
     check(failures, applied1.diffs[0]?.added.length === 3, `first sync adds all 3 rows (nothing verified existed yet) (got ${applied1.diffs[0]?.added.length})`);
 
     const afterSync1 = await holdingsFor(db, muleId);

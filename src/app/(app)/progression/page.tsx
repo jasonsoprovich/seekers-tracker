@@ -87,6 +87,9 @@ export default async function ProgressionPage() {
     .filter((c) => c.ownerId === session.user.id && c.status !== "removed")
     .sort((a, b) => typeRank(a) - typeRank(b) || a.name.localeCompare(b.name));
 
+  // Server component: one clock read per request is the intent.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
@@ -107,7 +110,7 @@ export default async function ProgressionPage() {
           ))}
         </div>
       )}
-      <PopProgressionView rows={rows} zoneCatalog={getZoneCatalog()} nowMs={Date.now()} />
+      <PopProgressionView rows={rows} zoneCatalog={getZoneCatalog()} nowMs={nowMs} />
     </div>
   );
 }

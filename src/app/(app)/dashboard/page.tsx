@@ -113,6 +113,9 @@ export default async function DashboardPage() {
   const leadership = roleHolders.filter((r) => r.role === "leader");
   const officers = roleHolders.filter((r) => r.role === "officer" || r.role === "admin");
 
+  // Server component: one clock read per request is the intent.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Guild Dashboard" />
@@ -120,7 +123,7 @@ export default async function DashboardPage() {
         <GuildLeadership leadership={leadership} officers={officers} />
         <GuildPopMeter mainsOnly={{ done: pop.mainDone, total: pop.mainTotal }} all={{ done: pop.allDone, total: pop.allTotal }} />
       </div>
-      <RosterOverview roster={rosterEntries} nowMs={Date.now()} initialWindow={savedWindow} />
+      <RosterOverview roster={rosterEntries} nowMs={nowMs} initialWindow={savedWindow} />
     </div>
   );
 }

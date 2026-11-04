@@ -47,6 +47,7 @@ export function VersionGuard() {
     // reload guard arm again for the next stale-chunk event.
     clearChunkReloadGuard();
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- check() fetches /api/health; state only changes after it resolves
     void check();
     const id = window.setInterval(() => void check(), POLL_MS);
     const onVisible = () => {
