@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { DASHBOARD_WINDOW_COOKIE, DEFAULT_WINDOW } from "@/lib/dashboard-window";
+import { ACTIVITY_WINDOWS as WINDOWS, DASHBOARD_WINDOW_COOKIE, DEFAULT_WINDOW } from "@/lib/dashboard-window";
 import { CHAR_CLASSES, classColor, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 
 import { Card } from "../ui/Card";
@@ -30,16 +30,6 @@ const CHART_CLASSES = [...CHAR_CLASSES].sort((a, b) => {
   if (b.id === UNKNOWN_CLASS_ID) return -1;
   return a.name.localeCompare(b.name);
 });
-
-const DAY = 86_400_000;
-const WINDOWS = [
-  { value: "1d", label: "24h", ms: DAY },
-  { value: "7d", label: "7 days", ms: 7 * DAY },
-  { value: "14d", label: "14 days", ms: 14 * DAY },
-  { value: "30d", label: "1 month", ms: 30 * DAY },
-  { value: "365d", label: "1 year", ms: 365 * DAY },
-  { value: "all", label: "All time", ms: Infinity },
-] as const;
 
 // Leader request, 2026-09-05: "the characters, mains alts, etc and roster
 // by class should all be linked to the active time filter, perhaps we just

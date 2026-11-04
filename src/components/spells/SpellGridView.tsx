@@ -9,6 +9,7 @@ import { CharacterStatusBadge } from "@/components/ui/CharacterStatusBadge";
 import { fieldClasses } from "@/components/ui/Field";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { characterStatusLabel, type CharacterStatus } from "@/lib/character-status";
+import { ACTIVITY_WINDOWS, DEFAULT_WINDOW } from "@/lib/dashboard-window";
 import { CHAR_CLASSES, classColor } from "@/lib/eq/enums";
 import { SPELL_CLASS_IDS, SPELL_LEVELS, spellsForClass, type ClassSpell } from "@/lib/spells";
 
@@ -29,13 +30,6 @@ export interface SpellGridRow {
 
 const DAY = 24 * 60 * 60 * 1000;
 const STALE_MS = 30 * DAY;
-
-const ACTIVITY_WINDOWS = {
-  "90d": { label: "Active · 90 days", ms: 90 * DAY },
-  "1y": { label: "Active · 1 year", ms: 365 * DAY },
-  all: { label: "All", ms: null },
-} as const;
-type ActivityKey = keyof typeof ACTIVITY_WINDOWS;
 
 type SortKey = "name" | "have";
 
@@ -95,7 +89,7 @@ export function SpellGridView({
   const [order, setOrder] = useState<"level" | "name">("level");
   const [typeFilter, setTypeFilter] = useState<"main" | "all">("main");
   const [statusFilter, setStatusFilter] = useState("active");
-  const [activityFilter, setActivityFilter] = useState<ActivityKey>("90d");
+  const [activityFilter, setActivityFilter] = useState<string>(DEFAULT_WINDOW);
   const [staleOnly, setStaleOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -136,8 +130,8 @@ export function SpellGridView({
   // Rows that pass every filter except class — the class pills summarize these.
   const baseRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const windowMs = ACTIVITY_WINDOWS[activityFilter].ms;
-    const cutoff = windowMs === null ? null : nowMs - windowMs;
+    const windowMs = ACTIVITY_WINDOWS.find((w) => w.value === activityFilter)?.ms ?? Infinity;
+    const cutoff = windowMs === Infinity ? null : nowMs - windowMs;
     return rows.filter((r) => {
       if (q && !r.name.toLowerCase().includes(q) && !r.ownerUsername.toLowerCase().includes(q)) return false;
       if (typeFilter === "main" && r.charType !== "main") return false;
@@ -296,12 +290,12 @@ export function SpellGridView({
           <span className="text-neutral-400">Recently active</span>
           <select
             value={activityFilter}
-            onChange={(e) => setActivityFilter(e.target.value as ActivityKey)}
+            onChange={(e) => setActivityFilter(e.target.value)}
             className={fieldClasses({ size: "sm" })}
           >
-            {(Object.keys(ACTIVITY_WINDOWS) as ActivityKey[]).map((k) => (
-              <option key={k} value={k}>
-                {ACTIVITY_WINDOWS[k].label}
+            {ACTIVITY_WINDOWS.map((w) => (
+              <option key={w.value} value={w.value}>
+                {w.label}
               </option>
             ))}
           </select>
