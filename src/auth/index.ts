@@ -286,5 +286,4 @@ function createAuth(env?: CloudflareEnv, cf?: Record<string, unknown>, baseURL?:
   return built;
 }
 
-export const auth = createAuth();
 export { createAuth };
