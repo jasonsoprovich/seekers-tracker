@@ -78,9 +78,9 @@ npm run test:e2e                                        # Playwright — mints a
 
 `npm run lint` runs `eslint .` (fixed 2026-11-03: the old FlatCompat config
 crashed on eslint-config-next 16, and `next lint` no longer exists in Next 16).
-It reports ~38 pre-existing findings in untouched code; nothing in build or
-deploy runs it. Check that a change adds no new findings rather than expecting
-a clean run. There is no Prettier config — don't run bare `npx prettier`.
+It is clean (0 findings, 2026-11-03) — keep it that way; nothing in build or
+deploy runs it, so run it yourself. There is no Prettier config — don't run
+bare `npx prettier`.
 
 **`build` uses `next build --webpack`, deliberately — do not "clean up" this
 flag back to plain `next build`.** Found 2026-08-24: Next 16's Turbopack
