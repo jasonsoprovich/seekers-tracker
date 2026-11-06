@@ -364,6 +364,8 @@ export async function POST(request: Request) {
       occurredAt,
       auth.userId,
       note,
+      zone,
+      raidName,
     );
     eventLeadInserted = eventLead.inserted;
     if (eventLead.capped) {

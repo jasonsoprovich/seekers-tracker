@@ -234,6 +234,10 @@ export async function insertPreparedEventLeadAward(
   occurredAt: Date,
   enteredBy: string,
   note: string,
+  // The capture's zone and raid name, same as its attendance rows carry, so
+  // the Event Lead line lines up with them at a glance in the ledger/logs.
+  zone: string | null = null,
+  raidName: string | null = null,
 ): Promise<{ inserted: boolean; capped: { awarded: number; nominal: number } | null }> {
   const d1 = db.$client;
   // Event Lead EP counts toward the per-cycle cap like any other award; read
@@ -248,8 +252,8 @@ export async function insertPreparedEventLeadAward(
         INSERT INTO ep_ledger (
           character_id, player_id, cycle_id, occurred_at, activity, points,
           points_nominal, points_awarded, cap_applied, cap_at_entry,
-          note, entered_by, source, source_key
-        ) VALUES (?, ?, ?, ?, 'Event Lead', ?, ?, ?, ?, ?, ?, ?, 'parse', ?)
+          note, entered_by, source, source_key, zone, raid_name
+        ) VALUES (?, ?, ?, ?, 'Event Lead', ?, ?, ?, ?, ?, ?, ?, 'parse', ?, ?, ?)
         ON CONFLICT(source_key) DO NOTHING
         RETURNING id
       `)
@@ -266,6 +270,8 @@ export async function insertPreparedEventLeadAward(
         withCapNote(note, cap.note),
         enteredBy,
         award.sourceKey,
+        zone,
+        raidName,
       ),
     d1
       .prepare(`
