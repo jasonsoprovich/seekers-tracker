@@ -7,7 +7,7 @@ import { prepareDeleteAudit } from "@/lib/epgp/ledger-audit";
 import { markStandingsDirty, settleStandings } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
 import { guildDayBounds, toGuildDateString } from "@/lib/guild-timezone";
-import { recordSystemEvent, webActor } from "@/lib/system-log";
+import { recordSystemEvent, type SystemActor, webActor } from "@/lib/system-log";
 
 // PLAN.md §1b/§1c — one entry point per decay mechanism that writes stored
 // rows. Legacy cycle decay (§1a) stays derived at read time in totals.ts
@@ -247,7 +247,9 @@ const RATE_DECAY_LABEL: Record<RateDecayKind, string> = { expansion: "Decay", gl
 // silently-wrong totals.
 export async function commitRateDecay(
   db: ReturnType<typeof drizzle>,
-  opts: { kind: RateDecayKind; rate: number; effectiveDate: Date; cutoff?: Date; label?: string; appliedBy: string },
+  // appliedBy is null for the automatic cycle decay cron, which passes its
+  // own actor for the system log.
+  opts: { kind: RateDecayKind; rate: number; effectiveDate: Date; cutoff?: Date; label?: string; appliedBy: string | null; actor?: SystemActor },
 ): Promise<CommitDecayOutcome> {
   const { kind, rate, effectiveDate, appliedBy } = opts;
   // Balances are summed strictly before `cutoff` (see resolveDecayCutoff);
@@ -264,6 +266,14 @@ export async function commitRateDecay(
   // any decay row exists.
   const rollover = kind === "global_cycle" ? await planRollover(db, cutoff) : null;
   if (rollover && "error" in rollover) return { error: rollover.error };
+  // A cycle a decay opened less than a week ago already had its cycle
+  // decay — most likely the automatic one at midnight. Running another
+  // would decay everyone twice for the same cycle end.
+  if (rollover && rollover.closing.cycle.startedByDecayEventId != null && cutoff.getTime() - rollover.closing.start.getTime() < 7 * 24 * 3_600_000) {
+    return {
+      error: `Cycle #${rollover.closing.cycle.cycleNumber} was started by a cycle decay on ${toGuildDateString(rollover.closing.start)}, so this cycle end has already been decayed. Reverse that decay first to redo it.`,
+    };
+  }
 
   const preview = await previewRateDecay(db, rate, cutoff);
   if (preview.length === 0) {
@@ -329,7 +339,7 @@ export async function commitRateDecay(
 
   await settleStandings(db, { all: true });
 
-  await recordSystemEvent(db, await webActor(db, appliedBy), {
+  await recordSystemEvent(db, opts.actor ?? (appliedBy ? await webActor(db, appliedBy) : { userId: null, label: null, role: null, source: "script" }), {
     action: "epgp.decay.commit",
     targetType: "decay_event",
     targetId: event.id,

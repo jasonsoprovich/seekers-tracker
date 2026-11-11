@@ -1,6 +1,7 @@
 "use server";
 
 import { getDb } from "@/lib/db";
+import { setAutoCycleDecay } from "@/lib/epgp/auto-cycle-decay";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import {
   commitDepartureWipe,
@@ -15,6 +16,7 @@ import {
 import { guildDateTime } from "@/lib/guild-timezone";
 import { getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
+import { webActor } from "@/lib/system-log";
 
 // Flat optional-field shape (not a discriminated union) so callers can just
 // check `.error`, matching every other server action's result type in this
@@ -125,6 +127,14 @@ export async function commitGlobalCycleDecayAction(rateInput: string, effectiveD
 
   const db = await getDb();
   return commitRateDecay(db, { kind: "global_cycle", rate, effectiveDate: resolved.effectiveDate, cutoff: resolved.cutoff, label: label.trim() || undefined, appliedBy: auth.userId });
+}
+
+export async function setAutoCycleDecayAction(on: boolean): Promise<{ error?: string }> {
+  const auth = await requireLeader();
+  if ("error" in auth) return auth;
+  const db = await getDb();
+  await setAutoCycleDecay(db, on, auth.userId, await webActor(db, auth.userId));
+  return {};
 }
 
 export async function reverseDecayAction(decayEventId: number): Promise<ReverseDecayResult> {

@@ -87,7 +87,10 @@
 	"migrations": [
 		{ "tag": "v1", "new_sqlite_classes": ["LiveAuctionSession"] }
 	],
-	// Two crons, dispatched by custom-worker.ts's scheduled() on event.cron:
+	// Three crons, dispatched by custom-worker.ts's scheduled() on event.cron:
+	//  - "0 * * * *"   automatic cycle decay check (src/lib/epgp/auto-cycle-decay.ts).
+	//    One small read per hour; commits the decay at midnight Eastern when a
+	//    cycle ends, and retries hourly if that run failed.
 	//  - "17 9 * * *"  nightly standings + last_activity rebuild (safety net;
 	//    refreshStandings already runs on every write). ~450k-row read/night.
 	//  - "*/2 * * * *" keep-warm ping (post-live-test-1 LT-26/LT-27; every 2
@@ -98,7 +101,7 @@
 	//    are loaded too, not just the API path. Cost: ~22k invocations/mo
 	//    (0.2% of 10M) + ~2 renders each (<3% of the 30M CPU-ms included).
 	"triggers": {
-		"crons": ["17 9 * * *", "*/2 * * * *"]
+		"crons": ["17 9 * * *", "*/2 * * * *", "0 * * * *"]
 	},
 	"observability": {
 		"enabled": true

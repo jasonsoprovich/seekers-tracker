@@ -336,6 +336,31 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Automatic cycle decay, 2026-11-11 (branch `feature/auto-cycle-decay`; no migration;
+not yet deployed).** Sandrian (new guild leader) asked for the cycle decay to run by itself.
+Rules unchanged — same global_cycle decay, same rate, same rollover, same EP cap reset.
+- Cycles are two weeks, Sun–Sat, on a fixed grid anchored at cycle #71 = Sun 2026-11-01
+  (`CYCLE_ANCHOR_DAY`/`CYCLE_DAYS`, cycles.ts). `scheduledCycleEnd(w)` gives the last day +
+  `decayAt` (midnight Eastern after it, DST-aware); a decay-opened cycle snaps its start to
+  the nearest grid day so an early/late manual run doesn't drift the calendar. It is the one
+  source for the Your Characters meter note/ends label, Cycle Overview "Ends", the leader
+  reminder and the cron. (`plannedEndDay` is now private.)
+- New hourly cron `0 * * * *` → `runScheduledCycleDecay` (`src/lib/epgp/auto-cycle-decay.ts`):
+  once `decayAt` has passed (and < 24h ago) it calls `commitRateDecay` with
+  effectiveDate = last day, cutoff = `decayAt`, rate = the last unreversed global_cycle
+  event's rate (10% if none), `appliedBy` null, `CRON_ACTOR`. Idempotent (the new cycle is
+  2 weeks out). Over 24h late (cron broken, or just re-enabled) it does nothing — leader runs
+  it by hand rather than back-applying old decays.
+- On/off switch on /epgp/decay (epgp_settings key `auto_cycle_decay`, default on, not in
+  SETTING_KEYS so /epgp/settings doesn't show it). Reminder dot: with auto on, only red when
+  the cron missed (>2h past due); with it off, the old orange/red behaviour.
+- `commitRateDecay` now refuses a global_cycle decay when the running cycle was opened by a
+  decay < 7 days earlier (stops a manual re-run doubling the automatic one).
+- Verified: `npm run verify:auto-cycle-decay` (new, 25/25, simulated clock vs local D1),
+  `verify:cycle-rollover` (updated for the new guard), global-decay / cycle-ep-cap /
+  reversals / decay-per-player, tsc, lint, webpack build, e2e characters-activity.
+- Rollout: just `npm run deploy` — must land before Sat 2026-11-14 midnight ET (cycle #71 end).
+
 **Level 61-65 spell tracking, 2026-11-03 (branch `feature/spells-61-65`; migration 0063
 LOCAL ONLY; not deployed).** Members track which class spells each character has scribed.
 - Data: `src/data/spells-61-65.json` (274 spells, 12 classes; WAR/MNK/ROG have none),

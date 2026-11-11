@@ -7,10 +7,12 @@ import { guildDayBounds, toGuildDateString } from "@/lib/guild-timezone";
 export type Cycle = typeof cycles.$inferSelect;
 type Db = ReturnType<typeof drizzle>;
 
-// A cycle ends when the guild leader commits a global cycle decay: that
-// commit closes the running cycle at the decay instant and opens the next
-// one (rolloverCycle, called from decay.ts's commitRateDecay). The cycle
-// running now is always the latest row and has no fixed end.
+// A cycle ends when a global cycle decay is committed: that commit closes
+// the running cycle at the decay instant and opens the next one
+// (rolloverStatements, called from decay.ts's commitRateDecay). The cycle
+// running now is always the latest row; its scheduled end comes from the
+// fixed two-week calendar (scheduledCycleEnd), and the hourly cron in
+// auto-cycle-decay.ts commits the decay at that instant.
 //
 // History still holds the sheet's calendar cycles (whole Eastern days,
 // start_date/end_date at UTC midnight of the first/last day). A cycle opened
@@ -106,36 +108,75 @@ export async function getCurrentCycleWindow(db: Db, asOf: Date = new Date()): Pr
   return windowAt(await loadCycleWindows(db), asOf) ?? undefined;
 }
 
-// The day a running cycle was planned to end, for display only: a calendar
-// cycle from the sheet keeps its end_date, while a cycle a decay opened has
-// only a placeholder (end_date = start_date), so it has no planned day. The
-// cycle really ends when the leader runs cycle decay, which may be earlier
-// or later. Returned as the stored UTC-midnight date.
-export function plannedEndDay(w: CycleWindow): Date | null {
+// The day a calendar cycle from the sheet was planned to end (its stored
+// end_date). A cycle a decay opened has only a placeholder (end_date =
+// start_date), so it has none. Returned as the stored UTC-midnight date.
+function plannedEndDay(w: CycleWindow): Date | null {
   if (!w.open || w.cycle.startedByDecayEventId != null) return null;
   return w.cycle.endDate > w.cycle.startDate ? w.cycle.endDate : null;
 }
 
-// How long a cycle opened by a decay is expected to run — the sheet's
-// calendar cycles were two weeks. Only used to remind the leader below.
-const CYCLE_DAYS = 14;
+// Cycles are two weeks, Sunday through Saturday, on a fixed grid. Cycle #71
+// started Sun 2026-11-01; every cycle start is a whole number of CYCLE_DAYS
+// from it. The cycle decay runs at midnight Eastern at the end of the last
+// day (Saturday), which is also the instant the next cycle starts.
+export const CYCLE_DAYS = 14;
+const CYCLE_ANCHOR_DAY = "2026-11-01";
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / (24 * HOUR));
+}
+
+// The grid start day nearest a guild day, so a cycle decay committed a bit
+// early (Saturday evening) or late (Sunday or Monday) still lines the next
+// cycle up with the calendar instead of drifting.
+function snapToGrid(day: string): string {
+  const k = Math.round(daysBetween(CYCLE_ANCHOR_DAY, day) / CYCLE_DAYS);
+  return shiftDay(CYCLE_ANCHOR_DAY, k * CYCLE_DAYS);
+}
+
+export type ScheduledCycleEnd = {
+  // Last guild (Eastern) day of the cycle, YYYY-MM-DD.
+  lastDay: string;
+  // Midnight Eastern at the end of lastDay: when the cycle decay is due
+  // and the next cycle starts.
+  decayAt: Date;
+};
+
+// When the running cycle is scheduled to end. The single source for the
+// Your Characters meter, the Cycle Overview page, the leader reminder and
+// the automatic decay cron, so they always agree. Null for a closed window.
+export function scheduledCycleEnd(w: CycleWindow): ScheduledCycleEnd | null {
+  if (!w.open) return null;
+  const planned = plannedEndDay(w);
+  const lastDay = planned ? utcDay(planned) : shiftDay(snapToGrid(toGuildDateString(w.start)), CYCLE_DAYS - 1);
+  return { lastDay, decayAt: dayEnd(lastDay) };
+}
+
 const REMINDER_DAYS = 3;
+// With automatic decay on, the dot only appears once the cron should have
+// run and hasn't. It retries hourly, so allow a couple of tries first.
+const AUTO_GRACE_MS = 2 * HOUR;
 
 export type DecayReminder = { tone: "soon" | "due"; title: string };
 
-// Nudge for the leader to run cycle decay: "soon" within REMINDER_DAYS of
-// the due day, "due" on the day itself and every day after until the decay
-// is committed (which opens a new cycle and resets this). The due day is the
-// planned end for a calendar cycle, else CYCLE_DAYS after a decay-opened
-// cycle started. Days are guild (Eastern) days.
-export function decayReminder(w: CycleWindow, now: Date = new Date()): DecayReminder | null {
-  if (!w.open) return null;
-  const planned = plannedEndDay(w);
-  const dueDay = planned ? utcDay(planned) : shiftDay(toGuildDateString(w.start), CYCLE_DAYS);
-  const daysLeft = Math.round((Date.parse(`${dueDay}T00:00:00Z`) - Date.parse(`${toGuildDateString(now)}T00:00:00Z`)) / (24 * HOUR));
+// Nudge for the leader about cycle decay. With automatic decay on there is
+// nothing to remember, so it only flags a decay the cron missed. With it
+// off: "soon" within REMINDER_DAYS of the cycle's last day, "due" on that
+// day and every day after until a decay is committed (which opens a new
+// cycle and resets this). Days are guild (Eastern) days.
+export function decayReminder(w: CycleWindow, auto: boolean, now: Date = new Date()): DecayReminder | null {
+  const end = scheduledCycleEnd(w);
+  if (!end) return null;
+  if (auto) {
+    return now.getTime() > end.decayAt.getTime() + AUTO_GRACE_MS
+      ? { tone: "due", title: "Automatic cycle decay didn't run — check EPGP Decay" }
+      : null;
+  }
+  const daysLeft = daysBetween(toGuildDateString(now), end.lastDay);
   if (daysLeft > REMINDER_DAYS) return null;
   if (daysLeft > 0) return { tone: "soon", title: `Cycle decay due in ${daysLeft} day${daysLeft === 1 ? "" : "s"}` };
-  return { tone: "due", title: daysLeft === 0 ? "Cycle decay is due today" : `Cycle decay is ${-daysLeft} day${daysLeft === -1 ? "" : "s"} overdue` };
+  return { tone: "due", title: daysLeft === 0 ? "Cycle decay is due tonight" : `Cycle decay is ${-daysLeft} day${daysLeft === -1 ? "" : "s"} overdue` };
 }
 
 // "Current cycle" as of a given instant. Returns undefined only when no
