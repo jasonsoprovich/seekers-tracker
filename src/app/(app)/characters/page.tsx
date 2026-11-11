@@ -44,8 +44,8 @@ export default async function CharactersPage() {
 
   const now = new Date();
   const cycleEp = activitySummaries.length > 0 ? await getCurrentCycleEp(db, activitySummaries.map((s) => s.playerId), now) : null;
-  // A running cycle has no end date — it ends at the next cycle decay.
-  const cycleEndsLabel = cycleEp && !cycleEp.open ? ledgerDate(cycleEp.cycle.endDate) : null;
+  // The running cycle's last day (it ends at midnight Eastern after it).
+  const cycleEndsLabel = cycleEp?.scheduledEnd ? ledgerDate(new Date(`${cycleEp.scheduledEnd.lastDay}T00:00:00Z`)) : cycleEp && !cycleEp.open ? ledgerDate(cycleEp.cycle.endDate) : null;
   const cycleReset = cycleEp ? cycleResetNote(cycleEp, now) : null;
 
   // Same order as the account page (characters/[id]/account): the main

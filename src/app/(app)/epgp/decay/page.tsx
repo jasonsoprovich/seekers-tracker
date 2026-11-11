@@ -4,11 +4,13 @@ import { redirect } from "next/navigation";
 
 import { DepartureWipeForm } from "@/components/epgp/DepartureWipeForm";
 import { ExpansionDecayForm } from "@/components/epgp/ExpansionDecayForm";
+import { AutoCycleDecayToggle } from "@/components/epgp/AutoCycleDecayToggle";
 import { GlobalCycleDecayForm } from "@/components/epgp/GlobalCycleDecayForm";
 import { ReverseDecayButton } from "@/components/epgp/ReverseDecayButton";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { cycles, decayEvents, epLedger, gpLedger, users } from "@/db";
-import { getCurrentCycleWindow } from "@/lib/epgp/cycles";
+import { autoCycleDecayRate, isAutoCycleDecayOn } from "@/lib/epgp/auto-cycle-decay";
+import { getCurrentCycleWindow, scheduledCycleEnd } from "@/lib/epgp/cycles";
 import { getDb } from "@/lib/db";
 import { ledgerDate } from "@/lib/format-date";
 import { guildDate, guildDateTime } from "@/lib/guild-timezone";
@@ -26,7 +28,7 @@ export default async function EpgpDecayPage() {
   const appliedByUsers = alias(users, "applied_by_user");
   const reversedByUsers = alias(users, "reversed_by_user");
 
-  const [events, epCounts, gpCounts, startedCycles, currentCycle] = await Promise.all([
+  const [events, epCounts, gpCounts, startedCycles, currentCycle, autoOn, autoRate] = await Promise.all([
     db
       .select({
         id: decayEvents.id,
@@ -59,7 +61,10 @@ export default async function EpgpDecayPage() {
       .from(cycles)
       .where(sql`${cycles.startedByDecayEventId} is not null`),
     getCurrentCycleWindow(db),
+    isAutoCycleDecayOn(db),
+    autoCycleDecayRate(db),
   ]);
+  const nextEnd = currentCycle ? scheduledCycleEnd(currentCycle) : null;
   const cycleStartedByEvent = new Map(startedCycles.map((r) => [r.decayEventId, r.cycleNumber]));
 
   const epCountByEvent = new Map(epCounts.map((r) => [r.decayEventId, r.count]));
@@ -85,10 +90,30 @@ export default async function EpgpDecayPage() {
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Cycle decay (global model)</h2>
-        <p className="mt-1 text-sm text-neutral-400">
-          10% against every character&apos;s current total, EP and GP, compounding cycle over cycle (§1c). Committing it also ends the running
-          cycle and starts the next one — there is no fixed cycle calendar, so run this once at each cycle end. EP recorded after the commit counts
-          toward the new cycle&apos;s cap.
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border px-4 py-3">
+          <div className="text-sm">
+            <p className="font-medium">
+              Automatic cycle decay: <span className={autoOn ? "text-emerald-400" : "text-amber-300"}>{autoOn ? "on" : "off"}</span>
+            </p>
+            {autoOn && currentCycle && nextEnd ? (
+              <p className="mt-1 text-neutral-400">
+                Cycle #{currentCycle.cycle.cycleNumber} ends at midnight Eastern after {guildDate(new Date(`${nextEnd.lastDay}T12:00:00Z`), "UTC")}. Cycle
+                decay runs then at {(autoRate * 100).toFixed(0)}% (the rate of the last cycle decay) and cycle #{currentCycle.cycle.cycleNumber + 1}{" "}
+                starts. Cycles are two weeks, Sunday to Saturday.
+              </p>
+            ) : (
+              <p className="mt-1 text-neutral-400">
+                {nextEnd ? `The current cycle is due to end at midnight Eastern after ${guildDate(new Date(`${nextEnd.lastDay}T12:00:00Z`), "UTC")}. ` : ""}
+                Run cycle decay below by hand at each cycle end.
+              </p>
+            )}
+          </div>
+          <AutoCycleDecayToggle on={autoOn} />
+        </div>
+        <p className="mt-3 text-sm text-neutral-400">
+          Manual run: 10% against every character&apos;s current total, EP and GP, compounding cycle over cycle (§1c). Committing it also ends the
+          running cycle and starts the next one. With automatic decay on you don&apos;t need this; it&apos;s here for a missed or redone decay
+          (reverse the automatic one first).
         </p>
         <div className="mt-3">
           <GlobalCycleDecayForm

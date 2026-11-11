@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import { characterClaims } from "@/db";
 import { LEADERSHIP_ROLES, type Role } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { type DecayReminder, decayReminder, getCurrentCycleWindow } from "@/lib/epgp/cycles";
+import { getDecayReminder } from "@/lib/epgp/auto-cycle-decay";
+import type { DecayReminder } from "@/lib/epgp/cycles";
 import { type Capability, type PermissionMatrix, roleCan } from "@/lib/permissions";
 
 import { Sidebar } from "./Sidebar";
@@ -37,8 +38,7 @@ export async function AppShell({
     pendingClaimCount = rows.length;
     // Cycle decay is the leader's job, so only leaders/admins get the dot.
     if (role && LEADERSHIP_ROLES.includes(role)) {
-      const current = await getCurrentCycleWindow(db);
-      decayAlert = (current && decayReminder(current)) || undefined;
+      decayAlert = (await getDecayReminder(db)) ?? undefined;
     }
   }
 

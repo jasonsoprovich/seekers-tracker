@@ -3,7 +3,7 @@ import type { drizzle } from "drizzle-orm/d1";
 
 import { epLedger } from "@/db";
 import { getSettingAt } from "@/lib/epgp/settings";
-import { bucketRange, type Cycle, type CycleWindow, loadCycleWindows, plannedEndDay, windowAt } from "@/lib/epgp/cycles";
+import { bucketRange, type Cycle, type CycleWindow, loadCycleWindows, scheduledCycleEnd, type ScheduledCycleEnd, windowAt } from "@/lib/epgp/cycles";
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -147,9 +147,9 @@ export type CycleEpProgress = {
   // True while the cycle is still running (it ends at the next cycle decay).
   open: boolean;
   start: Date;
-  // The day the cycle was planned to end (see cycles.ts plannedEndDay), or
-  // null when there's no plan — a cycle opened by a decay.
-  plannedEnd: Date | null;
+  // When the running cycle ends and the cap resets (cycles.ts
+  // scheduledCycleEnd); null once the cycle has closed.
+  scheduledEnd: ScheduledCycleEnd | null;
   cap: number | null;
   // Net non-decay EP per player in the cycle: the same number the write
   // path clamps against, so the display can never disagree with enforcement.
@@ -165,7 +165,7 @@ export async function getCurrentCycleEp(db: Db, playerIds: number[], asOf: Date 
   const raw = await getSettingAt(db, "ep_cap_per_cycle", asOf);
   const cap = raw !== null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
   const usedByPlayer = playerIds.length > 0 ? await cycleEpUsed(db, playerIds, w) : new Map<number, number>();
-  return { cycle: w.cycle, open: w.open, start: w.start, plannedEnd: plannedEndDay(w), cap, usedByPlayer };
+  return { cycle: w.cycle, open: w.open, start: w.start, scheduledEnd: scheduledCycleEnd(w), cap, usedByPlayer };
 }
 
 const CAP_NOTE_RE = /(?:\s+—\s+)?EP capped(?::| at) [^—]*$/;

@@ -13,7 +13,7 @@ import { characterClaims, characters, players, users } from "@/db";
 import { getRealUserRole, LEADERSHIP_ROLES } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { isMemberAllowed } from "@/lib/discord-verify";
-import { decayReminder, getCurrentCycleWindow } from "@/lib/epgp/cycles";
+import { getDecayReminder } from "@/lib/epgp/auto-cycle-decay";
 import { UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import { type Capability, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
@@ -124,8 +124,7 @@ export default async function AdminPage() {
   const pendingClaimCount = pendingClaimRows.length;
 
   // Same leader/admin-only reminder as the Admin nav dot (AppShell).
-  const currentCycle = realRole !== null && LEADERSHIP_ROLES.includes(realRole) ? await getCurrentCycleWindow(db) : undefined;
-  const decayAlert = currentCycle ? decayReminder(currentCycle) : null;
+  const decayAlert = realRole !== null && LEADERSHIP_ROLES.includes(realRole) ? await getDecayReminder(db) : null;
 
   // Admin is about PEOPLE (site accounts, roles, claims, guild membership)
   // — characters are managed from the Roster, where every character page

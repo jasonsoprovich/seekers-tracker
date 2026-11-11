@@ -33,6 +33,7 @@ import * as schema from "./src/db";
 import { bids as bidsTable, characters, lootEvents, users } from "./src/db";
 import { verifyOfficerApiKey } from "./src/lib/api-key-auth";
 import { runRecordedStandingsRebuild } from "./src/lib/system-health";
+import { runScheduledCycleDecay } from "./src/lib/epgp/auto-cycle-decay";
 import { fetchIsMemberAllowed } from "./src/lib/discord-verify";
 import { getStandings, repairDirtyStandings } from "./src/lib/epgp/standings";
 import { checkAsyncContextImplementation, markRequest, perfEnabled, setPerfEnabled } from "./src/lib/perf";
@@ -723,8 +724,23 @@ export default {
     }
   },
 
-  // Two crons (wrangler.jsonc `triggers.crons`), dispatched on event.cron.
+  // Three crons (wrangler.jsonc `triggers.crons`), dispatched on event.cron.
   async scheduled(event, env, ctx) {
+    // "0 * * * *" — automatic cycle decay. Usually a no-op (one cycles read
+    // + one settings read); at midnight Eastern after a cycle's last day it
+    // commits the cycle decay and opens the next cycle. Awaited, not
+    // waitUntil, so a failure shows as a failed cron run in the dashboard.
+    if (event.cron === "0 * * * *") {
+      const db = drizzle(env.DATABASE, { schema });
+      const result = await runScheduledCycleDecay(db, new Date(event.scheduledTime));
+      if (result.status === "committed") {
+        console.log(`[cron] cycle decay committed: event ${result.decayEventId}, rate ${result.rate}, ${result.epRows} EP / ${result.gpRows} GP rows, cycle #${result.cycleStarted} started`);
+      } else if (result.status === "error" || result.status === "too-late") {
+        console.log(`[cron] cycle decay ${result.status} for ${result.end.lastDay}${"error" in result ? `: ${result.error}` : ""}`);
+      }
+      return;
+    }
+
     // "*/2 * * * *" — keep-warm ping (LT-26/LT-27; 2 min since 2026-09-10).
     // Warm the D1 binding on THIS isolate, then self-fetch the health route
     // and an app page so a render-path isolate stays hot too. Best-effort;

@@ -1,23 +1,19 @@
-import { GUILD_TIMEZONE, toGuildDateString } from "@/lib/guild-timezone";
+import { toGuildDateString } from "@/lib/guild-timezone";
 
-function shortDay(d: Date, timeZone: string): string {
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone });
+function shortDay(day: string): string {
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-// When the cap resets, in words. A running cycle ends when the guild leader
-// runs cycle decay, so this is never a hard deadline: it gives the day the
-// cycle was planned to end (a stored UTC-midnight date), or, for a cycle a
-// decay opened with no planned day, when it started.
-export function cycleResetNote(c: { open: boolean; start: Date; plannedEnd: Date | null }, now: Date): string | null {
-  if (!c.open) return null;
-  if (c.plannedEnd) {
-    const day = shortDay(c.plannedEnd, "UTC");
-    const past = c.plannedEnd.toISOString().slice(0, 10) < toGuildDateString(now);
-    return past
-      ? `Resets when the guild leader runs cycle decay. It was planned for ${day}, so expect it soon.`
-      : `Resets when the guild leader runs cycle decay, planned for ${day}.`;
-  }
-  return `Started ${shortDay(c.start, GUILD_TIMEZONE)}. Resets when the guild leader runs the next cycle decay.`;
+// When the cap resets, in words. Cycle decay runs automatically at midnight
+// Eastern at the end of the cycle's last day (cycles.ts scheduledCycleEnd),
+// and that is when the cap resets.
+export function cycleResetNote(c: { open: boolean; scheduledEnd: { lastDay: string; decayAt: Date } | null }, now: Date): string | null {
+  if (!c.open || !c.scheduledEnd) return null;
+  const { lastDay, decayAt } = c.scheduledEnd;
+  if (now >= decayAt) return `This cycle ended at midnight Eastern after ${shortDay(lastDay)}. The cap resets as soon as cycle decay finishes.`;
+  const daysLeft = Math.round((Date.parse(`${lastDay}T00:00:00Z`) - Date.parse(`${toGuildDateString(now)}T00:00:00Z`)) / 86_400_000);
+  const when = daysLeft === 0 ? "tonight" : daysLeft === 1 ? "tomorrow night" : `in ${daysLeft} days`;
+  return `Cycle ends at midnight Eastern after ${shortDay(lastDay)} (${when}). The cap resets then, and EP earned after midnight counts toward the next cycle.`;
 }
 
 // EP earned this cycle against the per-cycle cap, for one player account.

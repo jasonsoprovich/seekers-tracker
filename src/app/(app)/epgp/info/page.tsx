@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { InfoSectionEditor } from "@/components/epgp/InfoSectionEditor";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { epgpPointValues } from "@/db";
-import { getCurrentCycleWindow, plannedEndDay } from "@/lib/epgp/cycles";
+import { getCurrentCycleWindow, scheduledCycleEnd } from "@/lib/epgp/cycles";
 import { guildDate } from "@/lib/guild-timezone";
 import { getDb } from "@/lib/db";
 import { listInfoSections } from "@/lib/epgp/info-sections";
@@ -66,14 +66,14 @@ export default async function EpgpInfoPage() {
                 <dt className="text-neutral-400">Ends</dt>
                 <dd className="text-right font-medium">
                   {currentCycle.open ? (
-                    <>
-                      When the guild leader runs cycle decay
-                      {plannedEndDay(currentCycle) && (
-                        <span className="block text-xs font-normal text-neutral-500">
-                          planned for {guildDate(plannedEndDay(currentCycle), "UTC")}
-                        </span>
-                      )}
-                    </>
+                    scheduledCycleEnd(currentCycle) ? (
+                      <>
+                        {guildDate(new Date(`${scheduledCycleEnd(currentCycle)!.lastDay}T12:00:00Z`), "UTC")}
+                        <span className="block text-xs font-normal text-neutral-500">at midnight Eastern, when cycle decay runs and the EP cap resets</span>
+                      </>
+                    ) : (
+                      "At the next cycle decay"
+                    )
                   ) : (
                     guildDate(new Date(currentCycle.end.getTime() - 1))
                   )}

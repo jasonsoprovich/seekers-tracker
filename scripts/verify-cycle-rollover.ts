@@ -135,8 +135,12 @@ async function main() {
     console.log("Back-to-back rollovers");
     const first = await commitRateDecay(db, { kind: "global_cycle", rate: 0.1, effectiveDate, cutoff: decayAt, appliedBy: ids.userId });
     if ("error" in first) throw new Error(first.error);
-    const secondAt = new Date(now - HOUR);
-    const second = await commitRateDecay(db, { kind: "global_cycle", rate: 0.1, effectiveDate: new Date(effectiveDate.getTime() + 86_400_000), cutoff: secondAt, appliedBy: ids.userId });
+    // A second cycle decay right after the first (e.g. the leader running it
+    // by hand after the automatic one) would decay everyone twice.
+    const tooSoon = await commitRateDecay(db, { kind: "global_cycle", rate: 0.1, effectiveDate: new Date(effectiveDate.getTime() + 86_400_000), cutoff: new Date(now - HOUR), appliedBy: ids.userId });
+    check(failures, "error" in tooSoon && /already been decayed/.test(tooSoon.error), "a second cycle decay within a week of the last is refused");
+    const secondAt = new Date(decayAt.getTime() + 8 * 24 * HOUR);
+    const second = await commitRateDecay(db, { kind: "global_cycle", rate: 0.1, effectiveDate: new Date(effectiveDate.getTime() + 8 * 86_400_000), cutoff: secondAt, appliedBy: ids.userId });
     if ("error" in second) throw new Error(second.error);
     check(failures, second.cycleStarted === startNumber + 2, "a second decay starts the cycle after that");
     const blocked = await reverseDecayEvent(db, first.decayEventId, ids.userId);
