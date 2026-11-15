@@ -50,3 +50,17 @@ test("an unknown ?class value falls back to All", async ({ page }) => {
   await page.goto("/bank?class=nope");
   await expect(page.getByLabel("Class")).toHaveValue("all");
 });
+
+test("class + Category=Spell leaves only that class's spells/songs", async ({ page }) => {
+  await page.goto("/bank?class=brd");
+  await requireFixtures(page);
+  await page.getByLabel("Category").selectOption("spell");
+  await expect(table(page).getByText("Song: Occlusion of Sound")).toBeVisible();
+  await expect(table(page).getByText("Song: Warsong of the Vah Shir")).toBeVisible();
+  await expect(table(page).getByText("Unrefined Emerald")).toHaveCount(0);
+  await expect(table(page).getByText("Spell: Shroud of Death")).toHaveCount(0);
+  // Every remaining row is a spell/song.
+  const categories = await table(page).locator("tbody tr td:nth-child(4)").allInnerTexts();
+  expect(categories.length).toBeGreaterThan(0);
+  for (const c of categories) expect(c.trim().toLowerCase()).toBe("spell");
+});
