@@ -336,6 +336,22 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Guild bank class filter, 2026-11-14 (branch `feature/bank-class-filter`; no migration;
+not yet deployed).** A "Class" dropdown on /bank Browse (single class, default All, kept in the
+URL as `?class=<abbr>`, filtered client-side like the other filters).
+- Data: `src/data/item-classes.json` (14.5k class-restricted item ids → Quarm class bitmask,
+  bit N = site class id N) from `scripts/gen-item-classes.sh` (pq-companion `quarm.db`, same
+  pattern as item-nodrop). Items for every class (32767) or with no class data (0: bags, notes,
+  tradeskill mats) are omitted = usable by all → always shown (leader's call). Spell/song
+  scrolls carry their caster classes.
+- `listBankHoldings` resolves `classMask` server-side (the JSON never ships to the client):
+  item_id → name lookup in `items` for id-less manual rows → parsed free-text
+  `class_restriction` (kept as the fallback only) → null. Null rows still show, with a
+  "Class unknown" pill while a class is selected.
+- No row class tags / spell level / slot filter — leader: the PQDI tooltip already shows them.
+- Verified: e2e `bank-class-filter.spec.ts` 4/4 + bank-audit-access 4/4, tsc, lint, webpack
+  build, no overflow at 1280/390. Rollout: just `npm run deploy`.
+
 **Automatic cycle decay, 2026-11-11 (branch `feature/auto-cycle-decay`; no migration;
 not yet deployed).** Sandrian (new guild leader) asked for the cycle decay to run by itself.
 Rules unchanged — same global_cycle decay, same rate, same rollover, same EP cap reset.
