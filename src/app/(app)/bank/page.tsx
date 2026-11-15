@@ -15,7 +15,7 @@ import { getSession } from "@/lib/session";
 const PAGE_SIZE = 50;
 
 type TabType = "browse" | "audit";
-type SearchParams = { tab?: string; q?: string; page?: string };
+type SearchParams = { tab?: string; q?: string; page?: string; class?: string };
 
 // Visible to every role (member/officer/leader) — same read-only-by-
 // default pattern as /roster. Only add/edit/delete (task 8.6) are
@@ -47,7 +47,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const canViewAudit = perms.can("epgp.bank.audit.view");
   const db = await getDb();
 
-  const { tab: tabParam, q = "", page: pageParam } = await searchParams;
+  const { tab: tabParam, q = "", page: pageParam, class: classParam } = await searchParams;
   // Never trust the requested tab alone — a member hand-editing ?tab=audit
   // into the URL falls back to Browse server-side, same as every other
   // capability gate in this app (the tab link below is also just hidden,
@@ -118,7 +118,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       </div>
 
       <div className="mt-4">
-        {tab === "browse" && <BankBrowseTable holdings={holdings} canManage={perms.can("epgp.bank.manage")} lastImports={lastImports} />}
+        {tab === "browse" && <BankBrowseTable holdings={holdings} canManage={perms.can("epgp.bank.manage")} lastImports={lastImports} initialClass={classParam} />}
         {tab === "audit" && <BankAuditLogTable batches={auditBatches} />}
       </div>
 

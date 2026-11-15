@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { useConfirmWith } from "@/components/ui/ConfirmDialog";
 import { fieldClasses } from "@/components/ui/Field";
 import { BANK_MANUAL_ADD_ENABLED } from "@/lib/bank/constants";
+import { CHAR_CLASSES, UNKNOWN_CLASS_ID } from "@/lib/eq/enums";
 import type { BankHoldingRow } from "@/lib/bank/holdings";
 
 type SortKey = "holderName" | "mainName" | "category" | "itemName" | "quantity" | "status";
@@ -27,6 +28,35 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 // slot 3"; a manual entry's sentinel container (holdings.ts's
 // manualContainer) -> "Manual entry" rather than a confusing raw
 // "Manual slot 1".
+// Class filter (2026-11-14): one class at a time, "all" by default, kept in
+// the URL as ?class=<abbr> so a filtered view can be bookmarked/shared.
+// Items usable by every class always pass; rows whose classes couldn't be
+// resolved (classMask null) also pass, flagged "class unknown".
+const FILTER_CLASSES = CHAR_CLASSES.filter((c) => c.id !== UNKNOWN_CLASS_ID);
+
+function classIdFromParam(param: string | undefined): number | "all" {
+  if (!param) return "all";
+  const p = param.toLowerCase();
+  const match = FILTER_CLASSES.find((c) => c.abbr.toLowerCase() === p || String(c.id) === p);
+  return match ? match.id : "all";
+}
+
+function usableByClass(mask: number | null, classId: number | "all"): boolean {
+  if (classId === "all" || mask === null) return true;
+  return (mask & (1 << classId)) !== 0;
+}
+
+function ClassUnknownPill() {
+  return (
+    <span
+      className="ml-1.5 rounded-full bg-neutral-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400"
+      title="This item couldn't be matched to the item database, so it's shown for every class."
+    >
+      Class unknown
+    </span>
+  );
+}
+
 function formatLocation(container: string, slotIndex: number): string {
   if (container === "Manual") return "Manual entry";
   return slotIndex === 0 ? container : `${container} slot ${slotIndex}`;
@@ -89,6 +119,7 @@ type BankGroup = {
   statusMixed: boolean;
   classRestriction: string | null;
   classMixed: boolean;
+  classMask: number | null;
   rows: BankHoldingRow[];
 };
 
@@ -115,6 +146,7 @@ function buildGroups(rows: BankHoldingRow[]): BankGroup[] {
         statusMixed: false,
         classRestriction: row.classRestriction,
         classMixed: false,
+        classMask: row.classMask,
         rows: [],
       };
       map.set(key, g);
@@ -163,10 +195,12 @@ export function BankBrowseTable({
   holdings,
   canManage,
   lastImports,
+  initialClass,
 }: {
   holdings: BankHoldingRow[];
   canManage: boolean;
   lastImports: LastImportRow[];
+  initialClass?: string;
 }) {
   const router = useRouter();
   const confirmWith = useConfirmWith();
@@ -176,6 +210,7 @@ export function BankBrowseTable({
   const [holderFilter, setHolderFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("guild_bank");
   const [hideNoDrop, setHideNoDrop] = useState(false);
+  const [classFilter, setClassFilter] = useState<number | "all">(() => classIdFromParam(initialClass));
   const [sortKey, setSortKey] = useState<SortKey>("holderName");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -221,9 +256,22 @@ export function BankBrowseTable({
       if (holderFilter !== "all" && h.holderName !== holderFilter) return false;
       if (statusFilter !== "all" && h.status !== statusFilter) return false;
       if (hideNoDrop && h.noDrop) return false;
+      if (!usableByClass(h.classMask, classFilter)) return false;
       return true;
     });
-  }, [holdings, search, categoryFilter, holderFilter, statusFilter, hideNoDrop]);
+  }, [holdings, search, categoryFilter, holderFilter, statusFilter, hideNoDrop, classFilter]);
+
+  // Client-side filter like the others; the URL is only updated (no
+  // navigation, no server round trip) so the choice survives a reload and
+  // can be shared.
+  function changeClassFilter(value: string) {
+    const next = value === "all" ? "all" : Number(value);
+    setClassFilter(next);
+    const url = new URL(window.location.href);
+    if (next === "all") url.searchParams.delete("class");
+    else url.searchParams.set("class", FILTER_CLASSES.find((c) => c.id === next)!.abbr.toLowerCase());
+    window.history.replaceState(window.history.state, "", url);
+  }
 
   const groups = useMemo(() => buildGroups(filteredRows), [filteredRows]);
   const sortedGroups = useMemo(() => {
@@ -325,6 +373,7 @@ export function BankBrowseTable({
               No drop
             </span>
           )}
+          {classFilter !== "all" && row.classMask === null && <ClassUnknownPill />}
         </td>
         <td className="px-3 py-2">
           {isEditing ? (
@@ -450,6 +499,23 @@ export function BankBrowseTable({
             <option value="all">All categories</option>
             <option value="item">Item</option>
             <option value="spell">Spell</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Class</span>
+          <select
+            value={String(classFilter)}
+            onChange={(e) => changeClassFilter(e.target.value)}
+            className={fieldClasses({ size: "sm" })}
+            title="Show only items and spells this class can use"
+          >
+            <option value="all">All classes</option>
+            {FILTER_CLASSES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -645,6 +711,7 @@ export function BankBrowseTable({
                           No drop
                         </span>
                       )}
+                      {classFilter !== "all" && g.classMask === null && <ClassUnknownPill />}
                     </td>
                     <td className="px-3 py-2">{g.quantity.toLocaleString()}</td>
                     <td className="px-3 py-2">

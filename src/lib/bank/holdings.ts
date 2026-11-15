@@ -6,6 +6,8 @@ import { bankHoldings, characters, players } from "@/db";
 import { recordBankAuditRow, type BankHoldingSnapshot } from "@/lib/bank/audit";
 import { findCharacterIdByName } from "@/lib/epgp/character-lookup";
 import { isNoDropItem } from "@/lib/eqstat/item-nodrop";
+import { getItemClassMask, parseClassRestriction } from "@/lib/items/item-classes";
+import { resolveItemNames } from "@/lib/items/resolve";
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -39,6 +41,11 @@ export type BankHoldingRow = {
   // src/lib/eqstat/item-nodrop.ts. Always false when itemId is null
   // (a manual row may not have one).
   noDrop: boolean;
+  // Usable-class bitmask (bit N = class id N, src/lib/items/item-classes.ts)
+  // for /bank's class filter. Resolved server-side: itemId first, then a
+  // name lookup in `items` for a manual row with no id, then the free-text
+  // classRestriction. Null = unknown — the filter still shows it.
+  classMask: number | null;
 };
 
 const mainCharacters = alias(characters, "main_characters");
@@ -92,11 +99,27 @@ export async function listBankHoldings(db: Db): Promise<BankHoldingRow[]> {
     .where(ne(bankHoldings.category, "currency"))
     .orderBy(characters.name, bankHoldings.container, bankHoldings.slotIndex);
 
-  return rows.map((row) => ({
-    ...row,
-    category: row.category as "item" | "spell",
-    noDrop: isNoDropItem(row.itemId),
-  }));
+  // Manual rows without an item id: one batched name lookup (chunked inside
+  // resolveItemNames). Failure here only costs the class filter, never the page.
+  const unresolvedNames = [...new Set(rows.filter((r) => r.itemId === null).map((r) => r.itemName))];
+  let idByName: Record<string, number | null> = {};
+  if (unresolvedNames.length > 0) {
+    try {
+      idByName = await resolveItemNames(db, unresolvedNames);
+    } catch (err) {
+      console.error("[bank] item name -> id lookup for class filter failed", err);
+    }
+  }
+
+  return rows.map((row) => {
+    const classId = row.itemId ?? idByName[row.itemName] ?? null;
+    return {
+      ...row,
+      category: row.category as "item" | "spell",
+      noDrop: isNoDropItem(row.itemId),
+      classMask: classId !== null ? getItemClassMask(classId) : parseClassRestriction(row.classRestriction),
+    };
+  });
 }
 
 export type CreateManualHoldingInput = {
