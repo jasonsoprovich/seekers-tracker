@@ -48,6 +48,11 @@ import { effectiveRoleWithViewAs } from "./src/lib/view-as";
 // because that also makes it harmless once the file does exist locally.
 import { default as handler } from "./.open-next/worker.js";
 
+// Every auth.api.getSession call in this file passes disableRefresh: these
+// handlers return their own Response and never forward better-auth's
+// Set-Cookie, so a refresh here would extend the D1 session without
+// renewing the browser cookie (see src/components/auth/SessionKeepAlive.tsx).
+
 function cfOf(request: Request) {
   return (request as unknown as { cf?: Record<string, unknown> }).cf;
 }
@@ -58,7 +63,7 @@ async function handleLiveBidsWebSocket(request: Request, env: CloudflareEnv): Pr
   }
 
   const auth = createAuth(env, cfOf(request));
-  const session = await auth.api.getSession({ headers: request.headers });
+  const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
   if (!session) {
     return Response.json({ error: "Not signed in." }, { status: 401 });
   }
@@ -82,7 +87,7 @@ async function handleLiveBidsWebSocket(request: Request, env: CloudflareEnv): Pr
 // GET /api/live-bids/state — every member (same bar as the WS view).
 async function handleLiveBidsState(request: Request, env: CloudflareEnv): Promise<Response> {
   const auth = createAuth(env, cfOf(request));
-  const session = await auth.api.getSession({ headers: request.headers });
+  const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
   if (!session) return Response.json({ error: "Not signed in." }, { status: 401 });
 
   const db = drizzle(env.DATABASE, { schema });
@@ -112,7 +117,7 @@ async function handleLiveBidsState(request: Request, env: CloudflareEnv): Promis
 // does that now.
 async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Promise<Response> {
   const auth = createAuth(env, cfOf(request));
-  const session = await auth.api.getSession({ headers: request.headers });
+  const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
   if (!session) return Response.json({ error: "Not signed in." }, { status: 401 });
 
   const db = drizzle(env.DATABASE, { schema });
@@ -147,7 +152,7 @@ async function handleLiveBidsDismiss(request: Request, env: CloudflareEnv): Prom
 // ledger rows.
 async function handleLiveBidsForceClear(request: Request, env: CloudflareEnv): Promise<Response> {
   const auth = createAuth(env, cfOf(request));
-  const session = await auth.api.getSession({ headers: request.headers });
+  const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
   if (!session) return Response.json({ error: "Not signed in." }, { status: 401 });
 
   const db = drizzle(env.DATABASE, { schema });
@@ -182,7 +187,7 @@ async function handleLiveBidsForceClear(request: Request, env: CloudflareEnv): P
 // Next's getUserRole(), so previewing member/officer cannot mutate config.
 async function handleLiveBidsConfig(request: Request, env: CloudflareEnv): Promise<Response> {
   const auth = createAuth(env, cfOf(request));
-  const session = await auth.api.getSession({ headers: request.headers });
+  const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
   if (!session) return Response.json({ error: "Not signed in." }, { status: 401 });
 
   const db = drizzle(env.DATABASE, { schema });

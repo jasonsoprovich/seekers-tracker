@@ -8,6 +8,8 @@ import { getDecayReminder } from "@/lib/epgp/auto-cycle-decay";
 import type { DecayReminder } from "@/lib/epgp/cycles";
 import { type Capability, type PermissionMatrix, roleCan } from "@/lib/permissions";
 
+import { SessionKeepAlive } from "@/components/auth/SessionKeepAlive";
+
 import { Sidebar } from "./Sidebar";
 
 // capability: undefined means every role sees the link; otherwise the
@@ -67,6 +69,7 @@ export async function AppShell({
     // Sidebar was squeezed into a row alongside <main> instead of
     // stacking above it.
     <div className="flex min-h-screen flex-col bg-surface text-neutral-100 sm:flex-row">
+      <SessionKeepAlive />
       <Sidebar links={links} username={username} avatarUrl={avatarUrl} />
       <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-8">{children}</main>
     </div>

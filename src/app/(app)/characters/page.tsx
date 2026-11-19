@@ -16,6 +16,7 @@ import { getSession } from "@/lib/session";
 import { ACTIVITY_WINDOWS, getOwnedAccountActivitySummaries } from "@/lib/epgp/account-activity";
 import { CycleEpMeter, cycleResetNote } from "@/components/epgp/CycleEpMeter";
 import { getCurrentCycleEp } from "@/lib/epgp/ep-cap";
+import { getStandingsForPlayers, type StandingsRow } from "@/lib/epgp/standings";
 import { ledgerDate } from "@/lib/format-date";
 
 const CHAR_TYPE_LABEL = { main: "Main", alt: "Alt", mule: "Mule" } as const;
@@ -43,7 +44,11 @@ export default async function CharactersPage() {
   ]);
 
   const now = new Date();
-  const cycleEp = activitySummaries.length > 0 ? await getCurrentCycleEp(db, activitySummaries.map((s) => s.playerId), now) : null;
+  const summaryPlayerIds = activitySummaries.map((s) => s.playerId);
+  const [cycleEp, standings] =
+    summaryPlayerIds.length > 0
+      ? await Promise.all([getCurrentCycleEp(db, summaryPlayerIds, now), getStandingsForPlayers(db, summaryPlayerIds)])
+      : [null, new Map<number, StandingsRow>()];
   // The running cycle's last day (it ends at midnight Eastern after it).
   const cycleEndsLabel = cycleEp?.scheduledEnd ? ledgerDate(new Date(`${cycleEp.scheduledEnd.lastDay}T00:00:00Z`)) : cycleEp && !cycleEp.open ? ledgerDate(cycleEp.cycle.endDate) : null;
   const cycleReset = cycleEp ? cycleResetNote(cycleEp, now) : null;
@@ -142,15 +147,47 @@ export default async function CharactersPage() {
         <section className="mb-6" aria-labelledby="activity-summary-heading">
           <h2 id="activity-summary-heading" className="mb-2 text-lg font-semibold">Activity summary</h2>
           <p className="mb-3 text-sm text-neutral-500">
-            EP earned this cycle against the cycle cap, plus gross positive EP gained and GP spent, grouped by your player account.
+            Your current EP, GP and loot priority, EP earned this cycle against the cycle cap, and gross positive EP gained and GP spent,
+            grouped by your player account.
           </p>
           <div className="space-y-3">
             {activitySummaries.map((summary) => {
               const mainName = summary.mainCharacterId ? rows.find((character) => character.id === summary.mainCharacterId)?.name : null;
+              const standing = standings.get(summary.playerId);
+              // EP/GP always land on the account's main character, so the
+              // ledger's name search on the main finds every row.
+              const ledgerName = mainName ?? summary.displayName;
+              const ledgerHref = (type: "ep" | "gp" | "bids") => `/epgp/ledger?type=${type}&q=${encodeURIComponent(ledgerName)}`;
               return (
                 <Card key={summary.playerId} className="overflow-hidden">
-                  <div className="border-b border-border px-4 py-2.5">
-                    <h3 className="font-medium">{mainName ?? summary.displayName}</h3>
+                  <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border px-4 py-3">
+                    <div className="min-w-0">
+                      <h3 className="font-medium">{mainName ?? summary.displayName}</h3>
+                      <nav aria-label={`${ledgerName} history`} className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+                        <Link href={ledgerHref("ep")} className="text-emerald-400 hover:text-emerald-300">
+                          EP history
+                        </Link>
+                        <Link href={ledgerHref("gp")} className="text-emerald-400 hover:text-emerald-300">
+                          GP history
+                        </Link>
+                        <Link href={ledgerHref("bids")} className="text-emerald-400 hover:text-emerald-300">
+                          Bids
+                        </Link>
+                        {summary.mainCharacterId && (
+                          <Link href={`/characters/${summary.mainCharacterId}/account`} className="text-emerald-400 hover:text-emerald-300">
+                            Account
+                          </Link>
+                        )}
+                      </nav>
+                    </div>
+                    <dl className="grid grid-cols-3 gap-x-6 gap-y-0.5 text-right tabular-nums">
+                      <dt className="text-[11px] tracking-wide text-neutral-500 uppercase">EP</dt>
+                      <dt className="text-[11px] tracking-wide text-neutral-500 uppercase">GP</dt>
+                      <dt className="text-[11px] tracking-wide text-neutral-500 uppercase">Priority</dt>
+                      <dd className="font-mono text-lg font-semibold text-neutral-100">{standing ? standing.ep.toFixed(2) : "—"}</dd>
+                      <dd className="font-mono text-lg font-semibold text-neutral-100">{standing ? standing.gp.toFixed(2) : "—"}</dd>
+                      <dd className="font-mono text-lg font-semibold text-emerald-400">{standing ? standing.priorityRating.toFixed(4) : "—"}</dd>
+                    </dl>
                   </div>
                   {cycleEp && (
                     <div className="border-b border-border px-4 py-3">

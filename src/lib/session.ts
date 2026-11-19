@@ -86,7 +86,13 @@ export const getAuthSession = cache(async function getAuthSession() {
       const maxAttempts = hasAuthCookie ? 3 : 1;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          const session = await auth.api.getSession({ headers: hdrs });
+          // disableRefresh (2026-11-18): this runs in a Server Component,
+          // which can't set cookies. Refreshing here extended the D1 row but
+          // dropped the new cookie, and it also used up the once-a-day
+          // refresh before SessionKeepAlive's route call could re-set the
+          // cookie, so browsers logged out 7 days after sign-in regardless of
+          // use. Refresh happens only via GET /api/auth/get-session now.
+          const session = await auth.api.getSession({ headers: hdrs, query: { disableRefresh: true } });
           if (session || attempt === maxAttempts) {
             if (!session && hasAuthCookie) {
               // Always log this one (not perfNote / PERF_DEBUG-gated): a
