@@ -9,7 +9,7 @@ import { getDb } from "@/lib/db";
 import { getPermissions } from "@/lib/permissions";
 import { isRosterPlaceholder } from "@/lib/roster-visibility";
 import { getSession } from "@/lib/session";
-import { SPELL_CLASS_IDS } from "@/lib/spells";
+import { isClassSpell, SPELL_CLASS_IDS } from "@/lib/spells";
 import { loadHiddenSpellIds } from "@/lib/spells/db";
 
 // Guild-wide 61-65 spell grid, one class at a time. Visible to every role
@@ -53,7 +53,14 @@ export default async function SpellsPage() {
   ]);
 
   const byCharacter = new Map<number, { owned: number[]; updatedAt: number | null; updatedSource: string | null }>();
+  // character_spells also holds level 1-60 rows from the Spells tab's
+  // personal "All spells" view; this page is 61-65 only, for both the grid
+  // and the "updated ..." freshness. Checked per class: a spell can be 61-65
+  // for one class and lower for another (Annul Magic: PAL/ENC 61, CLR lower).
+  const classOf = new Map(allCharacters.map((c) => [c.id, c.classId]));
   for (const r of spellRows) {
+    const classId = classOf.get(r.characterId);
+    if (classId === undefined || !isClassSpell(classId, r.spellId)) continue;
     let entry = byCharacter.get(r.characterId);
     if (!entry) {
       entry = { owned: [], updatedAt: null, updatedSource: null };

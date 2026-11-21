@@ -44,18 +44,25 @@ test.describe("as admin", () => {
       .getByPlaceholder(/Index\tSpellId/)
       .fill("Index\tSpellId\tLevel\tName\n1\t3296\t61\tFaith\n2\t3467\t62\tVirtue\n3\t202\t1\tCourage\n");
     await page.getByRole("button", { name: "Preview" }).click();
-    await expect(page.getByText(/2 on this class.s 61–65 list, 2 new/)).toBeVisible();
-    await page.getByRole("button", { name: "Add 2 spells" }).click();
-    await expect(page.getByText("Added 2 spells.")).toBeVisible();
+    // Courage is Cleric level 1 — the import fills the "All spells" view too.
+    await expect(page.getByText(/3 on this class.s list, 3 new/)).toBeVisible();
+    await expect(page.getByText("Levels 1–60 (1)")).toBeVisible();
+    await page.getByRole("button", { name: "Add 3 spells" }).click();
+    await expect(page.getByText("Added 3 spells.")).toBeVisible();
 
     await page.reload();
-    for (const name of ["Faith", "Virtue"]) {
+    // PoP view (default) hides the 1-60 rows.
+    await expect(page.getByText("Courage", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "All spells" }).click();
+    await expect(page.getByText("Levels 1–10", { exact: true })).toBeVisible();
+    // Bands start collapsed until partly done; Courage is checked, so 1–10 is open.
+    for (const name of ["Faith", "Virtue", "Courage"]) {
       await expect(spellRow(page, name).getByTitle("Mark missing")).toBeVisible();
       await expect(spellRow(page, name).getByText("zeal", { exact: true })).toBeVisible();
     }
     await page.screenshot({ path: "test-results/spells-tab.png", fullPage: true });
 
-    for (const name of ["Faith", "Virtue"]) {
+    for (const name of ["Faith", "Virtue", "Courage"]) {
       const saved = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/spells"));
       await spellRow(page, name).getByTitle("Mark missing").click();
       await saved;
@@ -64,6 +71,32 @@ test.describe("as admin", () => {
     await page.reload();
     await expect(spellRow(page, "Faith").getByTitle("Mark scribed")).toBeVisible();
     await expect(spellRow(page, "Virtue").getByTitle("Mark scribed")).toBeVisible();
+    // The view choice is remembered across reloads; put it back.
+    // Nothing left checked in 1–10, so the band is collapsed again.
+    await expect(page.locator("details", { has: page.getByText("Levels 1–10", { exact: true }) })).not.toHaveAttribute("open", "");
+    await page.getByText("Levels 1–10", { exact: true }).click();
+    await expect(spellRow(page, "Courage").getByTitle("Mark scribed")).toBeVisible();
+    await page.getByRole("button", { name: "PoP spells (61–65)" }).click();
+    await page.reload();
+    await expect(page.getByText("Courage", { exact: true })).toHaveCount(0);
+  });
+
+  test("a 1-60 spell never shows on the /spells grid", async ({ page }) => {
+    await page.goto(`/characters/${CHAR}/spells`);
+    await page.getByRole("button", { name: "All spells" }).click();
+    await page.getByText("Levels 1–10", { exact: true }).click();
+    const saved = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/spells"));
+    await spellRow(page, "Courage").getByTitle("Mark scribed").click();
+    await saved;
+
+    await page.goto("/spells");
+    await expect(page.getByText("Courage", { exact: true })).toHaveCount(0);
+
+    await page.goto(`/characters/${CHAR}/spells`);
+    const undone = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/spells"));
+    await spellRow(page, "Courage").getByTitle("Mark missing").click();
+    await undone;
+    await page.getByRole("button", { name: "PoP spells (61–65)" }).click();
   });
 
   test("grid edit mode flips a cell for a member", async ({ page }) => {
@@ -107,6 +140,20 @@ test.describe("as admin", () => {
     await page.reload();
     await expect(page.getByTitle("Faith (level 61)")).toBeHidden();
 
+    // Character tab: hidden spells only leave the grid. Both views list them,
+    // tagged, in their own level, and there is no separate hidden section.
+    await page.goto(`/characters/${CHAR}/spells`);
+    const level61 = page.locator("details", { has: page.getByText("Level 61", { exact: true }) });
+    for (const view of ["PoP spells (61–65)", "All spells"]) {
+      await page.getByRole("button", { name: view }).click();
+      await expect(level61.getByText("Faith", { exact: true })).toBeVisible();
+      await expect(spellRow(page, "Faith").getByText("not tracked", { exact: true })).toBeVisible();
+      await expect(page.getByText(/Hidden by officers/)).toHaveCount(0);
+    }
+    await page.getByRole("button", { name: "PoP spells (61–65)" }).click();
+
+    await page.goto("/spells");
+    await page.getByRole("button", { name: /^CLR/ }).click();
     await page.getByLabel(/Show hidden/).check();
     await page.getByTitle("Show this spell guild-wide").first().click();
     await page.waitForLoadState("networkidle");

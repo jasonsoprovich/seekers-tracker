@@ -6,25 +6,48 @@ import { useRouter } from "next/navigation";
 import { setCharacterSpell } from "@/app/(app)/characters/[id]/spells/actions";
 import { ItemLink } from "@/components/items/ItemLink";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { SPELL_LEVELS, type ClassSpell } from "@/lib/spells";
 
-// A character's 61-65 class spells as checkboxes, one collapsible section
-// per level (open while anything in it is missing). Optimistic like
+// A character's class spells as checkboxes, one collapsible section per
+// level (open while anything in it is missing). Optimistic like
 // PopFlagChecklist: the dot flips immediately and rolls back on a failed
-// save. Officer-hidden spells are left out for members; officers get them
-// in a collapsed "Hidden by officers" section so they can still be set.
+// save. Officer-hidden spells (tradeskill/cosmetic) are listed and counted
+// like any other here, with a "not tracked" tag: hiding only takes them off
+// the /spells summary grid.
+//
+// Two views, remembered per browser: "PoP spells" (the guild's 61-65 list,
+// the default and what /spells tracks) and "All spells", which adds the
+// class's level 1-60 spells in ten-level bands for members tracking their
+// whole book. The 1-60 rows are personal — nothing guild-wide reads them.
+
+const VIEW_STORAGE_KEY = "spell_checklist_view";
+const LOW_BANDS: readonly [number, number][] = [
+  [1, 10],
+  [11, 20],
+  [21, 30],
+  [31, 40],
+  [41, 50],
+  [51, 60],
+];
 
 function SpellRow({
   spell,
   has,
   source,
   readOnly,
+  showLevel = false,
+  officerHidden = false,
   onToggle,
 }: {
   spell: ClassSpell;
   has: boolean;
   source?: string;
   readOnly: boolean;
+  // Banded (1-60) sections mix levels, so each row names its own.
+  showLevel?: boolean;
+  // Hidden from the Spell Progression grid by officers.
+  officerHidden?: boolean;
   onToggle: (spell: ClassSpell) => void;
 }) {
   return (
@@ -38,9 +61,18 @@ function SpellRow({
       >
         {has ? <span className="text-emerald-400">●</span> : <span className="text-neutral-600">○</span>}
       </button>
+      {showLevel && <span className="w-6 shrink-0 text-right text-xs text-neutral-500 tabular-nums">{spell.level}</span>}
       <span className={`min-w-0 flex-1 truncate text-sm ${has ? "text-neutral-500" : "text-neutral-100"}`}>
         <ItemLink name={spell.name} itemId={spell.scrollItemId} />
       </span>
+      {officerHidden && (
+        <span
+          title="Officers don't track this spell on Spell Progression"
+          className="shrink-0 rounded border border-neutral-800 px-1.5 py-0.5 text-[9px] tracking-wider text-neutral-500 uppercase"
+        >
+          not tracked
+        </span>
+      )}
       {has && source === "zeal" && (
         <span className="shrink-0 rounded border border-neutral-700 bg-neutral-800/60 px-1.5 py-0.5 text-[9px] tracking-wider text-neutral-400 uppercase">
           zeal
@@ -53,17 +85,19 @@ function SpellRow({
 export function SpellChecklist({
   characterId,
   spells,
+  lowSpells,
   owned,
   hiddenIds,
-  showHidden,
   readOnly,
 }: {
   characterId: number;
+  // The class's 61-65 list.
   spells: ClassSpell[];
+  // The class's 1-60 spells, for the "All spells" view.
+  lowSpells: ClassSpell[];
   // spellId -> source
   owned: Record<number, string>;
   hiddenIds: number[];
-  showHidden: boolean;
   readOnly: boolean;
 }) {
   const router = useRouter();
@@ -78,9 +112,23 @@ export function SpellChecklist({
     if (pendingSaves.current === 0) setLocal(owned);
   }, [owned]);
   const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds]);
+  const [view, setView] = useState<"pop" | "all">("pop");
 
-  const visible = spells.filter((s) => !hidden.has(s.spellId));
-  const hiddenSpells = spells.filter((s) => hidden.has(s.spellId));
+  // Read after mount so SSR markup stays stable (same as PopFlagChecklist).
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- browser storage is only readable after mount
+      if (localStorage.getItem(VIEW_STORAGE_KEY) === "all") setView("all");
+    } catch {}
+  }, []);
+  function changeView(v: string) {
+    const next = v === "all" ? "all" : "pop";
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {}
+  }
+
 
   async function onToggle(spell: ClassSpell) {
     if (readOnly) return;
@@ -112,48 +160,95 @@ export function SpellChecklist({
     startRefresh(() => router.refresh());
   }
 
-  if (spells.length === 0) {
-    return <p className="text-sm text-neutral-500">This class has no level 61–65 spells to track.</p>;
+  if (spells.length === 0 && lowSpells.length === 0) {
+    return <p className="text-sm text-neutral-500">This class has no spells to track.</p>;
   }
+
+  const has = (s: ClassSpell) => local[s.spellId] !== undefined;
+  const row = (s: ClassSpell, showLevel = false) => (
+    <SpellRow
+      key={s.spellId}
+      spell={s}
+      has={has(s)}
+      source={local[s.spellId]}
+      readOnly={readOnly}
+      showLevel={showLevel}
+      officerHidden={hidden.has(s.spellId)}
+      onToggle={onToggle}
+    />
+  );
+  function section(key: string, label: string, list: ClassSpell[], showLevel: boolean) {
+    if (list.length === 0) return null;
+    const done = list.filter(has).length;
+    const complete = done === list.length;
+    // 61-65 levels open while anything is missing. The 1-60 bands start
+    // collapsed (six open bands of ~200 spells is a wall) and open only
+    // once partly done, so a first visit reads as a short summary.
+    const open = showLevel ? done > 0 && !complete : !complete;
+    return (
+      <details
+        key={key}
+        open={open}
+        className={`overflow-hidden rounded-lg border ${complete ? "border-emerald-700" : "border-neutral-800"} bg-neutral-900/40`}
+      >
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
+          <span className={`flex-1 text-sm font-semibold ${complete ? "text-emerald-400" : "text-neutral-100"}`}>{label}</span>
+          <div className="w-32 shrink-0">
+            <ProgressBar done={done} total={list.length} />
+          </div>
+        </summary>
+        {list.map((s) => row(s, showLevel))}
+      </details>
+    );
+  }
+
+  const allCounted = [...lowSpells, ...spells];
+  const allDone = allCounted.filter(has).length;
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {lowSpells.length > 0 && (
+          <SegmentedToggle
+            value={view}
+            onChange={changeView}
+            options={[
+              { value: "pop", label: "PoP spells (61–65)" },
+              { value: "all", label: "All spells" },
+            ]}
+          />
+        )}
+        {view === "all" && (
+          <div className="min-w-48 flex-1">
+            <ProgressBar done={allDone} total={allCounted.length} suffix=" all spells" />
+          </div>
+        )}
+      </div>
+      {view === "all" && (
+        <p className="text-xs text-neutral-500">
+          Levels 1–60 are for your own tracking — officers only look at 61–65 on Spell Progression.
+        </p>
+      )}
       {error && <p className="text-sm text-red-400">{error}</p>}
-      {SPELL_LEVELS.map((level) => {
-        const list = visible.filter((s) => s.level === level);
-        if (list.length === 0) return null;
-        const done = list.filter((s) => local[s.spellId] !== undefined).length;
-        const complete = done === list.length;
-        return (
-          <details
-            key={level}
-            open={!complete}
-            className={`overflow-hidden rounded-lg border ${complete ? "border-emerald-700" : "border-neutral-800"} bg-neutral-900/40`}
-          >
-            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
-              <span className={`flex-1 text-sm font-semibold ${complete ? "text-emerald-400" : "text-neutral-100"}`}>
-                Level {level}
-              </span>
-              <div className="w-32 shrink-0">
-                <ProgressBar done={done} total={list.length} />
-              </div>
-            </summary>
-            {list.map((s) => (
-              <SpellRow key={s.spellId} spell={s} has={local[s.spellId] !== undefined} source={local[s.spellId]} readOnly={readOnly} onToggle={onToggle} />
-            ))}
-          </details>
-        );
-      })}
-      {showHidden && hiddenSpells.length > 0 && (
-        <details className="overflow-hidden rounded-lg border border-dashed border-neutral-800 bg-neutral-900/20">
-          <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
-            <span className="flex-1 text-sm text-neutral-400">Hidden by officers ({hiddenSpells.length})</span>
-            <span className="text-[11px] text-neutral-500">Not counted — unhide from /spells</span>
-          </summary>
-          {hiddenSpells.map((s) => (
-            <SpellRow key={s.spellId} spell={s} has={local[s.spellId] !== undefined} source={local[s.spellId]} readOnly={readOnly} onToggle={onToggle} />
-          ))}
-        </details>
+      {view === "all" &&
+        LOW_BANDS.map(([lo, hi]) =>
+          section(
+            `band-${lo}`,
+            `Levels ${lo}–${hi}`,
+            lowSpells.filter((s) => s.level >= lo && s.level <= hi),
+            true,
+          ),
+        )}
+      {spells.length === 0 && view === "pop" && (
+        <p className="text-sm text-neutral-500">This class has no level 61–65 spells to track.</p>
+      )}
+      {SPELL_LEVELS.map((level) =>
+        section(
+          `level-${level}`,
+          `Level ${level}`,
+          spells.filter((s) => s.level === level),
+          false,
+        ),
       )}
     </div>
   );

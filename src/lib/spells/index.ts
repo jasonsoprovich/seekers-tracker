@@ -62,6 +62,11 @@ export function spellsForClass(classId: number): ClassSpell[] {
   return list;
 }
 
+// Whether a spell is on a class's 61-65 list.
+export function isClassSpell(classId: number, spellId: number): boolean {
+  return getSpell(spellId)?.classes.some((c) => c.classId === classId) ?? false;
+}
+
 // Class ids (0-based, src/lib/eq/enums.ts) that have any 61-65 spell.
 export const SPELL_CLASS_IDS: readonly number[] = [...new Set(SPELLS.flatMap((s) => s.classes.map((c) => c.classId)))].sort(
   (a, b) => a - b,
