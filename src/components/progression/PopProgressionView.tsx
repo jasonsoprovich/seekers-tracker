@@ -27,7 +27,7 @@ export interface ProgressionRow {
   // ms epoch of this character's last EP/GP ledger row within the last
   // year, or null if none — backs the "recently active" default filter.
   lastActivityAt: number | null;
-  tiers: { tier: number; label: string; done: number; total: number }[];
+  tiers: { tier: number; label: string; done: number; total: number; pendingKeyrings: string[] }[];
   zones: ZoneStatus[];
 }
 
@@ -56,13 +56,18 @@ function compare(a: ProgressionRow, b: ProgressionRow, key: SortKey): number {
 }
 
 // The highest tier with any progress, labeled done if that tier's
-// non-optional flags are all complete — a one-glance "where are they"
-// summary next to the full progress bar.
+// non-optional flags are all complete and no key-ring step is pending — a
+// one-glance "where are they" summary next to the full progress bar.
 function currentTierLabel(tiers: ProgressionRow["tiers"]): string {
   let label = "Not started";
   for (const t of tiers) {
     if (t.done === 0) continue;
-    label = t.total > 0 && t.done === t.total ? `${t.label} ✓` : t.label;
+    // Same rule as tierComplete in @/lib/pop-flags, inlined so this client
+    // view doesn't pull the flag dataset into its bundle.
+    const full = t.total > 0 && t.done === t.total;
+    if (full && t.pendingKeyrings.length === 0) label = `${t.label} ✓`;
+    else if (full) label = `${t.label} · key-ring left`;
+    else label = t.label;
   }
   return label;
 }

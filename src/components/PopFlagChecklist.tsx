@@ -8,7 +8,15 @@ import PopFlagFlow from "@/components/PopFlagFlow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { PopFlagRow } from "@/components/PopFlagRow";
-import { MANUAL_META, resolveFlags, type FlagState, type FlagStatus, type Progress } from "@/lib/pop-flags";
+import {
+  MANUAL_META,
+  keyringsLeftNote,
+  resolveFlags,
+  tierComplete,
+  type FlagState,
+  type FlagStatus,
+  type Progress,
+} from "@/lib/pop-flags";
 
 function TierSection({
   progress,
@@ -27,7 +35,10 @@ function TierSection({
   readOnly: boolean;
   onToggle: (flag: FlagStatus) => void;
 }) {
-  const complete = progress.done === progress.total && progress.total > 0;
+  // A full tally with a key-ring zone-in still pending stays open and
+  // un-green, with a note, so the last step isn't hidden in a collapsed tier.
+  const complete = tierComplete(progress);
+  const keyringNote = keyringsLeftNote(progress);
 
   const zones = useMemo(() => {
     const order: string[] = [];
@@ -44,12 +55,13 @@ function TierSection({
 
   return (
     <details
-      open={progress.done < progress.total}
+      open={!complete}
       className={`overflow-hidden rounded-lg border ${complete ? "border-emerald-700" : "border-neutral-800"} bg-neutral-900/40`}
     >
       <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
         <span className={`flex-1 text-sm font-semibold ${complete ? "text-emerald-400" : "text-neutral-100"}`}>
           {progress.label}
+          {keyringNote && <span className="ml-2 text-xs font-normal text-teal-400">{keyringNote}</span>}
         </span>
         <div className="w-32 shrink-0">
           <ProgressBar done={progress.done} total={progress.total} />

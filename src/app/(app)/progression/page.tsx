@@ -69,7 +69,13 @@ export default async function ProgressionPage() {
       done: resolved.done,
       total: resolved.total,
       lastActivityAt: c.lastActivityAt?.getTime() ?? null,
-      tiers: resolved.tiers.map((t) => ({ tier: t.tier ?? 0, label: tierLabel(t.tier ?? 0), done: t.done, total: t.total })),
+      tiers: resolved.tiers.map((t) => ({
+        tier: t.tier ?? 0,
+        label: tierLabel(t.tier ?? 0),
+        done: t.done,
+        total: t.total,
+        pendingKeyrings: t.pendingKeyrings ?? [],
+      })),
       zones: zoneStatuses(resolved),
     };
   });
