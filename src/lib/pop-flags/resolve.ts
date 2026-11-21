@@ -29,6 +29,10 @@ export interface Progress {
   label: string;
   done: number;
   total: number;
+  // Tier rows only: labels of this tier's key-ring steps that are still
+  // outstanding (see pendingKeyrings). Display-only — never part of
+  // done/total — but a tier with one left isn't shown as complete.
+  pendingKeyrings?: string[];
 }
 
 export interface Resolved {
@@ -141,8 +145,36 @@ export function resolveFlags(states: FlagState[]): Resolved {
     if (done) out.zones[zi].done++;
   }
 
+  for (const t of out.tiers) {
+    t.pendingKeyrings = pendingKeyrings(out.flags, t.tier ?? 0).map((f) => f.label);
+  }
+
   out.tiers.sort((a, b) => (a.tier ?? 0) - (b.tier ?? 0));
   return out;
+}
+
+// A tier's outstanding key-ring zone-ins (role "keyring": not done, not
+// superseded). They stay out of the done/total tally, but they're the last
+// step of a tier (e.g. Tower of Solusek Ro's Plane of Fire floor door), so a
+// tier that collapsed as "complete" with one left hid it from the player.
+// Only key-rings hold a tier open — "key" (1/raid door keys) and "optional"
+// rows are genuinely optional bonus content.
+export function pendingKeyrings(flags: FlagStatus[], tier: number): FlagStatus[] {
+  return flags.filter((f) => f.tier === tier && f.role === "keyring" && !f.done && !f.superseded);
+}
+
+// Whether a tier reads as complete in the UI (green, collapsed by default,
+// ✓): its counted steps are all done AND no key-ring step is still pending.
+export function tierComplete(p: Pick<Progress, "done" | "total" | "pendingKeyrings">): boolean {
+  return p.total > 0 && p.done === p.total && !p.pendingKeyrings?.length;
+}
+
+// Short header note for a tier whose tally is full but still has key-ring
+// steps left, or null when there's nothing to say.
+export function keyringsLeftNote(p: Pick<Progress, "done" | "total" | "pendingKeyrings">): string | null {
+  const left = p.pendingKeyrings ?? [];
+  if (left.length === 0 || p.total === 0 || p.done < p.total) return null;
+  return left.length === 1 ? `Key-ring left: ${left[0]}` : `${left.length} key-rings left: ${left.join("; ")}`;
 }
 
 export type ZoneState = "locked" | "available" | "in_progress" | "complete";
@@ -158,6 +190,10 @@ export interface ZoneStatus {
   // zone. Optional, so they never touch done/total or the state color — the
   // grid just overlays a key icon so officers can spot key holders.
   keys: string[];
+  // Labels of the zone's key-ring zone-ins (role "keyring") still to do.
+  // Out of done/total like keys, but personal: each character must zone in
+  // themselves, so a zone with one left is "in_progress", never "complete".
+  keyringsLeft: string[];
 }
 
 // Per-zone milestone state for a resolved character, for the Pop
@@ -167,7 +203,13 @@ export interface ZoneStatus {
 export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
   const byZone = new Map<string, { done: number; total: number; allLocked: boolean }>();
   const keysByZone = new Map<string, string[]>();
+  const keyringsByZone = new Map<string, string[]>();
   for (const f of resolved.flags) {
+    if (f.role === "keyring" && !f.done && !f.superseded) {
+      const left = keyringsByZone.get(f.zone) ?? [];
+      left.push(f.label);
+      keyringsByZone.set(f.zone, left);
+    }
     if (f.role === "key" && f.done) {
       const keys = keysByZone.get(f.zone) ?? [];
       keys.push(f.label);
@@ -183,11 +225,12 @@ export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
 
   return getZoneCatalog().map(({ zone, tier }) => {
     const agg = byZone.get(zone) ?? { done: 0, total: 0, allLocked: true };
+    const keyringsLeft = keyringsByZone.get(zone) ?? [];
     let state: ZoneState;
-    if (agg.total > 0 && agg.done === agg.total) state = "complete";
+    if (agg.total > 0 && agg.done === agg.total) state = keyringsLeft.length > 0 ? "in_progress" : "complete";
     else if (agg.done > 0) state = "in_progress";
     else if (agg.total > 0 && agg.allLocked) state = "locked";
     else state = "available";
-    return { zone, tier, done: agg.done, total: agg.total, state, keys: keysByZone.get(zone) ?? [] };
+    return { zone, tier, done: agg.done, total: agg.total, state, keys: keysByZone.get(zone) ?? [], keyringsLeft };
   });
 }

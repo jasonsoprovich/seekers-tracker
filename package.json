@@ -18,6 +18,7 @@
     "snapshot": "scripts/snapshot.sh",
     "bookmark": "scripts/remote-bookmark.sh",
     "verify:popflags-cmd": "tsx scripts/verify-popflags-cmd.ts",
+    "verify:pop-tier-complete": "tsx scripts/verify-pop-tier-complete.ts",
     "verify:spellbook": "tsx scripts/verify-spellbook.ts",
     "verify:sql-sandbox": "tsx scripts/verify-sql-sandbox.ts",
     "verify:bookmark": "scripts/verify-remote-bookmark.sh",
