@@ -14,6 +14,9 @@ import { SPELL_LEVELS, type ClassSpell } from "@/lib/spells";
 // PopFlagChecklist: the dot flips immediately and rolls back on a failed
 // save. Officer-hidden spells are left out for members; officers get them
 // in a collapsed "Hidden by officers" section so they can still be set.
+// The "All spells" view shows everything, hidden spells included, in their
+// level sections for every viewer, since it's a whole-spellbook view. Hiding
+// only affects /spells and the PoP view.
 //
 // Two views, remembered per browser: "PoP spells" (the guild's 61-65 list,
 // the default and what /spells tracks) and "All spells", which adds the
@@ -36,6 +39,7 @@ function SpellRow({
   source,
   readOnly,
   showLevel = false,
+  officerHidden = false,
   onToggle,
 }: {
   spell: ClassSpell;
@@ -44,6 +48,9 @@ function SpellRow({
   readOnly: boolean;
   // Banded (1-60) sections mix levels, so each row names its own.
   showLevel?: boolean;
+  // Hidden from Spell Progression by officers. Only tagged in the All view,
+  // where hidden spells sit among the rest.
+  officerHidden?: boolean;
   onToggle: (spell: ClassSpell) => void;
 }) {
   return (
@@ -61,6 +68,14 @@ function SpellRow({
       <span className={`min-w-0 flex-1 truncate text-sm ${has ? "text-neutral-500" : "text-neutral-100"}`}>
         <ItemLink name={spell.name} itemId={spell.scrollItemId} />
       </span>
+      {officerHidden && (
+        <span
+          title="Officers don't track this spell on Spell Progression"
+          className="shrink-0 rounded border border-neutral-800 px-1.5 py-0.5 text-[9px] tracking-wider text-neutral-500 uppercase"
+        >
+          not tracked
+        </span>
+      )}
       {has && source === "zeal" && (
         <span className="shrink-0 rounded border border-neutral-700 bg-neutral-800/60 px-1.5 py-0.5 text-[9px] tracking-wider text-neutral-400 uppercase">
           zeal
@@ -158,7 +173,16 @@ export function SpellChecklist({
 
   const has = (s: ClassSpell) => local[s.spellId] !== undefined;
   const row = (s: ClassSpell, showLevel = false) => (
-    <SpellRow key={s.spellId} spell={s} has={has(s)} source={local[s.spellId]} readOnly={readOnly} showLevel={showLevel} onToggle={onToggle} />
+    <SpellRow
+      key={s.spellId}
+      spell={s}
+      has={has(s)}
+      source={local[s.spellId]}
+      readOnly={readOnly}
+      showLevel={showLevel}
+      officerHidden={view === "all" && hidden.has(s.spellId)}
+      onToggle={onToggle}
+    />
   );
   function section(key: string, label: string, list: ClassSpell[], showLevel: boolean) {
     if (list.length === 0) return null;
@@ -185,8 +209,10 @@ export function SpellChecklist({
     );
   }
 
-  // Officer-hidden 61-65 spells stay out of the "All" tally too.
-  const allCounted = [...lowSpells, ...visible];
+  // The All view is the whole spellbook, so officer-hidden spells are listed
+  // and counted there; the PoP view keeps them out.
+  const levelSpells = view === "all" ? spells : visible;
+  const allCounted = [...lowSpells, ...spells];
   const allDone = allCounted.filter(has).length;
 
   return (
@@ -230,11 +256,11 @@ export function SpellChecklist({
         section(
           `level-${level}`,
           `Level ${level}`,
-          visible.filter((s) => s.level === level),
+          levelSpells.filter((s) => s.level === level),
           false,
         ),
       )}
-      {showHidden && hiddenSpells.length > 0 && (
+      {view === "pop" && showHidden && hiddenSpells.length > 0 && (
         <details className="overflow-hidden rounded-lg border border-dashed border-neutral-800 bg-neutral-900/20">
           <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
             <span className="flex-1 text-sm text-neutral-400">Hidden by officers ({hiddenSpells.length})</span>
