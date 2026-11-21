@@ -3,7 +3,7 @@
 // key-ring step (role "keyring") is pending. "key" and "optional" rows never
 // hold a tier open, and key-rings never touch the tally.
 // Pure (no DB). Usage: npx tsx scripts/verify-pop-tier-complete.ts
-import { getFlags, keyringsLeftNote, resolveFlags, tierComplete, type FlagState } from "../src/lib/pop-flags";
+import { getFlags, keyringsLeftNote, resolveFlags, tierComplete, zoneStatuses, type FlagState } from "../src/lib/pop-flags";
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -64,6 +64,22 @@ check(
   "multiple key-rings note",
   keyringsLeftNote({ done: 1, total: 1, pendingKeyrings: ["A", "B"] }) === "2 key-rings left: A; B",
 );
+
+// Zone grid: a zone whose counted steps are done but whose key-ring is left
+// reads in_progress (with the key-ring named); once it's done, complete. A
+// pending door key never holds a zone back.
+const solro = (states: FlagState[]) => zoneStatuses(resolveFlags(states)).find((z) => z.zone === "Tower of Solusek Ro")!;
+const solroOpen = solro(base);
+check("Sol Ro zone, key-ring left -> in_progress", solroOpen.state === "in_progress", solroOpen.state);
+check(
+  "Sol Ro zone names the key-ring",
+  JSON.stringify(solroOpen.keyringsLeft) === JSON.stringify(["Jump into the floor door (Plane of Fire key-ring)"]),
+  JSON.stringify(solroOpen.keyringsLeft),
+);
+const solroDone = solro([...base, done("solro_pofire_keyring")]);
+check("Sol Ro zone, key-ring done -> complete", solroDone.state === "complete" && solroDone.keyringsLeft.length === 0, solroDone.state);
+const bot = zoneStatuses(resolveFlags(base)).find((z) => z.zone === "Bastion of Thunder")!;
+check("BoT zone, door key pending -> still complete", bot.state === "complete", bot.state);
 
 console.log(failed === 0 ? "\nAll checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);

@@ -20,10 +20,15 @@ interface ZoneGroup {
 
 type ZoneStatus = "done" | "available" | "locked";
 
+// A zone card is done when its counted steps are done and no key-ring
+// zone-in is left. Key-rings are optional rows but personal (each character
+// must zone in themselves, e.g. Sol Ro's floor door to Plane of Fire), unlike
+// "key" rows, where one door key per raid is enough. Matches tierComplete.
 function zoneStatus(flags: FlagStatus[]): ZoneStatus {
   const relevant = flags.filter((f) => !f.optional && !f.group);
   if (relevant.length === 0) return "available";
-  if (relevant.every((f) => f.done)) return "done";
+  const keyringLeft = flags.some((f) => f.role === "keyring" && !f.done && !f.superseded);
+  if (relevant.every((f) => f.done)) return keyringLeft ? "available" : "done";
   if (relevant.every((f) => f.locked && !f.done)) return "locked";
   return "available";
 }

@@ -124,10 +124,11 @@ function KeyIcon({ className }: { className?: string }) {
 function ZoneCell({ zone, bandStart }: { zone: ZoneStatus; bandStart: boolean }) {
   const meta = STATE_META[zone.state];
   const keyNote = zone.keys.length > 0 ? `\nHas key: ${zone.keys.join(", ")}` : "";
+  const keyringNote = zone.keyringsLeft.length > 0 ? `\nKey-ring left: ${zone.keyringsLeft.join("; ")}` : "";
   return (
     <td className={`px-0.5 py-1.5 text-center ${bandStart ? "border-l border-border" : ""}`}>
       <div
-        title={`${zone.zone} — ${zone.done}/${zone.total} (${meta.label})${keyNote}`}
+        title={`${zone.zone} — ${zone.done}/${zone.total} (${meta.label})${keyNote}${keyringNote}`}
         className={`mx-auto flex h-4 w-4 items-center justify-center rounded-sm ${meta.swatch}`}
       >
         {zone.keys.length > 0 && (

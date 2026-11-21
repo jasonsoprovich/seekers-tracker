@@ -190,6 +190,10 @@ export interface ZoneStatus {
   // zone. Optional, so they never touch done/total or the state color — the
   // grid just overlays a key icon so officers can spot key holders.
   keys: string[];
+  // Labels of the zone's key-ring zone-ins (role "keyring") still to do.
+  // Out of done/total like keys, but personal: each character must zone in
+  // themselves, so a zone with one left is "in_progress", never "complete".
+  keyringsLeft: string[];
 }
 
 // Per-zone milestone state for a resolved character, for the Pop
@@ -199,7 +203,13 @@ export interface ZoneStatus {
 export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
   const byZone = new Map<string, { done: number; total: number; allLocked: boolean }>();
   const keysByZone = new Map<string, string[]>();
+  const keyringsByZone = new Map<string, string[]>();
   for (const f of resolved.flags) {
+    if (f.role === "keyring" && !f.done && !f.superseded) {
+      const left = keyringsByZone.get(f.zone) ?? [];
+      left.push(f.label);
+      keyringsByZone.set(f.zone, left);
+    }
     if (f.role === "key" && f.done) {
       const keys = keysByZone.get(f.zone) ?? [];
       keys.push(f.label);
@@ -215,11 +225,12 @@ export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
 
   return getZoneCatalog().map(({ zone, tier }) => {
     const agg = byZone.get(zone) ?? { done: 0, total: 0, allLocked: true };
+    const keyringsLeft = keyringsByZone.get(zone) ?? [];
     let state: ZoneState;
-    if (agg.total > 0 && agg.done === agg.total) state = "complete";
+    if (agg.total > 0 && agg.done === agg.total) state = keyringsLeft.length > 0 ? "in_progress" : "complete";
     else if (agg.done > 0) state = "in_progress";
     else if (agg.total > 0 && agg.allLocked) state = "locked";
     else state = "available";
-    return { zone, tier, done: agg.done, total: agg.total, state, keys: keysByZone.get(zone) ?? [] };
+    return { zone, tier, done: agg.done, total: agg.total, state, keys: keysByZone.get(zone) ?? [], keyringsLeft };
   });
 }
