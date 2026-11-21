@@ -12,11 +12,9 @@ import { SPELL_LEVELS, type ClassSpell } from "@/lib/spells";
 // A character's class spells as checkboxes, one collapsible section per
 // level (open while anything in it is missing). Optimistic like
 // PopFlagChecklist: the dot flips immediately and rolls back on a failed
-// save. Officer-hidden spells are left out for members; officers get them
-// in a collapsed "Hidden by officers" section so they can still be set.
-// The "All spells" view shows everything, hidden spells included, in their
-// level sections for every viewer, since it's a whole-spellbook view. Hiding
-// only affects /spells and the PoP view.
+// save. Officer-hidden spells (tradeskill/cosmetic) are listed and counted
+// like any other here, with a "not tracked" tag: hiding only takes them off
+// the /spells summary grid.
 //
 // Two views, remembered per browser: "PoP spells" (the guild's 61-65 list,
 // the default and what /spells tracks) and "All spells", which adds the
@@ -48,8 +46,7 @@ function SpellRow({
   readOnly: boolean;
   // Banded (1-60) sections mix levels, so each row names its own.
   showLevel?: boolean;
-  // Hidden from Spell Progression by officers. Only tagged in the All view,
-  // where hidden spells sit among the rest.
+  // Hidden from the Spell Progression grid by officers.
   officerHidden?: boolean;
   onToggle: (spell: ClassSpell) => void;
 }) {
@@ -91,7 +88,6 @@ export function SpellChecklist({
   lowSpells,
   owned,
   hiddenIds,
-  showHidden,
   readOnly,
 }: {
   characterId: number;
@@ -102,7 +98,6 @@ export function SpellChecklist({
   // spellId -> source
   owned: Record<number, string>;
   hiddenIds: number[];
-  showHidden: boolean;
   readOnly: boolean;
 }) {
   const router = useRouter();
@@ -134,8 +129,6 @@ export function SpellChecklist({
     } catch {}
   }
 
-  const visible = spells.filter((s) => !hidden.has(s.spellId));
-  const hiddenSpells = spells.filter((s) => hidden.has(s.spellId));
 
   async function onToggle(spell: ClassSpell) {
     if (readOnly) return;
@@ -180,7 +173,7 @@ export function SpellChecklist({
       source={local[s.spellId]}
       readOnly={readOnly}
       showLevel={showLevel}
-      officerHidden={view === "all" && hidden.has(s.spellId)}
+      officerHidden={hidden.has(s.spellId)}
       onToggle={onToggle}
     />
   );
@@ -209,9 +202,6 @@ export function SpellChecklist({
     );
   }
 
-  // The All view is the whole spellbook, so officer-hidden spells are listed
-  // and counted there; the PoP view keeps them out.
-  const levelSpells = view === "all" ? spells : visible;
   const allCounted = [...lowSpells, ...spells];
   const allDone = allCounted.filter(has).length;
 
@@ -256,18 +246,9 @@ export function SpellChecklist({
         section(
           `level-${level}`,
           `Level ${level}`,
-          levelSpells.filter((s) => s.level === level),
+          spells.filter((s) => s.level === level),
           false,
         ),
-      )}
-      {view === "pop" && showHidden && hiddenSpells.length > 0 && (
-        <details className="overflow-hidden rounded-lg border border-dashed border-neutral-800 bg-neutral-900/20">
-          <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3">
-            <span className="flex-1 text-sm text-neutral-400">Hidden by officers ({hiddenSpells.length})</span>
-            <span className="text-[11px] text-neutral-500">Not counted — unhide from /spells</span>
-          </summary>
-          {hiddenSpells.map((s) => row(s))}
-        </details>
       )}
     </div>
   );

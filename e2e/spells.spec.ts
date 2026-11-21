@@ -140,16 +140,16 @@ test.describe("as admin", () => {
     await page.reload();
     await expect(page.getByTitle("Faith (level 61)")).toBeHidden();
 
-    // Character tab: hidden spells sit in "Hidden by officers" in the PoP view
-    // but in their own level, tagged, in the All spells view.
+    // Character tab: hidden spells only leave the grid. Both views list them,
+    // tagged, in their own level, and there is no separate hidden section.
     await page.goto(`/characters/${CHAR}/spells`);
     const level61 = page.locator("details", { has: page.getByText("Level 61", { exact: true }) });
-    await expect(level61.getByText("Faith", { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/Hidden by officers/)).toBeVisible();
-    await page.getByRole("button", { name: "All spells" }).click();
-    await expect(level61.getByText("Faith", { exact: true })).toBeVisible();
-    await expect(spellRow(page, "Faith").getByText("not tracked", { exact: true })).toBeVisible();
-    await expect(page.getByText(/Hidden by officers/)).toHaveCount(0);
+    for (const view of ["PoP spells (61–65)", "All spells"]) {
+      await page.getByRole("button", { name: view }).click();
+      await expect(level61.getByText("Faith", { exact: true })).toBeVisible();
+      await expect(spellRow(page, "Faith").getByText("not tracked", { exact: true })).toBeVisible();
+      await expect(page.getByText(/Hidden by officers/)).toHaveCount(0);
+    }
     await page.getByRole("button", { name: "PoP spells (61–65)" }).click();
 
     await page.goto("/spells");

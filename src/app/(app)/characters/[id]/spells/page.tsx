@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { characters, users } from "@/db";
 import { getDb } from "@/lib/db";
-import { canManageCharacter, getPermissions } from "@/lib/permissions";
+import { canManageCharacter } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { spellsForClass } from "@/lib/spells";
 import { lowSpellsForClass } from "@/lib/spells/all";
@@ -33,9 +33,8 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
   if (!row) notFound();
   const { character, ownerUsername, ownerRole } = row;
 
-  const [canManage, perms, ownedRows, hidden] = await Promise.all([
+  const [canManage, ownedRows, hidden] = await Promise.all([
     canManageCharacter(character, session.user.id),
-    getPermissions(session.user.id),
     loadCharacterSpells(db, characterId),
     loadHiddenSpellIds(db),
   ]);
@@ -44,8 +43,9 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
   const lowSpells = lowSpellsForClass(character.class);
   const owned: Record<number, string> = {};
   for (const r of ownedRows) owned[r.spellId] = r.source;
-  const counted = spells.filter((s) => !hidden.has(s.spellId));
-  const done = counted.filter((s) => owned[s.spellId] !== undefined).length;
+  // Officer-hidden spells only drop off the /spells grid; a member's own tab
+  // lists and counts them.
+  const done = spells.filter((s) => owned[s.spellId] !== undefined).length;
   const boundImport = importZealSpellbook.bind(null, characterId);
 
   return (
@@ -60,7 +60,7 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
 
       <Card className="mt-4 px-4 py-3">
         <p className="mb-1 text-xs tracking-wider text-neutral-500 uppercase">Level 61–65 spells</p>
-        <ProgressBar done={done} total={counted.length} height="md" />
+        <ProgressBar done={done} total={spells.length} height="md" />
       </Card>
 
       {canManage && (spells.length > 0 || lowSpells.length > 0) && (
@@ -81,7 +81,6 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
           lowSpells={lowSpells}
           owned={owned}
           hiddenIds={[...hidden]}
-          showHidden={perms.can("spells.manage")}
           readOnly={!canManage}
         />
       </div>

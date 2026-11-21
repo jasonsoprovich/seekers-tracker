@@ -344,7 +344,9 @@ spellbook, not just the guild's 61-65 list.
   `allSpellsForClass`) is server-only so the list never reaches the browser bundle.
 - Character Spells tab: a "PoP spells (61–65) / All spells" toggle (default PoP, remembered
   per browser, key `spell_checklist_view`). All adds ten-level bands for 1-60 (collapsed until
-  partly done) plus an all-spells tally. Officer hide settings still apply only to 61-65.
+  partly done) plus an all-spells tally. Officer-hidden spells now only leave the `/spells`
+  grid: the character tab lists and counts them in both views with a "not tracked" tag, and
+  the "Hidden by officers" section is gone (user's call).
 - The Zeal import and `setCharacterSpell` accept the full 1-65 class list. Rows go in the same
   `character_spells` table.
 - `/spells` stays 61-65: it drops any row that isn't on that character's class 61-65 list
