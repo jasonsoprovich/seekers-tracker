@@ -19,13 +19,16 @@ export function ImportSpellbookForm({
   characterName: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
+  const popAdds = state.preview?.toAdd.filter((s) => s.level >= 61) ?? [];
+  const lowAdds = state.preview?.toAdd.filter((s) => s.level < 61) ?? [];
 
   return (
     <form action={formAction} className="flex flex-col gap-3">
       <p className="max-w-xl text-sm text-neutral-400">
         In game with Zeal, type <code className="text-neutral-200">/outputfile spellbook</code>, then upload{" "}
         <code className="text-neutral-200">{characterName}-Spellbook.txt</code> from your EverQuest folder (or paste its
-        contents). Only adds spells — nothing you&apos;ve already checked is removed.
+        contents). Fills in every class spell in the book, 1–65 (levels below 61 show under &ldquo;All spells&rdquo;). Only
+        adds spells — nothing you&apos;ve already checked is removed.
       </p>
       <FileOrTextArea
         name="text"
@@ -43,17 +46,34 @@ export function ImportSpellbookForm({
         <Card className="p-4">
           <p className="text-sm text-neutral-300">
             Read {state.preview.lineCount} spell{state.preview.lineCount === 1 ? "" : "s"} — {state.preview.matched} on this
-            class&apos;s 61–65 list,{" "}
+            class&apos;s list,{" "}
             {state.preview.toAdd.length === 0 ? "all already checked." : `${state.preview.toAdd.length} new:`}
           </p>
-          {state.preview.toAdd.length > 0 && (
-            <ul className="mt-2 columns-1 gap-4 text-sm text-emerald-400 sm:columns-2">
-              {state.preview.toAdd.map((s) => (
-                <li key={s.spellId}>
-                  <span className="text-neutral-500 tabular-nums">{s.level}</span> {s.name}
-                </li>
-              ))}
-            </ul>
+          {popAdds.length > 0 && (
+            <>
+              <p className="mt-2 text-xs tracking-wider text-neutral-500 uppercase">PoP spells (61–65)</p>
+              <ul className="mt-1 columns-1 gap-4 text-sm text-emerald-400 sm:columns-2">
+                {popAdds.map((s) => (
+                  <li key={s.spellId}>
+                    <span className="text-neutral-500 tabular-nums">{s.level}</span> {s.name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {lowAdds.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs tracking-wider text-neutral-500 uppercase hover:text-neutral-300">
+                Levels 1–60 ({lowAdds.length})
+              </summary>
+              <ul className="mt-1 columns-1 gap-4 text-sm text-emerald-400 sm:columns-2">
+                {lowAdds.map((s) => (
+                  <li key={s.spellId}>
+                    <span className="text-neutral-500 tabular-nums">{s.level}</span> {s.name}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
         </Card>
       )}

@@ -261,8 +261,9 @@ export const characterKeyFlags = sqliteTable(
   (table) => [primaryKey({ columns: [table.characterId, table.flagKey] })],
 );
 
-// Which of the fixed level 61-65 spells (src/data/spells-61-65.json, joined
-// by spellId) a character has scribed. A row means "has it"; un-checking
+// Which spells a character has scribed, joined by spellId to the fixed level
+// 61-65 list (src/data/spells-61-65.json — /spells and its grid) or, for the
+// Spells tab's personal "All spells" view, src/data/spells-1-60.json. A row means "has it"; un-checking
 // deletes the row. `source` is how it was last set — a hand check or a Zeal
 // spellbook import (which only ever adds). `updatedBy` shows when an officer
 // checked one off for a member.

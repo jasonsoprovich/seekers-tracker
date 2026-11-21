@@ -8,14 +8,16 @@ import { characterSpells, characters } from "@/db";
 import { getDb } from "@/lib/db";
 import { canManageCharacter } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
-import { matchSpellbook, parseZealSpellbook, spellsForClass } from "@/lib/spells";
+import { matchSpellbook, parseZealSpellbook } from "@/lib/spells";
+import { allSpellsForClass } from "@/lib/spells/all";
 import { addCharacterSpells, loadCharacterSpells } from "@/lib/spells/db";
 import { recordSpellEvent } from "@/lib/system-log/spells";
 
 export type SetSpellResult = { error?: string };
 
 // One checkbox on the Spells tab or one cell in the /spells grid. Only a
-// spell on this character's class list can be set.
+// spell on this character's class list (1-65 — the tab's "All spells" view
+// tracks below 61 too) can be set.
 export async function setCharacterSpell(characterId: number, spellId: number, has: boolean): Promise<SetSpellResult> {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -26,7 +28,7 @@ export async function setCharacterSpell(characterId: number, spellId: number, ha
   if (!(await canManageCharacter(character, session.user.id))) {
     return { error: "You don't have permission to edit this character's spells." };
   }
-  const spell = spellsForClass(character.class).find((s) => s.spellId === spellId);
+  const spell = allSpellsForClass(character.class).find((s) => s.spellId === spellId);
   if (!spell) return { error: "That spell isn't on this character's class list." };
 
   if (has) {
@@ -61,7 +63,8 @@ export type SpellbookImportState = {
 
 // Two steps through one form: "preview" shows what a Zeal spellbook export
 // would add; "commit" re-parses the same text (never trusts ids from the
-// client) and adds them. Add-only — a spell the file doesn't list stays
+// client) and adds them — every class spell the book lists, 1-65, so the
+// "All spells" view fills in too. Add-only — a spell the file doesn't list stays
 // checked; removing one is a manual uncheck.
 export async function importZealSpellbook(
   characterId: number,
@@ -87,7 +90,7 @@ export async function importZealSpellbook(
     return { error: "No spells found — this doesn't look like a Zeal spellbook export (<Name>-Spellbook.txt)." };
   }
 
-  const classSpells = spellsForClass(character.class);
+  const classSpells = allSpellsForClass(character.class);
   const matched = matchSpellbook(book, classSpells);
   const have = new Set((await loadCharacterSpells(db, characterId)).map((r) => r.spellId));
   const toAdd = matched.filter((s) => !have.has(s.spellId));

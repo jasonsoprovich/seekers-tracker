@@ -336,6 +336,23 @@ contents, and never print raw Discord IDs into logs or commit messages.
 
 ## Roadmap / status (update this section as things ship or change)
 
+**Spells tab "All spells" view, 2026-11-21 (branch `feature/all-spells-tracking`; no
+migration; not yet deployed).** Members not using pq-companion asked to track their whole
+spellbook, not just the guild's 61-65 list.
+- Data: `src/data/spells-1-60.json` (1,436 spells) from `scripts/gen-spells-1-60.sh` (same
+  filters as the 61-65 generator). `src/lib/spells/all.ts` (`lowSpellsForClass`,
+  `allSpellsForClass`) is server-only so the list never reaches the browser bundle.
+- Character Spells tab: a "PoP spells (61–65) / All spells" toggle (default PoP, remembered
+  per browser, key `spell_checklist_view`). All adds ten-level bands for 1-60 (collapsed until
+  partly done) plus an all-spells tally. Officer hide settings still apply only to 61-65.
+- The Zeal import and `setCharacterSpell` accept the full 1-65 class list. Rows go in the same
+  `character_spells` table.
+- `/spells` stays 61-65: it drops any row that isn't on that character's class 61-65 list
+  (`isClassSpell`). The check is per class because 34 spells are 61-65 for one class and lower
+  for another (Annul Magic). It covers the grid and the "updated …" freshness.
+- Verified: `verify:spellbook` (new 1-60 checks), e2e `spells.spec.ts` 13/13, tsc, lint,
+  webpack build (1-60 data in 0 client chunks). Rollout: just `npm run deploy`.
+
 **Guild bank class filter, 2026-11-14 (branch `feature/bank-class-filter`; no migration;
 not yet deployed).** A "Class" dropdown on /bank Browse (single class, default All, kept in the
 URL as `?class=<abbr>`, filtered client-side like the other filters).

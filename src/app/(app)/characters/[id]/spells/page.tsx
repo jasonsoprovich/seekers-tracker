@@ -11,6 +11,7 @@ import { getDb } from "@/lib/db";
 import { canManageCharacter, getPermissions } from "@/lib/permissions";
 import { getSession } from "@/lib/session";
 import { spellsForClass } from "@/lib/spells";
+import { lowSpellsForClass } from "@/lib/spells/all";
 import { loadCharacterSpells, loadHiddenSpellIds } from "@/lib/spells/db";
 
 import { importZealSpellbook } from "./actions";
@@ -40,6 +41,7 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
   ]);
 
   const spells = spellsForClass(character.class);
+  const lowSpells = lowSpellsForClass(character.class);
   const owned: Record<number, string> = {};
   for (const r of ownedRows) owned[r.spellId] = r.source;
   const counted = spells.filter((s) => !hidden.has(s.spellId));
@@ -61,7 +63,7 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
         <ProgressBar done={done} total={counted.length} height="md" />
       </Card>
 
-      {canManage && spells.length > 0 && (
+      {canManage && (spells.length > 0 || lowSpells.length > 0) && (
         <details className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/40">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-emerald-400 hover:text-emerald-300">
             Import from Zeal spellbook export
@@ -76,6 +78,7 @@ export default async function CharacterSpellsPage({ params }: { params: Promise<
         <SpellChecklist
           characterId={character.id}
           spells={spells}
+          lowSpells={lowSpells}
           owned={owned}
           hiddenIds={[...hidden]}
           showHidden={perms.can("spells.manage")}
