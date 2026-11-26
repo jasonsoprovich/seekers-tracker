@@ -39,9 +39,10 @@ export interface PoPFlag {
   // tallies and never another flag's prereq.
   optional?: boolean;
 
-  // "key" | "keyring" | "optional" — why a row is special, for a badge
-  // distinct from step_kind's action bucket. A non-empty role implies
-  // optional.
+  // "key" | "keyring" | "optional" | "bonus" — why a row is special, for a
+  // badge distinct from step_kind's action bucket. A non-empty role implies
+  // optional. "bonus" rows (former requirements, e.g. the Sol Ro minis) count
+  // toward done/total once done — see counted() in resolve.ts.
   role?: string;
 
   // The ID of the anchor flag this any-of alternative rolls up to.
