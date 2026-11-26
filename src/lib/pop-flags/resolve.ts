@@ -70,6 +70,16 @@ export function getZoneCatalog(): ZoneCatalogEntry[] {
   return catalog;
 }
 
+// counted reports whether a flag counts toward done/total: required, non-group
+// rows always; "bonus" rows (former requirements the 2026-11-23 patch made
+// optional — the Sol Ro minis, Carpryn) only once done; other optional rows
+// and any-of members never. Mirrors pq-companion's popflag.Counted.
+export function counted(f: PoPFlag, done: boolean): boolean {
+  if (f.group) return false;
+  if (!f.optional) return true;
+  return f.role === "bonus" && done;
+}
+
 export function resolveFlags(states: FlagState[]): Resolved {
   const flags = getFlags();
 
@@ -120,8 +130,9 @@ export function resolveFlags(states: FlagState[]): Resolved {
     out.flags.push(fs);
 
     // Optional rows (keys, keyrings, bonus content) and any-of members are
-    // display-only: they neither count toward the tally nor block.
-    if (f.optional || f.group) continue;
+    // display-only: they neither count toward the tally nor block. A done
+    // "bonus" row is the exception (see counted).
+    if (!counted(f, done)) continue;
 
     out.total++;
     if (done) out.done++;
@@ -215,7 +226,7 @@ export function zoneStatuses(resolved: Resolved): ZoneStatus[] {
       keys.push(f.label);
       keysByZone.set(f.zone, keys);
     }
-    if (f.optional || f.group) continue;
+    if (!counted(f, f.done)) continue;
     const cur = byZone.get(f.zone) ?? { done: 0, total: 0, allLocked: true };
     cur.total++;
     if (f.done) cur.done++;

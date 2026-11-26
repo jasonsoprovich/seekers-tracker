@@ -44,7 +44,7 @@ export function stepKindMeta(kind?: string): StepKindMeta | null {
   return kind && kind in STEP_KIND_META ? STEP_KIND_META[kind as StepKind] : null;
 }
 
-export type Role = "key" | "keyring" | "optional";
+export type Role = "key" | "keyring" | "optional" | "bonus";
 
 interface RoleMeta {
   label: string;
@@ -67,6 +67,11 @@ export const ROLE_META: Record<Role, RoleMeta> = {
     label: "Optional",
     className: "border-slate-700 bg-slate-800/40 text-slate-400",
     tip: "Optional content — not required to progress.",
+  },
+  bonus: {
+    label: "Bonus",
+    className: "border-lime-800 bg-lime-950/40 text-lime-400",
+    tip: "No longer required since the 2026-11-23 patch. Counts toward your progress once done.",
   },
 };
 
